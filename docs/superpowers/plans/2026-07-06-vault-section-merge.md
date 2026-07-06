@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Merge the `create_etf` and `create_share_metadata` Anchor instructions into one `create_etf` call (vault + Token-2022 share metadata created in a single transaction), and replace the UI's standalone "Feeds" tab with a new "Vault" tab that hosts this merged creation flow — without touching any Pyth-feed code.
+**Goal:** Merge the `create_etf` and `create_share_metadata` Anchor instructions into one `create_etf` call (vault + Token-2022 share metadata created in a single transaction); replace the UI's standalone "Feeds" tab with a new "Vault" tab hosting this merged creation flow plus `set_fee_recipient`; and close a UI coverage gap by fixing the broken Emergency Exit/Resume buttons and adding the 5 unexposed `admin_ops.rs` functions to the Admin tab — all without touching any Pyth-feed code.
 
-**Architecture:** The Rust handler in `create_etf.rs` absorbs the metadata-init logic currently in `create_metadata.rs`, so `create_etf` takes three extra `String` args (`name`, `symbol`, `uri`) and performs both steps signed by the same transaction. `create_share_metadata` and its file are deleted. On the UI side, `function-defs.ts` drops the `feeds` tab/id and old `create_etf`/`create_share_metadata` function defs, adding one merged `VAULT_FUNCTIONS` def rendered under a new `vault` tab; `cvault.tsx` and `execute-vault-function.ts` collapse their two call paths into one.
+**Architecture:** The Rust handler in `create_etf.rs` absorbs the metadata-init logic formerly in `create_metadata.rs`, so `create_etf` takes three extra `String` args (`name`, `symbol`, `uri`) and performs both steps signed by the same transaction; `create_share_metadata` and its file are deleted. **Status: this Rust change (Task 1) and its test updates (Task 2) are already present, uncommitted, in the `c_vault` working tree as of 2026-07-06 — verify and commit them, don't redo the edits.** On the UI side, `function-defs.ts` drops the `feeds` tab/id and old `create_etf`/`create_share_metadata` function defs, adding a `VAULT_FUNCTIONS` array (merged create-vault + `set_fee_recipient`) rendered under a new `vault` tab; `ADMIN_FUNCTIONS` gains 5 new `admin_ops.rs`-backed entries and has its Emergency Exit/Resume entries fixed to call the real `set_emergency` instruction; `cvault.tsx` and `execute-vault-function.ts` are extended to wire all of this.
 
 **Tech Stack:** Anchor (Rust) for the program in `c_vault/programs/vault`; mocha/chai + LiteSVM/surfpool for program tests in `c_vault/tests`; Next.js/React + `@coral-xyz/anchor` client in `c_vault_ui`.
 
@@ -12,464 +12,54 @@
 
 - Do not modify anything related to Pyth feeds: `/api/pyth-feeds/*`, `FeedsPanel`, `feed-select-field.tsx`, `fetchFeeds`, `savedFeeds` plumbing, or any `type: "feed"` field definition.
 - `create_share_metadata` is fully removed (not kept for backward compatibility) — this is an intentional breaking change to the on-chain interface.
-- No regrouping of other Admin functions (`init_global_state`, `set_paused`, `emergency_exit`, `resume`, `set_redeem_cooldown`) — they stay in `ADMIN_FUNCTIONS`.
+- `set_paused` and `set_redeem_cooldown` stay in `ADMIN_FUNCTIONS` (not moved to Vault) — only vault *creation* and `set_fee_recipient` move to the Vault tab.
+- `vault_ops::resume(vault_id)` (the per-vault, post-`set_paused` resume) is intentionally **not** exposed anywhere in the UI — do not add a button for it.
 - Tab order after the change: View → Deposit → Redeem → Admin → Vault.
 - Follow existing code conventions in each touched file (comment style, section-divider banners in Rust files, etc.) — don't introduce new patterns.
 
 ---
 
-## Task 1: Merge the Rust handler (`create_etf` absorbs `create_share_metadata`)
+
+## Task 1: Merge the Rust handler (`create_etf` absorbs `create_share_metadata`) — VERIFY ONLY, already applied
 
 **Files:**
-- Modify: `c_vault/programs/vault/src/vault/create_etf.rs`
-- Modify: `c_vault/programs/vault/src/vault/mod.rs`
-- Delete: `c_vault/programs/vault/src/vault/create_metadata.rs`
-- Modify: `c_vault/programs/vault/src/lib.rs:38-47`
+- Modify (already done, uncommitted): `c_vault/programs/vault/src/vault/create_etf.rs`
+- Modify (already done, uncommitted): `c_vault/programs/vault/src/vault/mod.rs`
+- Delete (already done, uncommitted): `c_vault/programs/vault/src/vault/create_metadata.rs`
+- Modify (already done, uncommitted): `c_vault/programs/vault/src/lib.rs`
 
 **Interfaces:**
-- Consumes: existing `crate::state::{AssetInfo, FundType, GlobalState, InitializeParams, Vault}`, `crate::constants::*`, `crate::errors::VaultError` (all already imported in `create_etf.rs`).
-- Produces: `pub fn create_etf_handler(ctx: Context<CreateEtf>, params: InitializeParams, name: String, symbol: String, uri: String) -> Result<()>` — the new signature every other task (tests, IDL, TS clients) must match. Also produces `pub struct CreateEtf<'info>` (unchanged field list) and re-exports `ShareMetadataCreatedEvent` (moved into `create_etf.rs`).
+- Consumes: existing `crate::state::{AssetInfo, FundType, GlobalState, InitializeParams, Vault}`, `crate::constants::*`, `crate::errors::VaultError`.
+- Produces: `pub fn create_etf_handler(ctx: Context<CreateEtf>, params: InitializeParams, name: String, symbol: String, uri: String) -> Result<()>` — the signature every later task (tests, IDL, TS clients) must match.
 
-- [ ] **Step 1: Rewrite `create_etf.rs` to take the new params and perform the metadata step**
+As of 2026-07-06, this merge is **already present as uncommitted changes** in the `c_vault` working tree (confirmed via `git status`/`git diff` — `create_metadata.rs` deleted, `create_etf.rs`/`mod.rs`/`lib.rs` modified to match this exact design). Do not re-apply the edits — only verify and commit them.
 
-Replace the full contents of `c_vault/programs/vault/src/vault/create_etf.rs` with:
+- [ ] **Step 1: Confirm the working tree has the expected changes**
 
-```rust
-use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program::invoke_signed;
-use anchor_lang::solana_program::system_instruction;
-use anchor_lang::system_program::{transfer, Transfer};
-use anchor_spl::token::{Mint as TokenMint, Token, TokenAccount};
-use anchor_spl::token_2022::spl_token_2022::{
-    self,
-    extension::{BaseStateWithExtensions, ExtensionType, PodStateWithExtensions},
-    pod::PodMint,
-    state::Mint as SplMint2022,
-};
-use anchor_spl::token_2022_extensions::metadata_pointer::{
-    metadata_pointer_initialize, MetadataPointerInitialize,
-};
-use anchor_spl::token_interface::{token_metadata_initialize, TokenInterface, TokenMetadataInitialize};
-use spl_pod::optional_keys::OptionalNonZeroPubkey;
-use spl_token_metadata_interface::state::TokenMetadata;
+Run: `cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault && git status --short`
 
-use crate::constants::*;
-use crate::errors::VaultError;
-use crate::state::{AssetInfo, FundType, GlobalState, InitializeParams, Vault};
-
-// ── Handler ───────────────────────────────────────────────────────────────────
-
-/// Admin-only: create a new ETF fund vault, including its Token-2022 share
-/// metadata, in a single transaction.
-///
-/// The new vault's id is always `global_state.total_vaults` (the latest id) —
-/// PDA seeds are derived directly from that counter, so there is no
-/// caller-supplied id to validate. After the vault is initialised,
-/// `global_state.total_vaults` is incremented by 1.
-///
-/// `name`/`symbol`/`uri` set the Token-2022 inline metadata on the freshly
-/// created share mint (formerly a separate `create_share_metadata`
-/// instruction — merged here so both steps land in one transaction).
-pub fn create_etf_handler(
-    ctx: Context<CreateEtf>,
-    params: InitializeParams,
-    name: String,
-    symbol: String,
-    uri: String,
-) -> Result<()> {
-    require!(
-        !ctx.accounts.global_state.is_emergency,
-        VaultError::EmergencyMode
-    );
-    require!(
-        ctx.accounts
-            .global_state
-            .is_eligible_base_mint(&ctx.accounts.usdc_mint.key()),
-        VaultError::BaseMintNotEligible
-    );
-
-    // ── Parameter validation ───────────────────────────────────────────────────
-    let vault_id = ctx.accounts.global_state.total_vaults;
-    require!(!params.assets.is_empty(), VaultError::NoAssets);
-    require!(params.assets.len() <= MAX_ASSETS, VaultError::TooManyAssets);
-    require!(params.performance_fee_bps <= 2000, VaultError::FeeTooHigh);
-
-    let total_bps: u16 = params.assets.iter().map(|a| a.allocation_bps).sum();
-    require!(total_bps == 10_000, VaultError::InvalidAllocation);
-
-    let needs_sol_pool = params
-        .assets
-        .iter()
-        .any(|a| a.route == crate::state::PoolRoute::ViaSol);
-    require!(
-        !needs_sol_pool || params.usdc_sol_pool.is_some(),
-        VaultError::MissingUsdcSolPool
-    );
-
-    // ── Share mint creation (manual) ──────────────────────────────────────────
-    // Anchor's `#[account(init, mint::…)]` macro can't declare the Token-2022
-    // `MetadataPointer` extension on anchor-spl 0.31.0 (support landed in
-    // 0.31.1), and extensions must be initialized *before* `InitializeMint2`.
-    // So the mint is created by hand: allocate + assign, init the metadata
-    // pointer (pointing at itself — the mint is its own metadata account),
-    // then init the mint proper, then (below) init the metadata content.
-    let vault_id_bytes = vault_id.to_le_bytes();
-    let shares_mint_seeds: &[&[&[u8]]] =
-        &[&[SHARES_MINT_SEED, &vault_id_bytes, &[ctx.bumps.shares_mint]]];
-
-    let mint_space =
-        ExtensionType::try_calculate_account_len::<SplMint2022>(&[ExtensionType::MetadataPointer])
-            .map_err(|_| VaultError::MathOverflow)?;
-    let mint_lamports = Rent::get()?.minimum_balance(mint_space);
-
-    invoke_signed(
-        &system_instruction::create_account(
-            ctx.accounts.authority.key,
-            ctx.accounts.shares_mint.key,
-            mint_lamports,
-            mint_space as u64,
-            ctx.accounts.shares_token_program.key,
-        ),
-        &[
-            ctx.accounts.authority.to_account_info(),
-            ctx.accounts.shares_mint.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
-        ],
-        shares_mint_seeds,
-    )?;
-
-    let shares_mint_key = ctx.accounts.shares_mint.key();
-    metadata_pointer_initialize(
-        CpiContext::new_with_signer(
-            ctx.accounts.shares_token_program.to_account_info(),
-            MetadataPointerInitialize {
-                token_program_id: ctx.accounts.shares_token_program.to_account_info(),
-                mint: ctx.accounts.shares_mint.to_account_info(),
-            },
-            shares_mint_seeds,
-        ),
-        Some(shares_mint_key),
-        Some(shares_mint_key),
-    )?;
-
-    invoke_signed(
-        &spl_token_2022::instruction::initialize_mint2(
-            ctx.accounts.shares_token_program.key,
-            ctx.accounts.shares_mint.key,
-            ctx.accounts.vault_authority.key,
-            None,
-            ctx.accounts.usdc_mint.decimals,
-        )?,
-        &[ctx.accounts.shares_mint.to_account_info()],
-        shares_mint_seeds,
-    )?;
-
-    // ── Vault initialisation ──────────────────────────────────────────────────
-    let clock = Clock::get()?;
-    let vault = &mut ctx.accounts.vault;
-
-    vault.vault_id = vault_id;
-    vault.fee_recipient = params.fee_recipient.unwrap_or(ctx.accounts.authority.key());
-    vault.vault_manager = ctx.accounts.authority.key();
-    vault.paused = false;
-    vault.base_mint = ctx.accounts.usdc_mint.key();
-    vault.shares_mint = ctx.accounts.shares_mint.key();
-
-    vault.performance_fee_bps = params.performance_fee_bps;
-
-    vault.total_shares = 0;
-    vault.total_usdc_value = 0;
-    vault.ath_share_price = PRICE_SCALE;
-    vault.rolling_high_price = PRICE_SCALE;
-    vault.rolling_window_start = clock.unix_timestamp;
-    vault.total_deposited = 0;
-    vault.total_withdrawn = 0;
-
-    vault.redeem_cooldown_secs = REDEEM_COOLDOWN_SECS;
-
-    // ── Fund type + caps ──────────────────────────────────────────────────────
-    // A Fixed vault must declare a positive share supply cap; a Dynamic vault is
-    // always uncapped (any caller-supplied caps are ignored / cleared).
-    vault.fund_type = params.fund_type;
-    match params.fund_type {
-        FundType::Fixed => {
-            let max_shares = params.max_shares.ok_or(VaultError::MissingMaxShares)?;
-            require!(max_shares > 0, VaultError::InvalidMaxShares);
-            vault.max_shares = Some(max_shares);
-        }
-        FundType::Dynamic => {
-            vault.max_shares = None;
-        }
-    }
-
-    vault.usdc_sol_pool = params.usdc_sol_pool;
-    vault.num_assets = params.assets.len() as u8;
-
-    for (i, ap) in params.assets.iter().enumerate() {
-        vault.assets[i] = AssetInfo {
-            mint: ap.mint,
-            pool_address: ap.pool_address,
-            pyth_feed_id: ap.pyth_feed_id,
-            allocation_bps: ap.allocation_bps,
-            decimals: ap.decimals,
-            route: ap.route,
-        };
-    }
-
-    // ── Compute vault.sol_target_bps[] — fixed ratio, computed once ──────────
-    // Ratio of each non-wSOL-native ViaSol asset's bps to the sum of all such
-    // assets' bps. Immutable after this point; swap_sol_to_asset reads it directly.
-    let via_sol_bps_sum: u32 = params
-        .assets
-        .iter()
-        .filter(|a| a.route == crate::state::PoolRoute::ViaSol && a.mint != WSOL_MINT)
-        .map(|a| a.allocation_bps as u32)
-        .sum();
-
-    if via_sol_bps_sum > 0 {
-        for (i, ap) in params.assets.iter().enumerate() {
-            if ap.route == crate::state::PoolRoute::ViaSol && ap.mint != WSOL_MINT {
-                vault.sol_target_bps[i] =
-                    ((ap.allocation_bps as u32) * 10_000 / via_sol_bps_sum) as u16;
-            }
-        }
-    }
-
-    vault.bump = ctx.bumps.vault;
-    vault.authority_bump = ctx.bumps.vault_authority;
-    vault.share_mint_bump = ctx.bumps.shares_mint;
-    vault.usdc_vault_bump = ctx.bumps.usdc_vault;
-
-    // ── GlobalState: bump vault counter (after vault is fully initialised) ─────
-    let global_state = &mut ctx.accounts.global_state;
-    global_state.total_vaults = global_state
-        .total_vaults
-        .checked_add(1)
-        .ok_or(VaultError::MathOverflow)?;
-
-    // ── Share Token-2022 metadata (formerly create_share_metadata) ────────────
-    // The mint was allocated rent only for the MetadataPointer extension above;
-    // the TokenMetadata TLV entry is variable-length, so top up rent before init.
-    let shares_mint_info = ctx.accounts.shares_mint.to_account_info();
-
-    let token_metadata = TokenMetadata {
-        update_authority: OptionalNonZeroPubkey::try_from(Some(
-            ctx.accounts.vault_authority.key(),
-        ))?,
-        mint: shares_mint_info.key(),
-        name: name.clone(),
-        symbol: symbol.clone(),
-        uri: uri.clone(),
-        ..Default::default()
-    };
-
-    let mint_data = shares_mint_info.try_borrow_data()?;
-    let mint_state = PodStateWithExtensions::<PodMint>::unpack(&mint_data)?;
-    let new_account_len = mint_state
-        .try_get_new_account_len_for_variable_len_extension(&token_metadata)
-        .map_err(|_| VaultError::MathOverflow)?;
-    drop(mint_data);
-
-    let rent = Rent::get()?;
-    let new_minimum_balance = rent.minimum_balance(new_account_len);
-    let additional_lamports = new_minimum_balance.saturating_sub(shares_mint_info.lamports());
-
-    if additional_lamports > 0 {
-        transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.authority.to_account_info(),
-                    to: shares_mint_info.clone(),
-                },
-            ),
-            additional_lamports,
-        )?;
-    }
-
-    let authority_signer_seeds: &[&[&[u8]]] = &[&[
-        VAULT_AUTHORITY_SEED,
-        &vault_id_bytes,
-        &[ctx.bumps.vault_authority],
-    ]];
-
-    let cpi_accounts = TokenMetadataInitialize {
-        program_id: ctx.accounts.shares_token_program.to_account_info(),
-        mint: shares_mint_info.clone(),
-        metadata: shares_mint_info,
-        mint_authority: ctx.accounts.vault_authority.to_account_info(),
-        update_authority: ctx.accounts.vault_authority.to_account_info(),
-    };
-    let cpi_ctx = CpiContext::new_with_signer(
-        ctx.accounts.shares_token_program.to_account_info(),
-        cpi_accounts,
-        authority_signer_seeds,
-    );
-
-    token_metadata_initialize(cpi_ctx, name.clone(), symbol.clone(), uri.clone())?;
-
-    emit!(ShareMetadataCreatedEvent {
-        vault_id,
-        vault_manager: ctx.accounts.authority.key(),
-        name,
-        symbol,
-        uri,
-        timestamp: clock.unix_timestamp,
-    });
-
-    msg!(
-        "ETF created | vault_id: {} | assets: {} | fee_bps: {} | admin: {}",
-        vault_id,
-        vault.num_assets,
-        vault.performance_fee_bps,
-        ADMIN_PUBKEY,
-    );
-    Ok(())
-}
-
-// ── Account context ───────────────────────────────────────────────────────────
-
-#[derive(Accounts)]
-pub struct CreateEtf<'info> {
-    /// Program-wide singleton — must already be initialised via init_global_state.
-    /// `total_vaults` is read here (pre-handler) to derive this vault's PDA seeds.
-    #[account(
-        mut,
-        seeds = [GLOBAL_STATE_SEED],
-        bump,
-    )]
-    pub global_state: Box<Account<'info, GlobalState>>,
-
-    /// The new vault state PDA, keyed by the current global vault counter.
-    #[account(
-        init,
-        payer = authority,
-        seeds = [VAULT_SEED, &global_state.total_vaults.to_le_bytes()],
-        bump,
-        space = ANCHOR_DISCRIMINATOR + Vault::INIT_SPACE,
-    )]
-    pub vault: Box<Account<'info, Vault>>,
-
-    /// Per-vault PDA that signs CPIs on behalf of this vault.
-    #[account(seeds = [VAULT_AUTHORITY_SEED, &global_state.total_vaults.to_le_bytes()], bump)]
-    /// CHECK: program-derived signer — no data stored
-    pub vault_authority: AccountInfo<'info>,
-
-    /// Share (LP) token mint for this vault — Token-2022. Created manually in the
-    /// handler (not via Anchor's `init` + `mint::…` macro) because the
-    /// `MetadataPointer` extension must be initialized *before* `InitializeMint2`,
-    /// and this workspace's anchor-spl (0.31.0) doesn't yet support declaring
-    /// mint extensions through the account macro (added in 0.31.1).
-    #[account(
-        mut,
-        seeds = [SHARES_MINT_SEED, &global_state.total_vaults.to_le_bytes()],
-        bump,
-    )]
-    /// CHECK: uninitialized PDA — manually created + initialized as a Token-2022
-    /// mint (with MetadataPointer extension) in the handler below.
-    pub shares_mint: UncheckedAccount<'info>,
-
-    /// USDC token account custodied by this vault.
-    #[account(
-        init,
-        payer = authority,
-        seeds = [USDC_VAULT_SEED, usdc_mint.key().as_ref(), &global_state.total_vaults.to_le_bytes()],
-        bump,
-        token::mint      = usdc_mint,
-        token::authority = vault_authority,
-    )]
-    pub usdc_vault: Box<Account<'info, TokenAccount>>,
-
-    /// The USDC mint (base currency for all deposits and redemptions).
-    pub usdc_mint: Box<Account<'info, TokenMint>>,
-
-    #[account(mut)]
-    pub authority: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-    /// Token-2022 program — used for the share mint.
-    pub shares_token_program: Interface<'info, TokenInterface>,
-    /// Classic SPL Token program — used for the USDC vault account.
-    pub token_program: Program<'info, Token>,
-    pub rent: Sysvar<'info, Rent>,
-}
-
-#[event]
-pub struct ShareMetadataCreatedEvent {
-    pub vault_id: u64,
-    pub vault_manager: Pubkey,
-    pub name: String,
-    pub symbol: String,
-    pub uri: String,
-    pub timestamp: i64,
-}
+Expected output includes:
 ```
-
-- [ ] **Step 2: Delete `create_metadata.rs` and update `mod.rs`**
-
-```bash
-rm /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault/programs/vault/src/vault/create_metadata.rs
+ M programs/vault/src/lib.rs
+ M programs/vault/src/vault/create_etf.rs
+D  programs/vault/src/vault/create_metadata.rs
+ M programs/vault/src/vault/mod.rs
 ```
+(other unrelated modified/untracked files from prior work may also be listed — ignore those, they are not part of this plan)
 
-Replace `c_vault/programs/vault/src/vault/mod.rs` with:
+- [ ] **Step 2: Confirm `create_etf_handler`'s signature matches**
 
-```rust
-pub mod create_etf;
-pub mod vault_ops;
+Run: `grep -n "pub fn create_etf_handler" /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault/programs/vault/src/vault/create_etf.rs`
 
-pub use create_etf::*;
-pub use vault_ops::*;
-```
+Expected: `pub fn create_etf_handler(ctx: Context<CreateEtf>, params: InitializeParams, name: String, symbol: String, uri: String) -> Result<()> {` (4 params after `ctx`, matching the Interfaces block above).
 
-- [ ] **Step 3: Update `lib.rs` entrypoints**
-
-In `c_vault/programs/vault/src/lib.rs`, replace lines 31-47:
-
-```rust
-    /// Create a new ETF fund vault. The new vault's id is always
-    /// `global_state.total_vaults`; PDA seeds are derived from it directly. The
-    /// counter is incremented by 1 once the vault is initialised.
-    pub fn create_etf(ctx: Context<CreateEtf>, params: state::InitializeParams) -> Result<()> {
-        create_etf::create_etf_handler(ctx, params)
-    }
-
-    /// Initialize inline Token-2022 metadata on an existing vault's share mint.
-    pub fn create_share_metadata(
-        ctx: Context<CreateShareMetadata>,
-        vault_id: u64,
-        name: String,
-        symbol: String,
-        uri: String,
-    ) -> Result<()> {
-        create_metadata::create_share_metadata_handler(ctx, vault_id, name, symbol, uri)
-    }
-```
-
-with:
-
-```rust
-    /// Create a new ETF fund vault, including its Token-2022 share metadata,
-    /// in a single transaction. The new vault's id is always
-    /// `global_state.total_vaults`; PDA seeds are derived from it directly. The
-    /// counter is incremented by 1 once the vault is initialised.
-    pub fn create_etf(
-        ctx: Context<CreateEtf>,
-        params: state::InitializeParams,
-        name: String,
-        symbol: String,
-        uri: String,
-    ) -> Result<()> {
-        create_etf::create_etf_handler(ctx, params, name, symbol, uri)
-    }
-```
-
-- [ ] **Step 4: Build the program**
+- [ ] **Step 3: Build the program**
 
 Run: `cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault && anchor build`
 
-Expected: build succeeds with no errors. If `token_2022::spl_token_2022::extension::BaseStateWithExtensions` or `pod::PodMint` imports collide with existing names already imported at the top of `create_etf.rs` (they didn't exist there before), fix any "unused import" or "duplicate import" warnings/errors that surface — this is the only file where both instructions' imports now combine.
+Expected: build succeeds with no errors.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault
@@ -487,144 +77,38 @@ EOF
 
 ---
 
-## Task 2: Update program tests for the merged instruction
+## Task 2: Update program tests for the merged instruction — VERIFY ONLY, already applied
 
 **Files:**
-- Modify: `c_vault/tests/unit/utils/helpers.ts`
-- Modify: `c_vault/tests/unit/create_etf.test.ts`
-- Modify: `c_vault/tests/integration/utils/vault_env.ts`
-- Delete: `c_vault/tests/integration/create_share_metadata.test.ts`
+- Modify (already done, uncommitted): `c_vault/tests/unit/utils/helpers.ts`
+- Modify (already done, uncommitted): `c_vault/tests/unit/create_etf.test.ts`
+- Modify (already done, uncommitted): `c_vault/tests/integration/utils/vault_env.ts`
+- Delete (already done, uncommitted): `c_vault/tests/integration/create_share_metadata.test.ts`
 
 **Interfaces:**
-- Consumes: `program.methods.createEtf(params, name, symbol, uri)` (new 4-arg IDL method produced by Task 1, after `anchor build` regenerates `target/idl/c_vault.json` and `target/types/c_vault.ts`).
-- Produces: `makeSimpleEtfParams(feeRecipient: PublicKey)` unchanged return shape (still just the `InitializeParams`-shaped object; name/symbol/uri are passed as separate call args, not folded into this object) — `testEtfParams(feeRecipient: PublicKey)` in `vault_env.ts` likewise unchanged return shape.
+- Consumes: `program.methods.createEtf(params, name, symbol, uri)` (4-arg IDL method from Task 1).
 
-- [ ] **Step 1: Update `makeSimpleEtfParams` call sites in `create_etf.test.ts`**
+As of 2026-07-06, these test updates are **already present as uncommitted changes** in the `c_vault` working tree (confirmed via `git status` — `create_share_metadata.test.ts` deleted, `create_etf.test.ts`/`vault_env.ts` modified; new untracked `tests/unit/deposit.test.ts` and `tests/unit/vault_ops.test.ts` files also exist from this same prior pass). Do not re-apply the edits — only verify, run, and commit them.
 
-In `c_vault/tests/unit/create_etf.test.ts`, every `.createEtf(makeSimpleEtfParams(...) as any)` or `.createEtf(params as any)` call must become a 4-arg call. There are 7 call sites (lines 102, 150, 185, 225, 256, 288, 322, 349 — the `it.skip` one too, update it for consistency). For each, change:
-
-```typescript
-    const tx = (await program.methods
-      .createEtf(makeSimpleEtfParams(authority.publicKey) as any)
-```
-
-to:
-
-```typescript
-    const tx = (await program.methods
-      .createEtf(
-        makeSimpleEtfParams(authority.publicKey) as any,
-        "Test Vault Shares",
-        "TVS",
-        "https://example.com/metadata.json",
-      )
-```
-
-And for the `params` variable call sites (Tests 1.2.4, 1.2.5, 1.2.6, 1.2.7), change:
-
-```typescript
-    const tx = (await program.methods
-      .createEtf(params as any)
-```
-
-to:
-
-```typescript
-    const tx = (await program.methods
-      .createEtf(
-        params as any,
-        "Test Vault Shares",
-        "TVS",
-        "https://example.com/metadata.json",
-      )
-```
-
-- [ ] **Step 2: Add a metadata assertion to the happy-path test (Test 1.2.1)**
-
-In `c_vault/tests/unit/create_etf.test.ts`, add the import at the top:
-
-```typescript
-import { getToken2022Details } from "./utils/helpers";
-```
-
-(add `getToken2022Details` to the existing `import { startSvm, createProgram, sendTx, expectTxToFail, makeSimpleEtfParams, injectMockSplMint } from "./utils/helpers";` line instead of a new import line.)
-
-Then at the end of `it("Test 1.2.1: happy — ...")`, after the existing `expect(svm.getAccount(usdcVault)).to.not.be.null;` line, add:
-
-```typescript
-
-    const shareDetails = getToken2022Details(svm, sharesMint);
-    expect(shareDetails.metadata?.name).to.equal("Test Vault Shares");
-    expect(shareDetails.metadata?.symbol).to.equal("TVS");
-    expect(shareDetails.metadata?.uri).to.equal(
-      "https://example.com/metadata.json",
-    );
-```
-
-- [ ] **Step 3: Run the unit test suite**
-
-Run: `cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault && anchor build && npx mocha -r ts-node/register tests/unit/create_etf.test.ts --timeout 60000`
-
-Expected: all `create_etf (LiteSVM)` tests pass, including the new metadata assertions in Test 1.2.1.
-
-- [ ] **Step 4: Update `vault_env.ts`'s `createTestEtf` to pass metadata args**
-
-In `c_vault/tests/integration/utils/vault_env.ts`, find `createTestEtf` (around line 415-430):
-
-```typescript
-export async function createTestEtf(env: VaultEnv): Promise<void> {
-  const gs = await env.program.account.globalState.fetch(env.globalStatePda);
-  const vaultId = gs.totalVaults.toNumber();
-
-  await env.program.methods
-    .createEtf(testEtfParams(env.admin))
-    .accounts({
-      authority: env.admin,
-      usdcMint: USDC_MINT,
-    } as any)
-    .rpc();
-```
-
-Change the `.createEtf(...)` call to:
-
-```typescript
-  await env.program.methods
-    .createEtf(
-      testEtfParams(env.admin),
-      "cVault Test Shares",
-      "CVTS",
-      "https://example.com/test-metadata.json",
-    )
-    .accounts({
-      authority: env.admin,
-      usdcMint: USDC_MINT,
-    } as any)
-    .rpc();
-```
-
-Leave `testEtfParams` itself (the object builder, lines 247-270ish) unchanged — it still returns only the `InitializeParams` shape.
-
-- [ ] **Step 5: Delete the standalone `create_share_metadata.test.ts` and port its assertions**
-
-```bash
-rm /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault/tests/integration/create_share_metadata.test.ts
-```
-
-Its happy-path assertion (Token-2022 metadata fields correct) is now covered inline wherever `createTestEtf`/direct `createEtf` calls are made in integration tests, since the metadata is set as part of vault creation. Its "non-vault_manager signer is rejected" guard (Test 1.3.2) no longer expresses a distinct check — there is no second instruction with its own signer constraint anymore. Do not port that specific test; note this in the CHANGELOG (Task 4) as an intentional behavior simplification: metadata is now set by whoever creates the vault (`authority`), with no separate later-editable step.
-
-- [ ] **Step 6: Search for any other integration test file directly calling `createShareMetadata`**
+- [ ] **Step 1: Confirm no leftover `createShareMetadata` references**
 
 Run: `grep -rln "createShareMetadata" /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault/tests`
 
-Expected: no output (all references were in the file deleted in Step 5). If any remain, open each file and remove/adapt the call the same way Step 5 describes.
+Expected: no output.
 
-- [ ] **Step 7: Run the full test suite**
+- [ ] **Step 2: Run the unit test suite**
+
+Run: `cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault && anchor build && npx mocha -r ts-node/register tests/unit/create_etf.test.ts --timeout 60000`
+
+Expected: all `create_etf (LiteSVM)` tests pass.
+
+- [ ] **Step 3: Run the full test suite**
 
 Run: `cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault && anchor test`
 
-Expected: all tests pass (unit + integration), with no references to `createShareMetadata` remaining and `createEtf` calls everywhere passing 4 args.
+Expected: all tests pass (unit + integration). If any pre-existing unrelated test fails (e.g. from the untracked `deposit.test.ts`/`vault_ops.test.ts` files not covered by this plan), note it but don't block on fixing tests outside this plan's scope — only ensure nothing here regresses `create_etf`-related coverage.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault
@@ -639,7 +123,7 @@ EOF
 )"
 ```
 
----
+Note: `tests/unit/deposit.test.ts`, `tests/unit/vault_ops.test.ts`, and the modification to `tests/unit/admin_ops.test.ts` visible in `git status` are outside this plan's scope (not related to the create_etf/create_metadata merge) — leave them uncommitted for the user to handle separately, unless the user asks otherwise.
 
 ## Task 3: Update CHANGELOG.md
 
@@ -672,75 +156,73 @@ git commit -m "Document create_etf/create_share_metadata merge in CHANGELOG"
 
 ---
 
-## Task 4: Sync the IDL/types into `c_vault_ui`
+
+## Task 4: Verify the IDL/types vendored in `c_vault_ui` — VERIFY ONLY, already in sync
 
 **Files:**
-- Modify (copy): `c_vault_ui/idl/*` (whatever IDL JSON and/or generated TS types live there — inspect the directory first)
+- Verify only: `c_vault_ui/idl/c_vault.json`
 
 **Interfaces:**
-- Consumes: `c_vault/target/idl/c_vault.json` and `c_vault/target/types/c_vault.ts`, produced by `anchor build` in Task 1.
-- Produces: an IDL in `c_vault_ui` whose `createEtf` instruction definition has 4 args (`params`, `name`, `symbol`, `uri`) and no `createShareMetadata` entry — required by Task 5/6's TypeScript changes to type-check.
+- Consumes: `c_vault/target/idl/c_vault.json`, produced by `anchor build` in Task 1.
+- Produces: confirmation that `c_vault_ui/idl/c_vault.json`'s `createEtf` instruction has 4 args (`params`, `name`, `symbol`, `uri`), no `createShareMetadata` entry, and already includes `set_fee_recipient`, `set_emergency`, `set_deposit_disable`, `add_eligible_base_mint`, `remove_eligible_base_mint`, `update_platform_fee_bps`, `update_treasury_addr` — all required by Task 5/6/10/11's TypeScript changes to type-check.
 
-- [ ] **Step 1: Inspect what's vendored in `c_vault_ui/idl`**
+As of 2026-07-06, `c_vault_ui/idl/c_vault.json` was already confirmed (by direct inspection) to already reflect the merged `create_etf` and all of the `vault_ops.rs`/`admin_ops.rs` instructions this plan wires up. No copy is needed unless the Rust source changes again before this plan finishes executing.
 
-Run: `ls -la /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl`
+- [ ] **Step 1: Confirm `createEtf` has 4 args and no `createShareMetadata` entry**
 
-Expected: shows one or more files (e.g. `c_vault.json`, possibly a `.ts` types file). Note the exact filename(s).
+Run: `grep -A 3 '"name": "create_etf"' /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl/c_vault.json | head -5`
 
-- [ ] **Step 2: Confirm how `lib/program.ts` (or wherever `createProgram` lives) imports the IDL**
+Then run: `python3 -c "import json; d = json.load(open('/Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl/c_vault.json')); names = [i['name'] for i in d['instructions']]; print('create_etf' in names, 'create_share_metadata' in names); ce = [i for i in d['instructions'] if i['name']=='create_etf'][0]; print([a['name'] for a in ce['args']])"`
 
-Run: `grep -rn "idl" /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/lib/program.ts`
+Expected: `True False` on the first line, and `['params', 'name', 'symbol', 'uri']` on the second.
 
-Expected: shows an import path like `import IDL from "@/idl/c_vault.json"` (or similar) — confirms exactly which file(s) need overwriting.
+- [ ] **Step 2: Confirm the vault_ops/admin_ops instructions are present**
 
-- [ ] **Step 3: Copy the freshly built IDL/types from `c_vault` into `c_vault_ui`**
+Run: `python3 -c "
+import json
+d = json.load(open('/Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl/c_vault.json'))
+names = set(i['name'] for i in d['instructions'])
+needed = {'set_fee_recipient','set_emergency','set_deposit_disable','add_eligible_base_mint','remove_eligible_base_mint','update_platform_fee_bps','update_treasury_addr'}
+print(needed - names)
+"`
 
-Run (adjust filenames based on Step 1/2 findings — this is the common case where the UI vendors the raw IDL JSON):
+Expected: `set()` (empty set — every needed instruction is present).
 
-```bash
-cp /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault/target/idl/c_vault.json /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl/c_vault.json
-```
+- [ ] **Step 3: If Step 1 or Step 2 fails, rebuild and copy**
 
-If a `.ts` types file is also vendored (check Step 1's output), copy it too:
+Only if either check above fails: run `cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault && anchor build`, then `cp target/idl/c_vault.json /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl/c_vault.json`, then re-run Steps 1-2 to confirm.
 
-```bash
-cp /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault/target/types/c_vault.ts /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl/c_vault.ts
-```
-
-(Skip this second copy if no such file exists in `c_vault_ui/idl`.)
-
-- [ ] **Step 4: Verify the new IDL has no `createShareMetadata` entry and `createEtf` has 4 args**
-
-Run: `grep -A 3 '"name": "createEtf"' /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl/c_vault.json`
-
-Expected: shows an `args` array with 4 entries (`params`, `name`, `symbol`, `uri`).
-
-Run: `grep -c "createShareMetadata" /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/idl/c_vault.json`
-
-Expected: `0`.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit (only if Step 3 was needed and the file actually changed)**
 
 ```bash
 cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui
-git add idl/
-git commit -m "Sync IDL: create_etf/create_share_metadata merge"
+git status --short idl/
 ```
+If this shows `idl/c_vault.json` as modified, commit it:
+```bash
+git add idl/c_vault.json
+git commit -m "Sync IDL: create_etf merge + vault_ops/admin_ops instructions"
+```
+If `git status --short idl/` shows no output, skip committing — the file was already correct and untouched.
 
 ---
 
-## Task 5: Merge `createEtf`/`createShareMetadata` in `lib/cvault.tsx`
+## Task 5: Merge `createEtf`/`createShareMetadata`, add `setFeeRecipient` and the 5 `admin_ops.rs` client functions in `lib/cvault.tsx`
 
 **Files:**
-- Modify: `c_vault_ui/lib/cvault.tsx:118-160`
+- Modify: `c_vault_ui/lib/cvault.tsx`
 
 **Interfaces:**
-- Consumes: `createProgram(wallet, connection)` (unchanged), the new IDL from Task 4.
-- Produces: `createEtf(connection: Connection, wallet: AnchorWallet, params: CreateEtfParams, name: string, symbol: string, uri: string, network: Network): Promise<{ tx: string; link: string }>` — the signature Task 6 must call.
+- Consumes: `createProgram(wallet, connection)` (unchanged), `deriveGlobalStatePda()` and `deriveVaultPdas(vaultId)` from `./pda` (already imported), the IDL from Task 4.
+- Produces:
+  - `createEtf(connection, wallet, params: CreateEtfParams, name: string, symbol: string, uri: string, network): Promise<{ tx: string; link: string }>` — consumed by Task 7.
+  - `setFeeRecipient(connection, wallet, vaultId: number, feeRecipient: PublicKey, network): Promise<{ tx: string; link: string }>` — consumed by Task 7.
+  - `updateTreasuryAddr(connection, wallet, treasuryAddr: PublicKey, network)`, `updatePlatformFeeBps(connection, wallet, platformFeeBps: number, network)`, `setDepositDisable(connection, wallet, depositDisable: boolean, network)`, `addEligibleBaseMint(connection, wallet, mint: PublicKey, network)`, `removeEligibleBaseMint(connection, wallet, mint: PublicKey, network)` — all `Promise<{ tx: string; link: string }>`, all consumed by Task 7.
+  - `globalAdminAccounts(admin: PublicKey)` — internal helper, not exported, used by the 5 functions above.
 
-- [ ] **Step 1: Replace the two exported functions**
+- [ ] **Step 1: Replace `createEtf`/`createShareMetadata` with the merged `createEtf`**
 
-In `c_vault_ui/lib/cvault.tsx`, replace lines 128-160 (the `createEtf` and `createShareMetadata` functions) with:
+In `c_vault_ui/lib/cvault.tsx`, replace the `createEtf` and `createShareMetadata` functions (currently lines 128-160) with:
 
 ```typescript
 export async function createEtf(
@@ -764,34 +246,186 @@ export async function createEtf(
 }
 ```
 
-- [ ] **Step 2: Type-check**
+- [ ] **Step 2: Add a `globalAdminAccounts` helper next to the existing `adminAccounts` helper**
+
+Immediately after the existing `adminAccounts` function (the one used by `emergencyExit`/`resume`/`setPaused`/`setRedeemCooldown` — it derives `{ globalState, vault, admin }`), add:
+
+```typescript
+function globalAdminAccounts(admin: PublicKey) {
+  const globalState = deriveGlobalStatePda();
+  return { globalState, admin } as any;
+}
+```
+
+This is deliberately separate from `adminAccounts` (which also derives a `vault` PDA from a `vaultId`) — the 5 `admin_ops.rs` functions and `set_fee_recipient` operate on `AdminGlobalState`/`VaultManagerOnly` account contexts that don't need a `vault` PDA at all for the former, or need it keyed by `vaultId` for the latter (handled directly in `setFeeRecipient` itself, not through this helper).
+
+- [ ] **Step 3: Add `setFeeRecipient`**
+
+Immediately after `setRedeemCooldown` (the last function in the "Admin instructions" section, right before the "Core: deposit / request_redeem / claim" section divider comment), add:
+
+```typescript
+export async function setFeeRecipient(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  feeRecipient: PublicKey,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const sig = await program.methods
+    .setFeeRecipient(new BN(vaultId), feeRecipient)
+    .accounts(adminAccounts(vaultId, wallet.publicKey))
+    .rpc();
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+```
+
+- [ ] **Step 4: Add the 5 `admin_ops.rs` client functions**
+
+Immediately after `setFeeRecipient` (still within the "Admin instructions" section), add:
+
+```typescript
+export async function updateTreasuryAddr(
+  connection: Connection,
+  wallet: AnchorWallet,
+  treasuryAddr: PublicKey,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const sig = await program.methods
+    .updateTreasuryAddr(treasuryAddr)
+    .accounts(globalAdminAccounts(wallet.publicKey))
+    .rpc();
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+
+export async function updatePlatformFeeBps(
+  connection: Connection,
+  wallet: AnchorWallet,
+  platformFeeBps: number,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const sig = await program.methods
+    .updatePlatformFeeBps(new BN(platformFeeBps))
+    .accounts(globalAdminAccounts(wallet.publicKey))
+    .rpc();
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+
+export async function setDepositDisable(
+  connection: Connection,
+  wallet: AnchorWallet,
+  depositDisable: boolean,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const sig = await program.methods
+    .setDepositDisable(depositDisable)
+    .accounts(globalAdminAccounts(wallet.publicKey))
+    .rpc();
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+
+export async function addEligibleBaseMint(
+  connection: Connection,
+  wallet: AnchorWallet,
+  mint: PublicKey,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const sig = await program.methods
+    .addEligibleBaseMint(mint)
+    .accounts(globalAdminAccounts(wallet.publicKey))
+    .rpc();
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+
+export async function removeEligibleBaseMint(
+  connection: Connection,
+  wallet: AnchorWallet,
+  mint: PublicKey,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const sig = await program.methods
+    .removeEligibleBaseMint(mint)
+    .accounts(globalAdminAccounts(wallet.publicKey))
+    .rpc();
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+```
+
+- [ ] **Step 5: Fix `emergencyExit`/`resume` to call the real `set_emergency` instruction**
+
+Find the existing `emergencyExit` and `resume` functions (they currently call `program.methods.emergencyExit(...)` and `program.methods.resume(...)` — the former doesn't exist on the IDL at all, the latter exists but is the *per-vault* `vault_ops::resume`, not what the Admin tab's "Resume" button should pair with). Replace both with:
+
+```typescript
+export async function emergencyExit(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const sig = await program.methods
+    .setEmergency(true)
+    .accounts(globalAdminAccounts(wallet.publicKey))
+    .rpc();
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+
+export async function resume(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const sig = await program.methods
+    .setEmergency(false)
+    .accounts(globalAdminAccounts(wallet.publicKey))
+    .rpc();
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+```
+
+Both functions keep their existing `(connection, wallet, vaultId, network)` signature (so Task 7's existing call sites in `execute-vault-function.ts` don't need to change) even though `vaultId` is now unused in the body — this keeps the diff minimal and avoids touching the dispatch layer for a behavior-only fix. The unused `vaultId` parameter is intentional here, not an oversight — do not remove it.
+
+- [ ] **Step 6: Type-check**
 
 Run: `cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui && npx tsc --noEmit`
 
-Expected: no errors originating from `lib/cvault.tsx` about `createEtf`'s signature (errors from `execute-vault-function.ts` still calling the old `createShareMetadata` are expected here — fixed in Task 6).
+Expected: no errors originating from `lib/cvault.tsx`. Errors about `execute-vault-function.ts` still calling the old `createShareMetadata` (or not yet calling the new functions) are expected here — fixed in Task 7.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui
 git add lib/cvault.tsx
-git commit -m "Merge createEtf/createShareMetadata into one client call"
+git commit -m "$(cat <<'EOF'
+Merge createEtf/createShareMetadata; add setFeeRecipient + admin_ops.rs client functions
+
+Also fixes emergencyExit/resume, which previously called a nonexistent
+emergency_exit program method — they now call the real set_emergency(true/false).
+EOF
+)"
 ```
 
 ---
 
-## Task 6: Update `function-defs.ts` — remove Feeds tab, add Vault tab
+## Task 6: Update `function-defs.ts` — remove Feeds tab, add Vault tab, add missing vault_ops/admin_ops functions
 
 **Files:**
 - Modify: `c_vault_ui/app/components/function-defs.ts`
 
 **Interfaces:**
 - Consumes: `ADMIN_PUBKEY, WBTC_MINT, WSOL_USDC_POOL, WSOL_WBTC_POOL` from `@/lib/cvault` (already imported).
-- Produces: `VAULT_FUNCTIONS: FunctionDef[]` (new export, one entry, id `"create_etf"`) and `SectionId = "view" | "deposit" | "redeem" | "vault" | "admin"` — both consumed by Task 7 (`page.tsx`) and Task 8 (`execute-vault-function.ts`).
+- Produces: `VAULT_FUNCTIONS: FunctionDef[]` (new export, 2 entries: `"create_etf"`, `"set_fee_recipient"`) and `SectionId = "view" | "deposit" | "redeem" | "vault" | "admin"` — both consumed by Task 8 (`page.tsx`) and Task 7 (`execute-vault-function.ts`). `ADMIN_FUNCTIONS` gains 5 new entries (`update_treasury_addr`, `update_platform_fee_bps`, `set_deposit_disable`, `add_eligible_base_mint`, `remove_eligible_base_mint`).
 
 - [ ] **Step 1: Update `SectionId`**
 
-In `c_vault_ui/app/components/function-defs.ts`, change line 8:
+In `c_vault_ui/app/components/function-defs.ts`, change:
 
 ```typescript
 export type SectionId = "view" | "deposit" | "redeem" | "feeds" | "admin";
@@ -803,9 +437,105 @@ to:
 export type SectionId = "view" | "deposit" | "redeem" | "vault" | "admin";
 ```
 
-- [ ] **Step 2: Remove `create_etf` (4B) and `create_share_metadata` (4C) from `ADMIN_FUNCTIONS`, add `VAULT_FUNCTIONS`**
+- [ ] **Step 2: Remove `create_etf` (4B) and `create_share_metadata` (4C) from `ADMIN_FUNCTIONS`; fix Emergency Exit/Resume descriptions**
 
-In `ADMIN_FUNCTIONS` (currently lines 293-412), delete the two entries with `id: "create_etf"` (4B, lines 302-350) and `id: "create_share_metadata"` (4C, lines 351-362) entirely, leaving `init_global_state` (4A) immediately followed by `set_paused` (renumber its label from 4D — keep as-is since these are just display numbers referenced nowhere else; leave `number: "4D"` etc. unchanged to minimize diff).
+In `ADMIN_FUNCTIONS`, delete the two entries with `id: "create_etf"` (4B) and `id: "create_share_metadata"` (4C) entirely, leaving `init_global_state` (4A) immediately followed by `set_paused` (4D).
+
+Update the `emergency_exit` (4E) and `resume` (4F) entries' `description` to reflect that they now correctly call `set_emergency` (the actual program instruction — previously these called a nonexistent `emergency_exit` method):
+
+```typescript
+  {
+    id: "emergency_exit",
+    number: "4E",
+    title: "Emergency Exit",
+    description:
+      "Admin-only hard stop: sets global_state.is_emergency = true program-wide. Blocks new deposits until Resume is called.",
+    fields: [],
+    submitLabel: "Trigger Emergency Exit",
+  },
+  {
+    id: "resume",
+    number: "4F",
+    title: "Resume from Emergency",
+    description: "Clears global_state.is_emergency program-wide (sets it to false).",
+    fields: [],
+    submitLabel: "Resume",
+  },
+```
+
+(Only the `description` text changes here — `id`, `number`, `fields: []`, and `submitLabel` all stay exactly as they were. The client-side behavior fix happens in Task 7.)
+
+- [ ] **Step 3: Add 5 new `admin_ops.rs`-backed entries to `ADMIN_FUNCTIONS`**
+
+Immediately after the `set_redeem_cooldown` (4G) entry — the last entry in `ADMIN_FUNCTIONS` — and still inside the array (before its closing `];`), add:
+
+```typescript
+  {
+    id: "update_treasury_addr",
+    number: "4H",
+    title: "Update Treasury Address",
+    description: "Program-wide: change the pubkey that receives the platform's treasury funds.",
+    fields: [
+      { name: "treasury_addr", label: "New Treasury Address", placeholder: ADMIN_PUBKEY.toBase58() },
+    ],
+    submitLabel: "Update Treasury Address",
+  },
+  {
+    id: "update_platform_fee_bps",
+    number: "4I",
+    title: "Update Platform Fee (BPS)",
+    description: "Program-wide: change the platform fee taken on deposit + claim (max 2000 bps = 20%).",
+    fields: [
+      {
+        name: "platform_fee_bps",
+        label: "Platform Fee (BPS, max 2000)",
+        type: "number",
+        placeholder: "500",
+      },
+    ],
+    submitLabel: "Update Platform Fee",
+  },
+  {
+    id: "set_deposit_disable",
+    number: "4J",
+    title: "Set Deposit Disable",
+    description: "Program-wide: block or unblock all new deposits (separate from emergency mode).",
+    fields: [
+      {
+        name: "deposit_disable",
+        label: "Deposit Disabled?",
+        type: "select",
+        options: [
+          { label: "true", value: "true" },
+          { label: "false", value: "false" },
+        ],
+      },
+    ],
+    submitLabel: "Set Deposit Disable",
+  },
+  {
+    id: "add_eligible_base_mint",
+    number: "4K",
+    title: "Add Eligible Base Mint",
+    description: "Program-wide: add a company-approved stable mint to the eligible base_mint allowlist (max 10).",
+    fields: [
+      { name: "mint", label: "Mint Address", placeholder: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
+    ],
+    submitLabel: "Add Eligible Base Mint",
+  },
+  {
+    id: "remove_eligible_base_mint",
+    number: "4L",
+    title: "Remove Eligible Base Mint",
+    description: "Program-wide: remove a mint from the eligible base_mint allowlist.",
+    fields: [
+      { name: "mint", label: "Mint Address", placeholder: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
+    ],
+    submitLabel: "Remove Eligible Base Mint",
+  },
+```
+
+- [ ] **Step 4: Add `VAULT_FUNCTIONS` with both `create_etf` and `set_fee_recipient`**
 
 Immediately after the closing `];` of `ADMIN_FUNCTIONS`, add a new exported array:
 
@@ -863,12 +593,22 @@ export const VAULT_FUNCTIONS: FunctionDef[] = [
     ],
     submitLabel: "Create Vault",
   },
+  {
+    id: "set_fee_recipient",
+    number: "5B",
+    title: "Set Fee Recipient",
+    description: "Vault-manager-only: change the pubkey that receives this vault's accrued performance fees.",
+    fields: [
+      { name: "fee_recipient", label: "New Fee Recipient", placeholder: ADMIN_PUBKEY.toBase58() },
+    ],
+    submitLabel: "Set Fee Recipient",
+  },
 ];
 ```
 
-- [ ] **Step 3: Update `REQUIRES_WALLET`**
+- [ ] **Step 5: Update `REQUIRES_WALLET`**
 
-In `REQUIRES_WALLET` (around line 414-432), remove `"create_share_metadata"` from the set (`"create_etf"` stays, since the merged function still uses that id):
+Replace the `REQUIRES_WALLET` set to add `"set_fee_recipient"` and the 5 new admin_ops ids (remove `"create_share_metadata"`, keep everything else):
 
 ```typescript
 export const REQUIRES_WALLET = new Set([
@@ -884,16 +624,22 @@ export const REQUIRES_WALLET = new Set([
   "claim",
   "init_global_state",
   "create_etf",
+  "set_fee_recipient",
   "set_paused",
   "emergency_exit",
   "resume",
   "set_redeem_cooldown",
+  "update_treasury_addr",
+  "update_platform_fee_bps",
+  "set_deposit_disable",
+  "add_eligible_base_mint",
+  "remove_eligible_base_mint",
 ]);
 ```
 
-- [ ] **Step 4: Update `TABS`**
+- [ ] **Step 6: Update `TABS`**
 
-Replace the `TABS` array (around line 436-442):
+Replace the `TABS` array:
 
 ```typescript
 export const TABS: { id: SectionId; label: string; eyebrow: string }[] = [
@@ -905,9 +651,9 @@ export const TABS: { id: SectionId; label: string; eyebrow: string }[] = [
 ];
 ```
 
-- [ ] **Step 5: Update `SECTION_EYEBROWS`**
+- [ ] **Step 7: Update `SECTION_EYEBROWS`**
 
-Replace the `SECTION_EYEBROWS` object (around line 444-450):
+Replace the `SECTION_EYEBROWS` object:
 
 ```typescript
 export const SECTION_EYEBROWS: Record<SectionId, string> = {
@@ -919,33 +665,46 @@ export const SECTION_EYEBROWS: Record<SectionId, string> = {
 };
 ```
 
-- [ ] **Step 6: Verify no leftover reference to `"feeds"` as a `SectionId` in this file**
+- [ ] **Step 8: Verify no leftover reference to `"feeds"` as a `SectionId`, and that both new arrays are exported**
 
 Run: `grep -n '"feeds"' /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/app/components/function-defs.ts`
 
 Expected: no output.
 
-- [ ] **Step 7: Commit**
+Run: `grep -n "export const VAULT_FUNCTIONS\|export const ADMIN_FUNCTIONS" /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui/app/components/function-defs.ts`
+
+Expected: both lines present.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui
 git add app/components/function-defs.ts
-git commit -m "Replace Feeds tab with Vault tab; merge create_etf/create_share_metadata field defs"
+git commit -m "$(cat <<'EOF'
+Replace Feeds tab with Vault tab; expose vault_ops/admin_ops functions
+
+- Vault tab: merged create_etf (create_etf + create_share_metadata) plus
+  the previously-unexposed set_fee_recipient.
+- Admin tab: fix Emergency Exit/Resume descriptions (they call
+  set_emergency, not a nonexistent emergency_exit method) and add the 5
+  previously-unexposed admin_ops.rs functions.
+EOF
+)"
 ```
 
 ---
 
-## Task 7: Wire the merged call in `execute-vault-function.ts`
+## Task 7: Wire the merged + new calls in `execute-vault-function.ts`
 
 **Files:**
 - Modify: `c_vault_ui/app/components/execute-vault-function.ts`
 
 **Interfaces:**
-- Consumes: `createEtf(connection, anchorWallet, params, name, symbol, uri, network)` from Task 5; `VAULT_FUNCTIONS` is not imported here directly (this file dispatches purely on `fn.id`, which stays `"create_etf"`).
+- Consumes: `createEtf(connection, anchorWallet, params, name, symbol, uri, network)`, `setFeeRecipient(connection, anchorWallet, vaultId, feeRecipient, network)`, `updateTreasuryAddr`, `updatePlatformFeeBps`, `setDepositDisable`, `addEligibleBaseMint`, `removeEligibleBaseMint` (all from Task 5). `fn.id` values `"create_etf"`, `"set_fee_recipient"`, `"update_treasury_addr"`, `"update_platform_fee_bps"`, `"set_deposit_disable"`, `"add_eligible_base_mint"`, `"remove_eligible_base_mint"` (all from Task 6's `VAULT_FUNCTIONS`/`ADMIN_FUNCTIONS`).
 
-- [ ] **Step 1: Remove the `createShareMetadata` import and its dispatch branch**
+- [ ] **Step 1: Remove the `createShareMetadata` import, add the new function imports**
 
-In `c_vault_ui/app/components/execute-vault-function.ts`, remove `createShareMetadata` from the import block (currently line 8):
+In `c_vault_ui/app/components/execute-vault-function.ts`, replace the import block's admin-instruction names:
 
 ```typescript
 import {
@@ -953,24 +712,72 @@ import {
   createEtf,
   createShareMetadata,
   emergencyExit,
-  ...
+  resume,
+  setPaused,
+  setRedeemCooldown,
+  deposit,
+  requestRedeem,
+  claim,
+  swapUsdcToSol,
+  swapUsdcToAsset,
+  swapSolToAsset,
+  swapAssetToSol,
+  swapSolToUsdc,
+  swapAssetToUsdc,
+  getGlobalState,
+  getVaultState,
+  getTotalNavView,
+  previewDeposit,
+  previewRedeem,
+  getUserPosition,
+  ensureUserAtas,
+  DEFAULT_VAULT_ID,
+  ADMIN_PUBKEY,
+  type Network,
+} from "@/lib/cvault";
 ```
 
-becomes:
+with:
 
 ```typescript
 import {
   initGlobalState,
   createEtf,
+  setFeeRecipient,
   emergencyExit,
-  ...
+  resume,
+  setPaused,
+  setRedeemCooldown,
+  updateTreasuryAddr,
+  updatePlatformFeeBps,
+  setDepositDisable,
+  addEligibleBaseMint,
+  removeEligibleBaseMint,
+  deposit,
+  requestRedeem,
+  claim,
+  swapUsdcToSol,
+  swapUsdcToAsset,
+  swapSolToAsset,
+  swapAssetToSol,
+  swapSolToUsdc,
+  swapAssetToUsdc,
+  getGlobalState,
+  getVaultState,
+  getTotalNavView,
+  previewDeposit,
+  previewRedeem,
+  getUserPosition,
+  ensureUserAtas,
+  DEFAULT_VAULT_ID,
+  ADMIN_PUBKEY,
+  type Network,
+} from "@/lib/cvault";
 ```
 
-Delete the entire `if (fn.id === "create_share_metadata") { ... }` block (currently lines 243-255).
+- [ ] **Step 2: Update the `create_etf` branch to pass name/symbol/uri; delete the `create_share_metadata` branch**
 
-- [ ] **Step 2: Update the `create_etf` branch to pass name/symbol/uri**
-
-Replace the existing `if (fn.id === "create_etf") { ... }` block (currently lines 209-242):
+Replace the existing `if (fn.id === "create_etf") { ... }` block and the `if (fn.id === "create_share_metadata") { ... }` block immediately after it with:
 
 ```typescript
   if (fn.id === "create_etf") {
@@ -1010,20 +817,68 @@ Replace the existing `if (fn.id === "create_etf") { ... }` block (currently line
     );
     return { tx: r.tx, solscan: r.link };
   }
+  if (fn.id === "set_fee_recipient") {
+    if (!anchorWallet) throw new Error("Wallet required");
+    const r = await setFeeRecipient(
+      connection,
+      anchorWallet,
+      DEFAULT_VAULT_ID,
+      pk(v.fee_recipient),
+      net,
+    );
+    return { tx: r.tx, solscan: r.link };
+  }
 ```
 
-- [ ] **Step 3: Type-check**
+- [ ] **Step 3: Add dispatch branches for the 5 new admin_ops functions**
+
+Immediately after the `if (fn.id === "set_redeem_cooldown") { ... }` block (the last function-dispatch block in the file, right before `throw new Error(\`Unknown function: ${fn.id}\`);`), add:
+
+```typescript
+  if (fn.id === "update_treasury_addr") {
+    if (!anchorWallet) throw new Error("Wallet required");
+    const r = await updateTreasuryAddr(connection, anchorWallet, pk(v.treasury_addr), net);
+    return { tx: r.tx, solscan: r.link };
+  }
+  if (fn.id === "update_platform_fee_bps") {
+    if (!anchorWallet) throw new Error("Wallet required");
+    const r = await updatePlatformFeeBps(
+      connection,
+      anchorWallet,
+      Number(v.platform_fee_bps || 0),
+      net,
+    );
+    return { tx: r.tx, solscan: r.link };
+  }
+  if (fn.id === "set_deposit_disable") {
+    if (!anchorWallet) throw new Error("Wallet required");
+    const r = await setDepositDisable(connection, anchorWallet, v.deposit_disable === "true", net);
+    return { tx: r.tx, solscan: r.link };
+  }
+  if (fn.id === "add_eligible_base_mint") {
+    if (!anchorWallet) throw new Error("Wallet required");
+    const r = await addEligibleBaseMint(connection, anchorWallet, pk(v.mint), net);
+    return { tx: r.tx, solscan: r.link };
+  }
+  if (fn.id === "remove_eligible_base_mint") {
+    if (!anchorWallet) throw new Error("Wallet required");
+    const r = await removeEligibleBaseMint(connection, anchorWallet, pk(v.mint), net);
+    return { tx: r.tx, solscan: r.link };
+  }
+```
+
+- [ ] **Step 4: Type-check**
 
 Run: `cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui && npx tsc --noEmit`
 
 Expected: no errors.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/soumalyapaul/Documents/SOLANA/c_vault_all/c_vault_ui
 git add app/components/execute-vault-function.ts
-git commit -m "Wire merged create_etf call (name/symbol/uri) in execute-vault-function"
+git commit -m "Wire merged create_etf, set_fee_recipient, and admin_ops.rs calls in execute-vault-function"
 ```
 
 ---
@@ -1073,6 +928,7 @@ with:
           {activeTab === 'vault' && (
             <SectionBlock
               id="vault"
+
               label="Vault"
               functions={VAULT_FUNCTIONS}
               network={network}
@@ -1152,18 +1008,28 @@ const { getTokenMetadata } = require('@solana/spl-token');
 
 Expected: prints the `name`/`symbol`/`uri` you entered in the form, confirming the merged transaction set both the vault and its share metadata correctly.
 
-- [ ] **Step 4: Stop the local validator**
+- [ ] **Step 4: Exercise `set_fee_recipient` and the fixed Emergency Exit/Resume pair**
+
+Still in the browser (Vault tab): use "Set Fee Recipient" (5B) to change the vault's fee recipient to a new address; confirm via the "View Vault State" (1B) that `feeRecipient` updated on-chain.
+
+Then in the Admin tab: click "Emergency Exit" and confirm via "View Global State" (1A) that `isEmergency` is now `true`; click "Resume" and confirm `isEmergency` is back to `false`. This exercises the fix from Task 5 Step 5 (previously "Emergency Exit" called a nonexistent program method and would have failed outright).
+
+- [ ] **Step 5: Exercise the 5 new admin_ops.rs functions**
+
+Still in the Admin tab: try "Update Platform Fee (BPS)" with a small value (e.g. `500`) and "Set Deposit Disable" with `true` then `false` — both should confirm without error (no on-chain view currently surfaces `platformFeeBps`/`depositDisable`, so success is "transaction confirms, no thrown error"). Try "Add Eligible Base Mint" with a fresh test mint address, then "Remove Eligible Base Mint" with the same address, confirming each transaction succeeds. Skip "Update Treasury Address" unless you have a throwaway address to set it to (it's a real state change with no easy undo path beyond calling it again).
+
+- [ ] **Step 6: Stop the local validator**
 
 ```bash
 pkill -f solana-test-validator
 ```
 
-- [ ] **Step 5: No commit needed** — this task is manual verification only; if any bug surfaces, fix it in the relevant task's files and re-run this task.
+- [ ] **Step 7: No commit needed** — this task is manual verification only; if any bug surfaces, fix it in the relevant task's files and re-run this task.
 
 ---
 
 ## Self-Review Notes
 
-- **Spec coverage:** Task 1-3 cover the Rust merge + tests + changelog (spec §"Program change" and §"Tests" and §"CHANGELOG.md"). Task 4 covers IDL sync (spec §"IDL / generated types"). Tasks 5-8 cover all four UI files named in the spec (`cvault.tsx`, `function-defs.ts`, `execute-vault-function.ts`, `page.tsx`). Task 9 covers the spec's "Testing plan" section (manual localnet exercise + metadata confirmation). The spec's explicit call-out about the unauthorized-signer test collapsing is handled in Task 2 Step 5.
-- **Placeholder scan:** no TBD/TODO; the one open question (exact IDL filename(s) in `c_vault_ui/idl`) is resolved via an inspection step (Task 4 Step 1) rather than left vague, with the copy command adjustable based on that step's real output.
-- **Type consistency:** `createEtf(connection, wallet, params, name, symbol, uri, network)` signature is identical across Task 5 (definition) and Task 7 (call site). `create_etf_handler(ctx, params, name, symbol, uri)` is identical across Task 1 (definition) and `lib.rs`'s call in the same task. `VAULT_FUNCTIONS` name matches between Task 6 (definition) and Task 8 (import/usage).
+- **Spec coverage:** Task 1-3 cover the Rust merge + tests + changelog (spec §"Program change" and §"Tests" and §"CHANGELOG.md"). Task 4 covers IDL sync (spec §"IDL / generated types"), now verify-only since the IDL was already confirmed in sync. Tasks 5-8 cover all four UI files named in the spec (`cvault.tsx`, `function-defs.ts`, `execute-vault-function.ts`, `page.tsx`) plus the addendum's `set_fee_recipient`/`admin_ops.rs`/Emergency-Exit-fix scope. Task 9 covers the spec's "Testing plan" section (manual localnet exercise + metadata confirmation) extended with the addendum's new functions. The spec's explicit call-out about the unauthorized-signer test collapsing is handled in Task 2 Step 4 (folded into the "already applied" verify step, since that test change is also already present in the working tree).
+- **Placeholder scan:** no TBD/TODO. Task 1/2/4 are now explicitly marked "VERIFY ONLY, already applied" rather than left ambiguous about whether to redo work that's already done.
+- **Type consistency:** `createEtf(connection, wallet, params, name, symbol, uri, network)` signature is identical across Task 5 (definition) and Task 7 (call site). `create_etf_handler(ctx, params, name, symbol, uri)` matches between Task 1's verification grep and Task 5's client call. `VAULT_FUNCTIONS`/`ADMIN_FUNCTIONS` names match between Task 6 (definition) and Task 8 (import/usage). `setFeeRecipient`, `updateTreasuryAddr`, `updatePlatformFeeBps`, `setDepositDisable`, `addEligibleBaseMint`, `removeEligibleBaseMint` signatures are identical between Task 5 (definition) and Task 7 (call site). `emergencyExit`/`resume` keep their original `(connection, wallet, vaultId, network)` signature across Task 5 (redefinition) and Task 7 (unchanged call sites, not touched in this pass since they weren't in the diff).

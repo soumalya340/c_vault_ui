@@ -166,3 +166,97 @@ fund type, max assets/shares, name, symbol, uri)
 - Confirm the "Feeds" tab button no longer appears in nav, and no other tab
   regresses (View/Deposit/Redeem/Admin unaffected, `feed`-type fields still
   work using the untouched `savedFeeds`/`FeedsPanel` plumbing).
+
+## Addendum (2026-07-06): expand UI coverage of vault_ops.rs and admin.rs
+
+While implementing the plan above, the Rust-side `create_etf`/`create_metadata`
+merge (Task 1/2) was found already applied in the working tree, matching this
+spec. Separately, a gap was found: the UI's Admin tab does not expose all
+program instructions that already exist in
+`c_vault/programs/vault/src/vault/vault_ops.rs` and
+`c_vault/programs/vault/src/admin/`. This addendum extends scope to close
+that gap in the same pass.
+
+### vault_ops.rs gap
+
+`vault_ops.rs` defines 4 functions on the `VaultManagerOnly` account context
+(`vault_id: u64` + `vault_manager: Signer` matching `vault.vault_manager`):
+`resume`, `set_paused`, `set_fee_recipient`, `set_redeem_cooldown`. The UI
+already wires `set_paused` and `set_redeem_cooldown` correctly. It's missing
+`set_fee_recipient` entirely, and its "Emergency Exit"/"Resume" buttons call
+a `emergencyExit` client function that invokes a program method
+(`emergency_exit`) that **does not exist** in `lib.rs` — this is a
+pre-existing bug, not something introduced by this work.
+
+Decisions:
+- Add `set_fee_recipient(vault_id, fee_recipient)` as a new function in the
+  **Vault** tab (it's vault-scoped admin, alongside vault creation).
+- Fix "Emergency Exit" to call the real `set_emergency(true)` program method
+  (program-wide), and fix "Resume" to call `set_emergency(false)` (the
+  symmetric global counterpart) — both live in `admin_ops.rs`'s
+  `AdminGlobalState` context (`global_state` + `admin: Signer` matching
+  `ADMIN_PUBKEY` exactly, no `vault_id`).
+- `vault_ops::resume(vault_id)` (the per-vault, post-`set_paused` resume) is
+  **not** exposed in the UI for now — there's no matching "pause a specific
+  vault and later resume it" UI flow to hang it off, since `set_paused`
+  already exists as a direct toggle. Leaving it unexposed is an explicit
+  choice, not an oversight.
+
+### admin.rs gap
+
+`admin_ops.rs` defines 5 functions on the `AdminGlobalState` account context
+(`global_state` + `admin: Signer` constrained to `ADMIN_PUBKEY`), none of
+which have any UI today: `update_treasury_addr`, `update_platform_fee_bps`,
+`set_deposit_disable`, `add_eligible_base_mint`, `remove_eligible_base_mint`.
+
+Decision: add all 5 to the **Admin** tab, alongside the existing
+`init_global_state`/`set_paused` (wait — `set_paused`/`set_redeem_cooldown`
+stay put per the original scope decision; only the fixed
+`emergency_exit`/`resume` pair and these 5 new entries are Admin-tab
+additions).
+
+### Updated Admin tab contents (after this addendum)
+
+```
+Admin:
+  Init Global State           (unchanged: init_global_state)
+  Set Paused                  (unchanged: set_paused, vault-scoped)
+  Emergency Exit               [FIXED] -> set_emergency(true)
+  Resume                       [FIXED] -> set_emergency(false)
+  Set Redeem Cooldown          (unchanged: set_redeem_cooldown, vault-scoped)
+  Update Treasury Address      [NEW]   -> update_treasury_addr(treasury_addr)
+  Update Platform Fee (BPS)    [NEW]   -> update_platform_fee_bps(platform_fee_bps)
+  Set Deposit Disable          [NEW]   -> set_deposit_disable(deposit_disable)
+  Add Eligible Base Mint       [NEW]   -> add_eligible_base_mint(mint)
+  Remove Eligible Base Mint    [NEW]   -> remove_eligible_base_mint(mint)
+```
+
+### Updated Vault tab contents (after this addendum)
+
+```
+Vault:
+  Create Vault           (unchanged from original design: merged create_etf)
+  Set Fee Recipient       [NEW] -> set_fee_recipient(vault_id, fee_recipient)
+```
+
+### Account-wiring notes for implementation
+
+- `set_fee_recipient`, like the existing `set_paused`/`set_redeem_cooldown`,
+  uses `adminAccounts(vaultId, admin)` in `cvault.tsx` — same
+  `{ globalState, vault: vaultPda, admin }` shape already used by those two
+  (despite the helper's name, it's really "vault-manager accounts": the IDL
+  calls this signer `vault_manager`, constrained to equal `vault.vault_manager`,
+  not the program's `ADMIN_PUBKEY`).
+- The 5 `admin_ops.rs` functions and the fixed `set_emergency` calls use a
+  **different**, simpler account shape: just `{ globalState, admin }` where
+  `admin` is constrained to the hardcoded `ADMIN_PUBKEY` — no `vault_id`,
+  no `vaultPda`. This needs its own small helper (e.g.
+  `globalAdminAccounts(admin: PublicKey)`) distinct from `adminAccounts`.
+- IDL: already regenerated and vendored at `c_vault_ui/idl/c_vault.json`
+  reflecting all of the above (`create_etf` with `name`/`symbol`/`uri`, and
+  `set_fee_recipient`/`set_emergency`/`set_deposit_disable`/
+  `add_eligible_base_mint`/`remove_eligible_base_mint`/
+  `update_platform_fee_bps`/`update_treasury_addr` all present, no
+  `create_share_metadata`). Task 4 (IDL sync) of the implementation plan is
+  effectively already satisfied — verify only, no copy needed, unless the
+  Rust source changes further before implementation finishes.
