@@ -3,6 +3,7 @@
 import type { Network } from '@/lib/cvault';
 import type { PythFeedRow } from '@/lib/pythFeedsClient';
 import { AccordionItem } from './accordion-item';
+import { panelClass, sectionLabelClass } from './ui-classes';
 import { SECTION_STYLE, type FunctionDef, type SectionId } from './function-defs';
 
 export function SectionBlock({
@@ -21,30 +22,30 @@ export function SectionBlock({
   const style = SECTION_STYLE[id];
 
   return (
-    <div className="space-y-3">
-      <div className="mb-2 flex items-center gap-3">
-        <h2 className="font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-          {label}
-        </h2>
-        <span
-          className="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.1em]"
-          style={{ borderColor: `${style.accent}44`, color: style.accent }}
-        >
-          {functions.length} ops
-        </span>
-        <div className="h-px flex-1 bg-border" />
+    <section aria-label={label} className="flex flex-col gap-4">
+      <div className={`${panelClass} overflow-hidden`}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 md:px-5">
+          <span className={`${sectionLabelClass} font-bold uppercase`}>{label}</span>
+          <span
+            className="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.1em]"
+            style={{ borderColor: `${style.accent}44`, color: style.accent }}
+          >
+            {functions.length} ops
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-2 p-3 md:p-4">
+          {functions.map((fn) => (
+            <AccordionItem
+              key={fn.id}
+              fn={fn}
+              section={id}
+              network={network}
+              savedFeeds={savedFeeds}
+            />
+          ))}
+        </div>
       </div>
-      <div className="space-y-2">
-        {functions.map((fn) => (
-          <AccordionItem
-            key={fn.id}
-            fn={fn}
-            section={id}
-            network={network}
-            savedFeeds={savedFeeds}
-          />
-        ))}
-      </div>
-    </div>
+    </section>
   );
 }

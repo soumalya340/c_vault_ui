@@ -22,7 +22,7 @@ export function NetworkStatus() {
           mainnet
         </span>
         <span className="rounded-full border border-border/60 px-1.5 py-0.5 font-mono text-[7px] uppercase tracking-[0.24em] text-muted-foreground/80">
-          coming soon
+          soon
         </span>
       </span>
     </div>
