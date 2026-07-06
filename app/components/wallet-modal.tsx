@@ -102,7 +102,7 @@ export function WalletModal() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="wallet-modal-title"
-            className="relative z-10 w-full max-w-[420px] overflow-hidden rounded-2xl border border-border bg-background/95 shadow-2xl backdrop-blur-md"
+            className="cert-frame relative z-10 w-full max-w-[420px] overflow-hidden bg-background shadow-2xl"
             initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.98 }}
@@ -110,12 +110,12 @@ export function WalletModal() {
           >
             <div className="flex items-start justify-between gap-4 px-6 pb-1 pt-6">
               <div>
-                <div className="font-mono text-[11px] tracking-[0.18em] text-accent">
-                  {'/// CONNECT'}
+                <div className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-seal">
+                  bearer registration
                 </div>
                 <h2
                   id="wallet-modal-title"
-                  className="mt-1.5 text-xl font-semibold leading-tight tracking-[-0.02em] text-foreground"
+                  className="mt-1.5 font-display text-xl font-semibold leading-tight tracking-[0.02em] text-foreground"
                 >
                   Connect a wallet on Solana
                 </h2>
@@ -124,7 +124,7 @@ export function WalletModal() {
                 type="button"
                 onClick={() => setVisible(false)}
                 aria-label="Close"
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-border bg-foreground/5 text-muted-foreground transition-colors duration-100 hover:border-foreground/20 hover:bg-foreground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[2px] border border-border bg-foreground/5 text-muted-foreground transition-colors duration-100 hover:border-foreground/20 hover:bg-foreground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -147,7 +147,7 @@ export function WalletModal() {
                         type="button"
                         onClick={() => handleSelect(w.adapter.name)}
                         disabled={connecting}
-                        className="group flex w-full items-center gap-3 rounded-xl border border-border bg-foreground/[0.03] px-4 py-3 text-left transition-colors duration-100 hover:border-accent hover:bg-accent/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                        className="group flex w-full items-center gap-3 rounded-[2px] border border-border bg-foreground/[0.03] px-4 py-3 text-left transition-colors duration-100 hover:border-accent hover:bg-accent/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -158,7 +158,7 @@ export function WalletModal() {
                         <span className="flex-1 text-sm font-medium text-foreground">
                           {w.adapter.name}
                         </span>
-                        <span className="rounded-full bg-accent/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.02em] text-accent">
+                        <span className="rounded-[2px] border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent">
                           Detected
                         </span>
                       </button>
@@ -192,7 +192,7 @@ export function WalletModal() {
                           type="button"
                           onClick={() => handleSelect(w.adapter.name)}
                           disabled={connecting}
-                          className="group flex w-full items-center gap-3 rounded-xl border border-border bg-foreground/[0.03] px-4 py-3 text-left transition-colors duration-100 hover:border-foreground/25 hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                          className="group flex w-full items-center gap-3 rounded-[2px] border border-border bg-foreground/[0.03] px-4 py-3 text-left transition-colors duration-100 hover:border-foreground/25 hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img

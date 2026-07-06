@@ -24,17 +24,19 @@ export function SectionBlock({
   return (
     <section aria-label={label} className="flex flex-col gap-4">
       <div className={`${panelClass} overflow-hidden`}>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 md:px-5">
-          <span className={`${sectionLabelClass} font-bold uppercase`}>{label}</span>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">
           <span
-            className="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.1em]"
-            style={{ borderColor: `${style.accent}44`, color: style.accent }}
+            className="font-display text-base font-semibold uppercase tracking-[0.18em]"
+            style={{ color: style.accent }}
           >
-            {functions.length} ops
+            {label}
+          </span>
+          <span className={`${sectionLabelClass} uppercase`}>
+            {functions.length} instruments · series 2026
           </span>
         </div>
 
-        <div className="flex flex-col gap-2 p-3 md:p-4">
+        <div className="flex flex-col divide-y divide-border px-3 py-1 md:px-4">
           {functions.map((fn) => (
             <AccordionItem
               key={fn.id}

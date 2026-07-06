@@ -376,9 +376,9 @@ export const REQUIRES_WALLET = new Set([
 ]);
 
 export const SECTION_STYLE: Record<SectionId, { accent: string; glow: string }> = {
-  view: { accent: '#16A34A', glow: 'rgba(22, 163, 74, 0.15)' },
-  deposit: { accent: '#16A34A', glow: 'rgba(22, 163, 74, 0.15)' },
-  redeem: { accent: '#DC2626', glow: 'rgba(220, 38, 38, 0.15)' },
-  feeds: { accent: '#16A34A', glow: 'rgba(22, 163, 74, 0.15)' },
-  admin: { accent: '#DC2626', glow: 'rgba(220, 38, 38, 0.15)' },
+  view: { accent: '#2E5C44', glow: 'rgba(46, 92, 68, 0.12)' },
+  deposit: { accent: '#2E5C44', glow: 'rgba(46, 92, 68, 0.12)' },
+  redeem: { accent: '#A63A2B', glow: 'rgba(166, 58, 43, 0.12)' },
+  feeds: { accent: '#2E5C44', glow: 'rgba(46, 92, 68, 0.12)' },
+  admin: { accent: '#A63A2B', glow: 'rgba(166, 58, 43, 0.12)' },
 };

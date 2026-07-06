@@ -94,29 +94,29 @@ export function AccordionItem({
 
   return (
     <div
-      className={`overflow-hidden rounded-xl border transition-colors duration-150 ${
-        open ? 'border-accent/40 bg-accent/[0.06] shadow-sm' : 'border-border bg-background hover:border-foreground/25'
+      className={`overflow-hidden transition-colors duration-150 ${
+        open ? 'bg-foreground/[0.03]' : 'bg-transparent'
       }`}
     >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="group flex w-full items-center gap-4 px-3.5 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset md:px-4"
+        className="group flex w-full items-baseline gap-4 px-2 py-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset md:px-3"
       >
         <span
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold tabular-nums"
-          style={{
-            background: `${style.accent}14`,
-            color: style.accent,
-            border: `1px solid ${style.accent}33`,
-          }}
+          className="flex-shrink-0 font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal"
+          aria-hidden
         >
-          {fn.number}
+          &#8470;&nbsp;{fn.number}
         </span>
-        <span className="flex-1 text-sm font-medium tracking-[-0.01em] text-foreground transition-colors group-hover:text-accent">
+        <span className="flex-shrink-0 text-sm font-medium tracking-[-0.01em] text-foreground transition-colors group-hover:text-accent">
           {fn.title}
         </span>
+        <span
+          className="mx-1 flex-1 self-center border-b border-dotted border-border"
+          aria-hidden
+        />
         <span
           className="flex-shrink-0 select-none font-mono text-sm text-muted-foreground transition-colors"
           style={open ? { color: style.accent } : undefined}
@@ -130,7 +130,7 @@ export function AccordionItem({
         <div className="accordion-inner">
           <form
             onSubmit={handleSubmit}
-            className="space-y-4 border-t border-border px-3.5 pb-4 pt-4 md:px-4 md:pb-4.5"
+            className="space-y-4 border-t border-border px-2 pb-5 pt-4 md:px-3"
           >
             <p
               className="border-l-2 py-0.5 pl-3 text-sm leading-[1.55] text-muted-foreground"
@@ -144,13 +144,16 @@ export function AccordionItem({
             )}
 
             {needsWallet && !connected && (
-              <p className="rounded-lg border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-xs text-muted-foreground">
+              <p className="rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-xs text-muted-foreground">
                 Connect your wallet to run this instruction.
               </p>
             )}
 
             {needsWallet && connected && publicKey && (
-              <p className="truncate rounded-lg border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-[11px] text-accent">
+              <p className="truncate rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-[11px] text-accent">
+                <span className="mr-2 font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                  bearer
+                </span>
                 {publicKey.toBase58()}
               </p>
             )}

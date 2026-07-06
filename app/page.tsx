@@ -21,6 +21,50 @@ import {
 } from '@/lib/cvault';
 import { fetchFeeds, type PythFeedRow } from '@/lib/pythFeedsClient';
 
+const MICROPRINT = 'CVAULT · ON-CHAIN ETF OPERATIONS · DEVNET SPECIMEN · '.repeat(24);
+
+function GuillocheRosette({ className }: { className?: string }) {
+  const petals = Array.from({ length: 18 }, (_, i) => i * 10);
+  const inner = Array.from({ length: 12 }, (_, i) => i * 15 + 5);
+  return (
+    <svg
+      viewBox="0 0 400 400"
+      className={className}
+      aria-hidden
+      fill="none"
+      stroke="currentColor"
+    >
+      <g className="guilloche">
+        {petals.map((deg) => (
+          <ellipse
+            key={`p${deg}`}
+            cx="200"
+            cy="200"
+            rx="192"
+            ry="56"
+            strokeWidth="0.6"
+            transform={`rotate(${deg} 200 200)`}
+          />
+        ))}
+        {inner.map((deg) => (
+          <ellipse
+            key={`i${deg}`}
+            cx="200"
+            cy="200"
+            rx="118"
+            ry="26"
+            strokeWidth="0.5"
+            transform={`rotate(${deg} 200 200)`}
+          />
+        ))}
+        <circle cx="200" cy="200" r="196" strokeWidth="0.8" />
+        <circle cx="200" cy="200" r="122" strokeWidth="0.5" />
+        <circle cx="200" cy="200" r="58" strokeWidth="0.5" />
+      </g>
+    </svg>
+  );
+}
+
 export default function Home() {
   return (
     <Providers endpoint={getRpcEndpoint(ACTIVE_NETWORK)}>
@@ -43,112 +87,117 @@ function HomeInner() {
 
   const { vaultPda } = deriveVaultPdas(DEFAULT_VAULT_ID);
   const vaultShort = `${vaultPda.toBase58().slice(0, 8)}…${vaultPda.toBase58().slice(-8)}`;
+  const programShort = `${C_VAULT_PROGRAM_ID.toBase58().slice(0, 8)}…${C_VAULT_PROGRAM_ID.toBase58().slice(-8)}`;
 
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
-      <div className="relative flex flex-1 flex-col px-5 py-6 md:px-14 md:py-8">
-        <nav
-          aria-label="Primary"
-          className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-foreground/5 px-4.5 py-2.5 shadow-sm backdrop-blur-sm"
-        >
-          <div className="flex items-center gap-3">
-            <div className="text-xl font-bold tracking-[-0.03em]">
-              cVault<span className="text-accent">⁺</span>
-            </div>
-            <span className="rounded-full bg-accent px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.14em] text-neutral-900">
-              devnet
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <NetworkStatus />
-            <WalletButton />
-          </div>
-        </nav>
+      <div className="flex flex-1 flex-col p-3 md:p-6">
+        <div className="cert-frame relative flex flex-1 flex-col overflow-hidden bg-background px-4 py-5 md:px-12 md:py-8">
+          <GuillocheRosette className="pointer-events-none absolute -right-32 -top-32 h-[420px] w-[420px] text-accent opacity-[0.11] md:-right-24 md:-top-28 md:h-[520px] md:w-[520px]" />
 
-        <div className="mt-10 flex flex-1 flex-col gap-8 pb-10 md:mt-14 lg:gap-10">
-          <header className="flex flex-col gap-5 lg:max-w-[52ch]">
-            <div className="font-mono text-xs tracking-[0.22em] text-accent motion-safe:animate-[forge-fadeup_0.8s_ease_0.1s_both]">
-              {'/// ON-CHAIN ETF OPS CONSOLE'}
-            </div>
-            <h1 className="m-0 text-[clamp(36px,5vw,72px)] font-semibold leading-[1.04] tracking-[-0.04em] motion-safe:animate-[forge-fadeup_0.9s_ease_0.2s_both]">
-              run vault instructions
-              <span className="text-accent">.</span>
-            </h1>
-            <p className="m-0 text-[clamp(15px,1.2vw,17px)] leading-[1.55] text-muted-foreground motion-safe:animate-[forge-fadeup_1s_ease_0.35s_both]">
-              Deposit, redeem, read NAV, and admin the multi-asset vault — one
-              instruction per control, zero mainnet until we flip the switch.
-            </p>
-          </header>
-
-          <div
-            className="flex flex-wrap items-center gap-3 font-mono text-[11px] text-muted-foreground motion-safe:animate-[forge-fadeup_1s_ease_0.45s_both]"
-            role="status"
+          <nav
+            aria-label="Primary"
+            className="relative flex items-center justify-between gap-4"
           >
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-foreground/5 px-2.5 py-1">
-              <span
-                className="h-2 w-2 rounded-full bg-accent motion-safe:animate-[forge-blink_1.6s_ease_infinite]"
-                aria-hidden
-              />
-              <span className="font-bold tracking-[0.08em] text-accent">devnet live</span>
-            </span>
-            <span>
-              vault {DEFAULT_VAULT_ID}:{' '}
-              <span className="font-bold tabular-nums text-foreground">{vaultShort}</span>
-            </span>
-            <span className="hidden sm:inline text-muted-foreground/80">
-              program {C_VAULT_PROGRAM_ID.toBase58().slice(0, 8)}…
-            </span>
+            <div className="font-display text-2xl font-bold tracking-[0.02em]">
+              cVault<span className="text-seal">⁺</span>
+            </div>
+            <div className="flex items-center gap-3 md:gap-4">
+              <NetworkStatus />
+              <WalletButton />
+            </div>
+          </nav>
+
+          <div className="microprint mt-5 border-y border-border py-1" aria-hidden>
+            {MICROPRINT}
           </div>
 
-          <div className="motion-safe:animate-[forge-fadeup_1s_ease_0.55s_both]">
-            <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
-          </div>
+          <div className="relative mt-10 flex flex-1 flex-col gap-8 pb-8 md:mt-12 lg:gap-10">
+            <header className="flex flex-col items-center gap-4 text-center">
+              <div className="font-mono text-[9px] uppercase tracking-[0.34em] text-muted-foreground motion-safe:animate-[cert-fadeup_0.8s_ease_0.1s_both]">
+                this console executes instructions against the c-vault program
+              </div>
+              <h1 className="m-0 font-display text-[clamp(40px,7vw,92px)] font-bold uppercase leading-[1.02] tracking-[0.06em] motion-safe:animate-[cert-fadeup_0.9s_ease_0.2s_both]">
+                Vault Operations
+              </h1>
+              <p className="m-0 max-w-[52ch] text-[clamp(14px,1.2vw,16px)] leading-[1.6] text-muted-foreground motion-safe:animate-[cert-fadeup_1s_ease_0.35s_both]">
+                Deposit, redeem, read NAV, and administer the multi-asset vault —
+                one instruction per control, zero mainnet until we flip the switch.
+              </p>
 
-          <div className="space-y-6 motion-safe:animate-[forge-fadeup_1s_ease_0.65s_both]">
-            {activeTab === 'view' && (
-              <SectionBlock
-                id="view"
-                label="Read operations"
-                functions={VIEW_FUNCTIONS}
-                network={ACTIVE_NETWORK}
-                savedFeeds={savedFeeds}
-              />
-            )}
-            {activeTab === 'deposit' && (
-              <SectionBlock
-                id="deposit"
-                label="Deposit flow"
-                functions={DEPOSIT_FUNCTIONS}
-                network={ACTIVE_NETWORK}
-                savedFeeds={savedFeeds}
-              />
-            )}
-            {activeTab === 'redeem' && (
-              <SectionBlock
-                id="redeem"
-                label="Redeem flow"
-                functions={REDEEM_FUNCTIONS}
-                network={ACTIVE_NETWORK}
-                savedFeeds={savedFeeds}
-              />
-            )}
-            {activeTab === 'feeds' && (
-              <FeedsPanel savedFeeds={savedFeeds} onChange={loadFeeds} />
-            )}
-            {activeTab === 'admin' && (
-              <SectionBlock
-                id="admin"
-                label="Admin operations"
-                functions={ADMIN_FUNCTIONS}
-                network={ACTIVE_NETWORK}
-                savedFeeds={savedFeeds}
-              />
-            )}
-          </div>
+              <div
+                className="mt-2 flex w-full flex-col items-center justify-between gap-2 font-mono text-[11px] font-bold tracking-[0.1em] text-seal sm:flex-row motion-safe:animate-[cert-fadeup_1s_ease_0.45s_both]"
+                role="status"
+              >
+                <span className="tabular-nums">
+                  &#8470; CVLT-{DEFAULT_VAULT_ID} · {vaultShort}
+                </span>
+                <span className="inline-flex items-center gap-1.5 font-normal tracking-[0.14em] text-accent">
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-accent motion-safe:animate-[cert-blink_1.6s_ease_infinite]"
+                    aria-hidden
+                  />
+                  devnet live
+                </span>
+                <span className="tabular-nums">PROGRAM · {programShort}</span>
+              </div>
+            </header>
 
-          <footer className="border-t border-border pt-6 text-center font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground motion-safe:animate-[forge-fadeup_1s_ease_0.8s_both]">
-            cVault v1.1 · devnet · one instruction per control
-          </footer>
+            <div className="motion-safe:animate-[cert-fadeup_1s_ease_0.55s_both]">
+              <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
+            </div>
+
+            <div className="space-y-6 motion-safe:animate-[cert-fadeup_1s_ease_0.65s_both]">
+              {activeTab === 'view' && (
+                <SectionBlock
+                  id="view"
+                  label="Read operations"
+                  functions={VIEW_FUNCTIONS}
+                  network={ACTIVE_NETWORK}
+                  savedFeeds={savedFeeds}
+                />
+              )}
+              {activeTab === 'deposit' && (
+                <SectionBlock
+                  id="deposit"
+                  label="Deposit flow"
+                  functions={DEPOSIT_FUNCTIONS}
+                  network={ACTIVE_NETWORK}
+                  savedFeeds={savedFeeds}
+                />
+              )}
+              {activeTab === 'redeem' && (
+                <SectionBlock
+                  id="redeem"
+                  label="Redeem flow"
+                  functions={REDEEM_FUNCTIONS}
+                  network={ACTIVE_NETWORK}
+                  savedFeeds={savedFeeds}
+                />
+              )}
+              {activeTab === 'feeds' && (
+                <FeedsPanel savedFeeds={savedFeeds} onChange={loadFeeds} />
+              )}
+              {activeTab === 'admin' && (
+                <SectionBlock
+                  id="admin"
+                  label="Admin operations"
+                  functions={ADMIN_FUNCTIONS}
+                  network={ACTIVE_NETWORK}
+                  savedFeeds={savedFeeds}
+                />
+              )}
+            </div>
+
+            <footer className="mt-auto motion-safe:animate-[cert-fadeup_1s_ease_0.8s_both]">
+              <div className="microprint border-y border-border py-1" aria-hidden>
+                {MICROPRINT}
+              </div>
+              <p className="pt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                cVault series 2026 · devnet specimen · one instruction per control
+              </p>
+            </footer>
+          </div>
         </div>
       </div>
     </main>

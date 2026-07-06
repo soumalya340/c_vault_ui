@@ -5,10 +5,10 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 
 const connectClassName =
-  'rounded-lg border border-border bg-foreground/5 px-5 py-2.5 text-sm font-semibold text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+  'rounded-[2px] border border-border-strong bg-background px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.12em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
 const connectedClassName =
-  'flex items-center gap-2 rounded-lg border border-border bg-foreground/5 px-3.5 py-2 text-sm font-semibold text-foreground transition-all duration-150 hover:border-accent hover:bg-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+  'flex items-center gap-2 rounded-[2px] border border-border-strong bg-background px-3.5 py-2 text-sm font-semibold text-foreground transition-colors duration-150 hover:border-accent hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
 export function WalletButton() {
   const { publicKey, connected, disconnect, wallet } = useWallet();
@@ -75,7 +75,7 @@ export function WalletButton() {
       {menuOpen && (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-2 min-w-[200px] overflow-hidden rounded-xl border border-border bg-background py-1 shadow-xl backdrop-blur-md"
+          className="cert-frame absolute right-0 z-50 mt-2 min-w-[200px] overflow-hidden bg-background py-1 shadow-xl"
         >
           {wallet?.adapter.name && (
             <div className="border-b border-border px-4 py-2">
