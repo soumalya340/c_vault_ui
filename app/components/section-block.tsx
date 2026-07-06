@@ -1,7 +1,6 @@
 'use client';
 
 import type { Network } from '@/lib/cvault';
-import type { PythFeedRow } from '@/lib/pythFeedsClient';
 import { AccordionItem } from './accordion-item';
 import { panelClass, sectionLabelClass } from './ui-classes';
 import { SECTION_STYLE, type FunctionDef, type SectionId } from './function-defs';
@@ -11,13 +10,11 @@ export function SectionBlock({
   label,
   functions,
   network,
-  savedFeeds,
 }: {
   id: SectionId;
   label: string;
   functions: FunctionDef[];
   network: Network;
-  savedFeeds: PythFeedRow[];
 }) {
   const style = SECTION_STYLE[id];
 
@@ -43,7 +40,6 @@ export function SectionBlock({
               fn={fn}
               section={id}
               network={network}
-              savedFeeds={savedFeeds}
             />
           ))}
         </div>

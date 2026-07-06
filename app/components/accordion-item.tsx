@@ -4,9 +4,7 @@ import { useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import type { Network } from '@/lib/cvault';
-import type { PythFeedRow } from '@/lib/pythFeedsClient';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
-import { FeedSelectField } from './feed-select-field';
 import {
   REQUIRES_WALLET,
   SECTION_STYLE,
@@ -25,12 +23,10 @@ export function AccordionItem({
   fn,
   section,
   network,
-  savedFeeds,
 }: {
   fn: FunctionDef;
   section: SectionId;
   network: Network;
-  savedFeeds: PythFeedRow[];
 }) {
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -176,12 +172,6 @@ export function AccordionItem({
                         </option>
                       ))}
                     </select>
-                  ) : field.type === 'feed' ? (
-                    <FeedSelectField
-                      value={values[field.name] ?? ''}
-                      onChange={(val) => setValues((prev) => ({ ...prev, [field.name]: val }))}
-                      savedFeeds={savedFeeds}
-                    />
                   ) : field.name === 'assets_json' ? (
                     <textarea
                       value={values[field.name] ?? ''}

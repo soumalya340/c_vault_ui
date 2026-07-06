@@ -1,16 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Providers, getRpcEndpoint, ACTIVE_NETWORK } from '@/app/providers';
 import { TabBar } from '@/app/components/tab-bar';
 import { SectionBlock } from '@/app/components/section-block';
-import { FeedsPanel } from '@/app/components/feeds-panel';
+import { VaultsPanel } from '@/app/components/vaults-panel';
+import { CreateEtfPanel } from '@/app/components/create-etf-panel';
 import { NetworkStatus } from '@/app/components/network-toggle';
 import { WalletButton } from '@/app/components/wallet-button';
 import {
   VIEW_FUNCTIONS,
-  DEPOSIT_FUNCTIONS,
-  REDEEM_FUNCTIONS,
+  VAULT_OPS_FUNCTIONS,
   ADMIN_FUNCTIONS,
   type SectionId,
 } from '@/app/components/function-defs';
@@ -19,7 +19,6 @@ import {
   DEFAULT_VAULT_ID,
   deriveVaultPdas,
 } from '@/lib/cvault';
-import { fetchFeeds, type PythFeedRow } from '@/lib/pythFeedsClient';
 
 const MICROPRINT = 'CVAULT · ON-CHAIN ETF OPERATIONS · DEVNET SPECIMEN · '.repeat(24);
 
@@ -75,15 +74,6 @@ export default function Home() {
 
 function HomeInner() {
   const [activeTab, setActiveTab] = useState<SectionId>('view');
-  const [savedFeeds, setSavedFeeds] = useState<PythFeedRow[]>([]);
-
-  const loadFeeds = () => {
-    fetchFeeds().then(setSavedFeeds).catch(() => setSavedFeeds([]));
-  };
-
-  useEffect(() => {
-    loadFeeds();
-  }, []);
 
   const { vaultPda } = deriveVaultPdas(DEFAULT_VAULT_ID);
   const vaultShort = `${vaultPda.toBase58().slice(0, 8)}…${vaultPda.toBase58().slice(-8)}`;
@@ -154,29 +144,19 @@ function HomeInner() {
                   label="Read operations"
                   functions={VIEW_FUNCTIONS}
                   network={ACTIVE_NETWORK}
-                  savedFeeds={savedFeeds}
                 />
               )}
-              {activeTab === 'deposit' && (
-                <SectionBlock
-                  id="deposit"
-                  label="Deposit flow"
-                  functions={DEPOSIT_FUNCTIONS}
-                  network={ACTIVE_NETWORK}
-                  savedFeeds={savedFeeds}
-                />
-              )}
-              {activeTab === 'redeem' && (
-                <SectionBlock
-                  id="redeem"
-                  label="Redeem flow"
-                  functions={REDEEM_FUNCTIONS}
-                  network={ACTIVE_NETWORK}
-                  savedFeeds={savedFeeds}
-                />
-              )}
-              {activeTab === 'feeds' && (
-                <FeedsPanel savedFeeds={savedFeeds} onChange={loadFeeds} />
+              {activeTab === 'vaults' && <VaultsPanel network={ACTIVE_NETWORK} />}
+              {activeTab === 'vault-ops' && (
+                <div className="space-y-6">
+                  <CreateEtfPanel network={ACTIVE_NETWORK} />
+                  <SectionBlock
+                    id="vault-ops"
+                    label="Vault operations"
+                    functions={VAULT_OPS_FUNCTIONS}
+                    network={ACTIVE_NETWORK}
+                  />
+                </div>
               )}
               {activeTab === 'admin' && (
                 <SectionBlock
@@ -184,7 +164,6 @@ function HomeInner() {
                   label="Admin operations"
                   functions={ADMIN_FUNCTIONS}
                   network={ACTIVE_NETWORK}
-                  savedFeeds={savedFeeds}
                 />
               )}
             </div>

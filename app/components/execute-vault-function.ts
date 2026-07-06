@@ -6,7 +6,6 @@ import {
   initGlobalState,
   addEligibleBaseMint,
   removeEligibleBaseMint,
-  createEtf,
   setEmergency,
   setDepositDisable,
   resume,
@@ -15,26 +14,14 @@ import {
   setFeeRecipient,
   updatePlatformFeeBps,
   updateTreasuryAddr,
-  deposit,
-  requestRedeem,
-  claim,
-  swapUsdcToSol,
-  swapUsdcToAsset,
-  swapSolToAsset,
-  swapAssetToSol,
-  swapSolToUsdc,
-  swapAssetToUsdc,
   getGlobalState,
   getVaultState,
   getTotalNavView,
   previewDeposit,
   previewRedeem,
   getUserPosition,
-  ensureUserAtas,
-  ADMIN_PUBKEY,
   DEFAULT_VAULT_ID,
   type Network,
-  type PriceFeeds,
 } from '@/lib/cvault';
 
 function bn(v: string | undefined, fallback = '0'): BN {
@@ -46,10 +33,16 @@ function pk(v: string | undefined): PublicKey {
   return new PublicKey(v.trim());
 }
 
-function feeds(values: Record<string, string>): PriceFeeds {
-  return { sol: pk(values.sol_feed), btc: pk(values.btc_feed), eth: pk(values.eth_feed) };
+function vaultId(v: Record<string, string>): number {
+  return v.vault_id?.trim() ? Number(v.vault_id) : DEFAULT_VAULT_ID;
 }
 
+/**
+ * Runs every instruction on the View / Vault Ops / Admin accordion tabs
+ * (`app/components/function-defs.ts`). Create ETF, Deposit, and Redeem each
+ * have their own dedicated panels (create-etf-panel.tsx, vaults-panel.tsx)
+ * and are not dispatched from here.
+ */
 export async function executeVaultFunction(
   fnId: string,
   values: Record<string, string>,
@@ -63,74 +56,22 @@ export async function executeVaultFunction(
   const { connection, anchorWallet, publicKey, network } = ctx;
   const v = values;
   const net = network;
+  const id = vaultId(v);
 
   switch (fnId) {
     case 'view_global_state':
       return getGlobalState(connection);
     case 'view_vault_state':
-      return getVaultState(connection, DEFAULT_VAULT_ID);
+      return getVaultState(connection, id);
     case 'view_nav':
-      return getTotalNavView(connection, DEFAULT_VAULT_ID, feeds(v));
+      return getTotalNavView(connection, id);
     case 'preview_deposit':
-      return previewDeposit(connection, DEFAULT_VAULT_ID, bn(v.usdc_amount), feeds(v));
+      return previewDeposit(connection, id, bn(v.usdc_amount));
     case 'preview_redeem':
-      return previewRedeem(connection, DEFAULT_VAULT_ID, bn(v.shares), feeds(v));
+      return previewRedeem(connection, id, bn(v.shares));
     case 'view_my_position':
       if (!publicKey) throw new Error('Connect wallet');
-      return getUserPosition(connection, DEFAULT_VAULT_ID, publicKey);
-    case 'deposit': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await deposit(connection, anchorWallet, DEFAULT_VAULT_ID, bn(v.usdc_amount), bn(v.min_shares_out), feeds(v), net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'ensure_atas': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await ensureUserAtas(connection, anchorWallet, DEFAULT_VAULT_ID, net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'swap_usdc_to_sol': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await swapUsdcToSol(connection, anchorWallet, DEFAULT_VAULT_ID, bn(v.min_wsol_out), net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'swap_usdc_to_asset': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await swapUsdcToAsset(connection, anchorWallet, DEFAULT_VAULT_ID, Number(v.asset_index || 0), pk(v.pool_address), pk(v.asset_mint), pk(v.asset_ata), bn(v.min_asset_out), net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'swap_sol_to_asset': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await swapSolToAsset(connection, anchorWallet, DEFAULT_VAULT_ID, Number(v.asset_index || 0), pk(v.pool_address), pk(v.asset_mint), pk(v.asset_ata), bn(v.min_asset_out), net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'request_redeem': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await requestRedeem(connection, anchorWallet, DEFAULT_VAULT_ID, bn(v.shares), feeds(v), net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'swap_asset_to_sol': {
-      if (!anchorWallet || !publicKey) throw new Error('Wallet required');
-      const target = v.user_address?.trim() ? pk(v.user_address) : publicKey;
-      const r = await swapAssetToSol(connection, anchorWallet, DEFAULT_VAULT_ID, Number(v.asset_index || 0), pk(v.pool_address), pk(v.asset_mint), pk(v.asset_ata), bn(v.min_wsol_out), target, net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'swap_sol_to_usdc': {
-      if (!anchorWallet || !publicKey) throw new Error('Wallet required');
-      const target = v.user_address?.trim() ? pk(v.user_address) : publicKey;
-      const r = await swapSolToUsdc(connection, anchorWallet, DEFAULT_VAULT_ID, Number(v.asset_index || 0), bn(v.wsol_amount), bn(v.min_usdc_out), target, net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'swap_asset_to_usdc': {
-      if (!anchorWallet || !publicKey) throw new Error('Wallet required');
-      const target = v.user_address?.trim() ? pk(v.user_address) : publicKey;
-      const r = await swapAssetToUsdc(connection, anchorWallet, DEFAULT_VAULT_ID, Number(v.asset_index || 0), pk(v.pool_address), pk(v.asset_mint), pk(v.asset_ata), bn(v.min_usdc_out), target, net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'claim': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await claim(connection, anchorWallet, DEFAULT_VAULT_ID, net);
-      return { tx: r.tx, solscan: r.link };
-    }
+      return getUserPosition(connection, id, publicKey);
     case 'init_global_state': {
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await initGlobalState(connection, anchorWallet, Number(v.platform_fee_bps || 0), net);
@@ -146,42 +87,6 @@ export async function executeVaultFunction(
       const r = await removeEligibleBaseMint(connection, anchorWallet, pk(v.mint), net);
       return { tx: r.tx, solscan: r.link };
     }
-    case 'create_etf': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const rawAssets = JSON.parse(v.assets_json || '[]');
-      const assets = rawAssets.map((a: {
-        mint: string;
-        poolAddress: string;
-        pythFeedId: string;
-        allocationBps: number;
-        decimals: number;
-        route: string;
-      }) => ({
-        mint: new PublicKey(a.mint),
-        poolAddress: new PublicKey(a.poolAddress),
-        pythFeedId: Array.from(Buffer.from(a.pythFeedId, 'hex')),
-        allocationBps: a.allocationBps,
-        decimals: a.decimals,
-        route: a.route === 'ViaSol' ? { viaSol: {} } : { directUsdc: {} },
-      }));
-      const r = await createEtf(
-        connection,
-        anchorWallet,
-        {
-          feeRecipient: v.fee_recipient?.trim() ? pk(v.fee_recipient) : null,
-          performanceFeeBps: Number(v.performance_fee_bps || 0),
-          usdcSolPool: v.usdc_sol_pool?.trim() ? pk(v.usdc_sol_pool) : null,
-          assets,
-          fundType: v.fund_type === 'fixed' ? { fixed: {} } : { dynamic: {} },
-          maxShares: v.max_shares?.trim() ? bn(v.max_shares) : null,
-        },
-        v.name || '',
-        v.symbol || '',
-        v.uri || '',
-        net,
-      );
-      return { tx: r.tx, solscan: r.link };
-    }
     case 'set_emergency': {
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await setEmergency(connection, anchorWallet, v.is_emergency === 'true', net);
@@ -194,22 +99,22 @@ export async function executeVaultFunction(
     }
     case 'set_paused': {
       if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setPaused(connection, anchorWallet, DEFAULT_VAULT_ID, v.paused === 'true', net);
+      const r = await setPaused(connection, anchorWallet, id, v.paused === 'true', net);
       return { tx: r.tx, solscan: r.link };
     }
     case 'resume': {
       if (!anchorWallet) throw new Error('Wallet required');
-      const r = await resume(connection, anchorWallet, DEFAULT_VAULT_ID, net);
+      const r = await resume(connection, anchorWallet, id, net);
       return { tx: r.tx, solscan: r.link };
     }
     case 'set_redeem_cooldown': {
       if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setRedeemCooldown(connection, anchorWallet, DEFAULT_VAULT_ID, Number(v.cooldown_secs || 86400), net);
+      const r = await setRedeemCooldown(connection, anchorWallet, id, Number(v.cooldown_secs || 86400), net);
       return { tx: r.tx, solscan: r.link };
     }
     case 'set_fee_recipient': {
       if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setFeeRecipient(connection, anchorWallet, DEFAULT_VAULT_ID, pk(v.fee_recipient), net);
+      const r = await setFeeRecipient(connection, anchorWallet, id, pk(v.fee_recipient), net);
       return { tx: r.tx, solscan: r.link };
     }
     case 'update_platform_fee_bps': {

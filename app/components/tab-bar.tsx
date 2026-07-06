@@ -4,9 +4,8 @@ import { SECTION_STYLE, type SectionId } from './function-defs';
 
 const TABS: { id: SectionId; label: string }[] = [
   { id: 'view', label: 'View' },
-  { id: 'deposit', label: 'Deposit' },
-  { id: 'redeem', label: 'Redeem' },
-  { id: 'feeds', label: 'Feeds' },
+  { id: 'vaults', label: 'Vaults' },
+  { id: 'vault-ops', label: 'Vault Ops' },
   { id: 'admin', label: 'Admin' },
 ];
 

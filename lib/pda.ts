@@ -32,7 +32,12 @@ export interface VaultPdas {
   usdcVault: PublicKey;
 }
 
-export function deriveVaultPdas(vaultId: number): VaultPdas {
+/**
+ * The usdc_vault PDA is seeded with the vault's base mint — pass the actual
+ * base mint for vaults not denominated in mainnet USDC (e.g. forge mock USDC
+ * on devnet).
+ */
+export function deriveVaultPdas(vaultId: number, baseMint: PublicKey = USDC_MINT): VaultPdas {
   const idBuf = vaultIdBuf(vaultId);
   const [vaultPda] = PublicKey.findProgramAddressSync(
     [VAULT_SEED, idBuf],
@@ -47,7 +52,7 @@ export function deriveVaultPdas(vaultId: number): VaultPdas {
     C_VAULT_PROGRAM_ID,
   );
   const [usdcVault] = PublicKey.findProgramAddressSync(
-    [USDC_VAULT_SEED, USDC_MINT.toBuffer(), idBuf],
+    [USDC_VAULT_SEED, baseMint.toBuffer(), idBuf],
     C_VAULT_PROGRAM_ID,
   );
   return { vaultPda, vaultAuthority, sharesMint, usdcVault };
