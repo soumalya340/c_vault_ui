@@ -1,0 +1,4685 @@
+{
+  "address": "2YW9wGokqo321EtDNWWH2CSQxFiJz3uMoNxa9dgbHn2P",
+  "metadata": {
+    "name": "c_vault",
+    "version": "1.1.0",
+    "spec": "0.1.0",
+    "description": "c_vault v1.1.0 — On-chain multi-fund index vault (ETF-style) for Solana"
+  },
+  "instructions": [
+    {
+      "name": "add_eligible_base_mint",
+      "docs": [
+        "Add a company-approved stable mint to the eligible base_mint allowlist."
+      ],
+      "discriminator": [
+        40,
+        203,
+        114,
+        47,
+        122,
+        244,
+        220,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
+      ],
+      "args": [
+        {
+          "name": "mint",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "claim",
+      "docs": [
+        "Instruction 3 of 3 — send pending USDC to user and close RedeemState."
+      ],
+      "discriminator": [
+        62,
+        198,
+        214,
+        193,
+        213,
+        159,
+        108,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "redeem_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  100,
+                  101,
+                  101,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "treasury_usdc_account",
+          "docs": [
+            "Platform fee slice destination — treasury's USDC ATA."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_etf",
+      "docs": [
+        "Create a new ETF fund vault, including its Token-2022 share metadata,",
+        "in a single transaction. The new vault's id is always",
+        "`global_state.total_vaults`; PDA seeds are derived from it directly. The",
+        "counter is incremented by 1 once the vault is initialised."
+      ],
+      "discriminator": [
+        210,
+        255,
+        162,
+        136,
+        167,
+        106,
+        173,
+        169
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "docs": [
+            "Program-wide singleton — must already be initialised via init_global_state.",
+            "`total_vaults` is read here (pre-handler) to derive this vault's PDA seeds."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "The new vault state PDA, keyed by the current global vault counter."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "global_state.total_vaults",
+                "account": "GlobalState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "docs": [
+            "Per-vault PDA that signs CPIs on behalf of this vault."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "global_state.total_vaults",
+                "account": "GlobalState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "shares_mint",
+          "docs": [
+            "Share (LP) token mint for this vault — Token-2022. Created manually in the",
+            "handler (not via Anchor's `init` + `mint::…` macro) because the",
+            "`MetadataPointer` extension must be initialized *before* `InitializeMint2`,",
+            "and this workspace's anchor-spl (0.31.0) doesn't yet support declaring",
+            "mint extensions through the account macro (added in 0.31.1).",
+            "mint (with MetadataPointer extension) in the handler below."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  97,
+                  114,
+                  101,
+                  115,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "global_state.total_vaults",
+                "account": "GlobalState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "docs": [
+            "USDC token account custodied by this vault."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              },
+              {
+                "kind": "account",
+                "path": "global_state.total_vaults",
+                "account": "GlobalState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint",
+          "docs": [
+            "The USDC mint (base currency for all deposits and redemptions)."
+          ]
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "shares_token_program",
+          "docs": [
+            "Token-2022 program — used for the share mint."
+          ]
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Classic SPL Token program — used for the USDC vault account."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "InitializeParams"
+            }
+          }
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "name": "uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "docs": [
+        "Instruction A — transfer USDC, price shares against pre-swap NAV, mint shares.",
+        "Must be followed by per-asset swap legs in the same transaction. For",
+        "`Fixed` vaults near their max_shares cap, the deposit is clamped to",
+        "remaining headroom rather than rejected."
+      ],
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "share_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  97,
+                  114,
+                  101,
+                  115,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "user_share_account",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program (for c_vault share mint / burn / transfers)."
+          ]
+        },
+        {
+          "name": "base_token_program",
+          "docs": [
+            "Classic SPL Token program (for USDC transfers)."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "user_info",
+          "docs": [
+            "One PDA per (vault, user) — created on this user's first deposit into",
+            "this vault, reused (accumulated) on every deposit after that."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  105,
+                  110,
+                  102,
+                  111
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "fee_recipient"
+        },
+        {
+          "name": "treasury_usdc_account",
+          "docs": [
+            "Platform fee slice destination — treasury's USDC ATA."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury"
+              },
+              {
+                "kind": "account",
+                "path": "base_token_program"
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "fee_recipient_usdc_account",
+          "docs": [
+            "Vault fee slice destination — vault's fee_recipient USDC ATA."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "fee_recipient"
+              },
+              {
+                "kind": "account",
+                "path": "base_token_program"
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "usdc_amount",
+          "type": "u64"
+        },
+        {
+          "name": "min_shares_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "get_total_nav_view",
+      "docs": [
+        "Read-only: returns live NAV, share price, and total shares.",
+        "Call with `.view()` from the TypeScript client — no wallet signature needed."
+      ],
+      "discriminator": [
+        218,
+        231,
+        15,
+        92,
+        175,
+        53,
+        10,
+        196
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "NavViewResult"
+        }
+      }
+    },
+    {
+      "name": "init_global_state",
+      "docs": [
+        "Create the GlobalState singleton. Must be called once before any vault is created."
+      ],
+      "discriminator": [
+        225,
+        88,
+        176,
+        139,
+        158,
+        113,
+        203,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "platform_fee_bps",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "preview_deposit",
+      "docs": [
+        "Read-only: shares a `usdc_amount` deposit would mint right now.",
+        "Call with `.view()` from the TypeScript client — no wallet signature needed."
+      ],
+      "discriminator": [
+        16,
+        61,
+        8,
+        235,
+        146,
+        126,
+        80,
+        84
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "usdc_amount",
+          "type": "u64"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "PreviewDepositResult"
+        }
+      }
+    },
+    {
+      "name": "preview_redeem",
+      "docs": [
+        "Read-only: asset amounts + estimated USDC that burning `shares` would return.",
+        "Call with `.view()` from the TypeScript client — no wallet signature needed."
+      ],
+      "discriminator": [
+        122,
+        195,
+        125,
+        8,
+        168,
+        149,
+        50,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "shares",
+          "type": "u64"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "PreviewRedeemResult"
+        }
+      }
+    },
+    {
+      "name": "remove_eligible_base_mint",
+      "docs": [
+        "Remove a mint from the eligible base_mint allowlist."
+      ],
+      "discriminator": [
+        161,
+        169,
+        254,
+        180,
+        121,
+        233,
+        191,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
+      ],
+      "args": [
+        {
+          "name": "mint",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "request_redeem",
+      "docs": [
+        "Instruction 1 of 3 — burn shares, record proportional asset amounts, start 24hr cooldown."
+      ],
+      "discriminator": [
+        105,
+        49,
+        44,
+        38,
+        207,
+        241,
+        33,
+        173
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "shares_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  97,
+                  114,
+                  101,
+                  115,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_share_account",
+          "writable": true
+        },
+        {
+          "name": "redeem_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  100,
+                  101,
+                  101,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program (for c_vault share burn)."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "shares",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "resume",
+      "docs": [
+        "Resume vault after pause and reset the rolling high-price window."
+      ],
+      "discriminator": [
+        1,
+        166,
+        51,
+        170,
+        127,
+        32,
+        141,
+        206
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_manager",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_deposit_disable",
+      "docs": [
+        "Turn program-wide deposit blocking on or off."
+      ],
+      "discriminator": [
+        252,
+        10,
+        198,
+        195,
+        233,
+        165,
+        23,
+        20
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
+      ],
+      "args": [
+        {
+          "name": "deposit_disable",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_emergency",
+      "docs": [
+        "Turn global emergency mode on or off (blocks new deposits program-wide)."
+      ],
+      "discriminator": [
+        179,
+        20,
+        193,
+        82,
+        138,
+        173,
+        228,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
+      ],
+      "args": [
+        {
+          "name": "is_emergency",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_fee_recipient",
+      "docs": [
+        "Update the pubkey that receives accrued performance fees for this vault."
+      ],
+      "discriminator": [
+        227,
+        18,
+        215,
+        42,
+        237,
+        246,
+        151,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_manager",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "fee_recipient",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_paused",
+      "docs": [
+        "Pause or unpause deposits for this vault (withdrawals always remain open)."
+      ],
+      "discriminator": [
+        91,
+        60,
+        125,
+        192,
+        176,
+        225,
+        166,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_manager",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_redeem_cooldown",
+      "docs": [
+        "Update the redeem cooldown (0 … 604 800 s). Applies to future redeems only."
+      ],
+      "discriminator": [
+        204,
+        185,
+        60,
+        240,
+        215,
+        68,
+        253,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_manager",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "cooldown_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "swap_asset_to_sol",
+      "docs": [
+        "Instruction 2 of 3 (per-asset, ViaSol leg 1) — swap one asset slot → wSOL.",
+        "The input amount is read from `RedeemState.asset_amount_in[asset_index]`.",
+        "Follow with `swap_sol_to_usdc` to finish converting the wSOL to USDC."
+      ],
+      "discriminator": [
+        250,
+        76,
+        72,
+        172,
+        51,
+        51,
+        187,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "redeem_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  100,
+                  101,
+                  101,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "whirlpool_program",
+          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+        },
+        {
+          "name": "whirlpool",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_a",
+          "writable": true
+        },
+        {
+          "name": "token_vault_a",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_b",
+          "writable": true
+        },
+        {
+          "name": "token_vault_b",
+          "writable": true
+        },
+        {
+          "name": "tick_array_0",
+          "writable": true
+        },
+        {
+          "name": "tick_array_1",
+          "writable": true
+        },
+        {
+          "name": "tick_array_2",
+          "writable": true
+        },
+        {
+          "name": "oracle"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "asset_index",
+          "type": "u8"
+        },
+        {
+          "name": "min_wsol_out",
+          "type": "u64"
+        },
+        {
+          "name": "a_to_b",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "swap_asset_to_usdc",
+      "docs": [
+        "Instruction 2 of 3 (per-asset) — after cooldown, swap one asset slot → USDC",
+        "directly (DirectUsdc route). The input amount is read from",
+        "`RedeemState.asset_amount_in[asset_index]`; net USDC is accumulated into",
+        "`pending_usdc`. Call once per DirectUsdc asset before `claim`."
+      ],
+      "discriminator": [
+        254,
+        176,
+        17,
+        106,
+        42,
+        254,
+        168,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "redeem_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  100,
+                  101,
+                  101,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "whirlpool_program",
+          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+        },
+        {
+          "name": "whirlpool",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_a",
+          "writable": true
+        },
+        {
+          "name": "token_vault_a",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_b",
+          "writable": true
+        },
+        {
+          "name": "token_vault_b",
+          "writable": true
+        },
+        {
+          "name": "tick_array_0",
+          "writable": true
+        },
+        {
+          "name": "tick_array_1",
+          "writable": true
+        },
+        {
+          "name": "tick_array_2",
+          "writable": true
+        },
+        {
+          "name": "oracle"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "asset_index",
+          "type": "u8"
+        },
+        {
+          "name": "min_usdc_out",
+          "type": "u64"
+        },
+        {
+          "name": "a_to_b",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "swap_sol_to_asset",
+      "docs": [
+        "Permissionless: deploy the vault's pending wSOL into one ViaSol asset.",
+        "Amount = total_pending_sol × sol_target_bps[idx] / 10_000; no-ops if 0."
+      ],
+      "discriminator": [
+        154,
+        244,
+        238,
+        229,
+        181,
+        164,
+        138,
+        31
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signer",
+          "docs": [
+            "Permissionless caller — any signer may deploy pending wSOL."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "whirlpool_program",
+          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+        },
+        {
+          "name": "whirlpool",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_a",
+          "writable": true
+        },
+        {
+          "name": "token_vault_a",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_b",
+          "writable": true
+        },
+        {
+          "name": "token_vault_b",
+          "writable": true
+        },
+        {
+          "name": "tick_array_0",
+          "writable": true
+        },
+        {
+          "name": "tick_array_1",
+          "writable": true
+        },
+        {
+          "name": "tick_array_2",
+          "writable": true
+        },
+        {
+          "name": "oracle"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "asset_index",
+          "type": "u8"
+        },
+        {
+          "name": "min_asset_out",
+          "type": "u64"
+        },
+        {
+          "name": "a_to_b",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "swap_sol_to_usdc",
+      "docs": [
+        "Instruction 2 of 3 (per-asset, ViaSol leg 2) — swap accumulated wSOL → USDC",
+        "for `asset_index`, deduct the performance fee, and accumulate net USDC into",
+        "`pending_usdc`. `wsol_amount` is the wSOL produced by the prior",
+        "`swap_asset_to_sol` leg (a runtime value, not the stored asset amount)."
+      ],
+      "discriminator": [
+        169,
+        2,
+        247,
+        19,
+        104,
+        227,
+        106,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "redeem_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  100,
+                  101,
+                  101,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.base_mint",
+                "account": "Vault"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "whirlpool_program",
+          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+        },
+        {
+          "name": "whirlpool",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_a",
+          "writable": true
+        },
+        {
+          "name": "token_vault_a",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_b",
+          "writable": true
+        },
+        {
+          "name": "token_vault_b",
+          "writable": true
+        },
+        {
+          "name": "tick_array_0",
+          "writable": true
+        },
+        {
+          "name": "tick_array_1",
+          "writable": true
+        },
+        {
+          "name": "tick_array_2",
+          "writable": true
+        },
+        {
+          "name": "oracle"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "asset_index",
+          "type": "u8"
+        },
+        {
+          "name": "wsol_amount",
+          "type": "u64"
+        },
+        {
+          "name": "min_usdc_out",
+          "type": "u64"
+        },
+        {
+          "name": "a_to_b",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "swap_usdc_to_asset",
+      "docs": [
+        "Permissionless: deploy the vault's pending USDC into one DirectUsdc asset.",
+        "Amount is derived on-chain from `vault.usdc_target_amount[idx]`; no-ops if 0."
+      ],
+      "discriminator": [
+        247,
+        114,
+        135,
+        217,
+        212,
+        91,
+        4,
+        14
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signer",
+          "docs": [
+            "Permissionless caller — pays tx fees; any signer may deploy pending funds."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "whirlpool_program",
+          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+        },
+        {
+          "name": "whirlpool",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_a",
+          "writable": true
+        },
+        {
+          "name": "token_vault_a",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_b",
+          "writable": true
+        },
+        {
+          "name": "token_vault_b",
+          "writable": true
+        },
+        {
+          "name": "tick_array_0",
+          "writable": true
+        },
+        {
+          "name": "tick_array_1",
+          "writable": true
+        },
+        {
+          "name": "tick_array_2",
+          "writable": true
+        },
+        {
+          "name": "oracle"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "asset_index",
+          "type": "u8"
+        },
+        {
+          "name": "min_asset_out",
+          "type": "u64"
+        },
+        {
+          "name": "a_to_b",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "swap_usdc_to_sol",
+      "docs": [
+        "Permissionless: convert the vault's ViaSol-bound pending USDC → wSOL.",
+        "Size derived on-chain; no-ops if nothing is pending."
+      ],
+      "discriminator": [
+        240,
+        185,
+        104,
+        11,
+        245,
+        153,
+        45,
+        177
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  116,
+                  102,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signer",
+          "docs": [
+            "Permissionless caller — any signer may run the conversion."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "whirlpool_program",
+          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+        },
+        {
+          "name": "whirlpool",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_a",
+          "writable": true
+        },
+        {
+          "name": "token_vault_a",
+          "writable": true
+        },
+        {
+          "name": "token_owner_account_b",
+          "writable": true
+        },
+        {
+          "name": "token_vault_b",
+          "writable": true
+        },
+        {
+          "name": "tick_array_0",
+          "writable": true
+        },
+        {
+          "name": "tick_array_1",
+          "writable": true
+        },
+        {
+          "name": "tick_array_2",
+          "writable": true
+        },
+        {
+          "name": "oracle"
+        },
+        {
+          "name": "wsol_owner_account",
+          "docs": [
+            "token_owner_account_a/_b actually holds wSOL, passed again here so the",
+            "handler can read its balance before/after without guessing which slot."
+          ],
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "min_wsol_out",
+          "type": "u64"
+        },
+        {
+          "name": "a_to_b",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "update_platform_fee_bps",
+      "docs": [
+        "Update the platform fee charged in basis points (max 20%)."
+      ],
+      "discriminator": [
+        104,
+        160,
+        220,
+        153,
+        191,
+        74,
+        242,
+        58
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
+      ],
+      "args": [
+        {
+          "name": "platform_fee_bps",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_treasury_addr",
+      "docs": [
+        "Update the program-wide treasury recipient address."
+      ],
+      "discriminator": [
+        89,
+        118,
+        189,
+        91,
+        22,
+        6,
+        105,
+        149
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
+      ],
+      "args": [
+        {
+          "name": "treasury_addr",
+          "type": "pubkey"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GlobalState",
+      "discriminator": [
+        163,
+        46,
+        74,
+        168,
+        216,
+        123,
+        133,
+        98
+      ]
+    },
+    {
+      "name": "RedeemState",
+      "discriminator": [
+        69,
+        112,
+        71,
+        246,
+        9,
+        201,
+        117,
+        14
+      ]
+    },
+    {
+      "name": "UserInfo",
+      "discriminator": [
+        83,
+        134,
+        200,
+        56,
+        144,
+        56,
+        10,
+        62
+      ]
+    },
+    {
+      "name": "Vault",
+      "discriminator": [
+        211,
+        8,
+        232,
+        43,
+        2,
+        152,
+        117,
+        119
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ClaimEvent",
+      "discriminator": [
+        93,
+        15,
+        70,
+        170,
+        48,
+        140,
+        212,
+        219
+      ]
+    },
+    {
+      "name": "DepositDisableUpdatedEvent",
+      "discriminator": [
+        189,
+        162,
+        210,
+        97,
+        4,
+        187,
+        180,
+        233
+      ]
+    },
+    {
+      "name": "DepositEvent",
+      "discriminator": [
+        120,
+        248,
+        61,
+        83,
+        31,
+        142,
+        107,
+        144
+      ]
+    },
+    {
+      "name": "EligibleBaseMintAddedEvent",
+      "discriminator": [
+        150,
+        20,
+        38,
+        22,
+        178,
+        195,
+        155,
+        49
+      ]
+    },
+    {
+      "name": "EligibleBaseMintRemovedEvent",
+      "discriminator": [
+        172,
+        211,
+        133,
+        129,
+        24,
+        229,
+        30,
+        182
+      ]
+    },
+    {
+      "name": "FeeRecipientUpdatedEvent",
+      "discriminator": [
+        253,
+        5,
+        188,
+        179,
+        215,
+        147,
+        124,
+        145
+      ]
+    },
+    {
+      "name": "GlobalEmergencyUpdatedEvent",
+      "discriminator": [
+        72,
+        128,
+        254,
+        33,
+        86,
+        233,
+        193,
+        107
+      ]
+    },
+    {
+      "name": "PlatformFeeUpdatedEvent",
+      "discriminator": [
+        7,
+        32,
+        168,
+        42,
+        6,
+        254,
+        146,
+        165
+      ]
+    },
+    {
+      "name": "RedeemCooldownUpdatedEvent",
+      "discriminator": [
+        40,
+        218,
+        188,
+        103,
+        74,
+        204,
+        123,
+        115
+      ]
+    },
+    {
+      "name": "RequestRedeemEvent",
+      "discriminator": [
+        120,
+        214,
+        88,
+        168,
+        105,
+        172,
+        248,
+        7
+      ]
+    },
+    {
+      "name": "ShareMetadataCreatedEvent",
+      "discriminator": [
+        125,
+        88,
+        91,
+        45,
+        193,
+        144,
+        23,
+        105
+      ]
+    },
+    {
+      "name": "SwapAssetToSolEvent",
+      "discriminator": [
+        107,
+        95,
+        14,
+        89,
+        170,
+        92,
+        216,
+        74
+      ]
+    },
+    {
+      "name": "SwapAssetToUsdcEvent",
+      "discriminator": [
+        153,
+        205,
+        66,
+        197,
+        216,
+        101,
+        63,
+        199
+      ]
+    },
+    {
+      "name": "SwapSolToAssetEvent",
+      "discriminator": [
+        189,
+        38,
+        200,
+        235,
+        60,
+        83,
+        221,
+        238
+      ]
+    },
+    {
+      "name": "SwapSolToUsdcEvent",
+      "discriminator": [
+        4,
+        73,
+        33,
+        126,
+        41,
+        250,
+        141,
+        145
+      ]
+    },
+    {
+      "name": "SwapUsdcToAssetEvent",
+      "discriminator": [
+        108,
+        74,
+        48,
+        195,
+        117,
+        33,
+        33,
+        78
+      ]
+    },
+    {
+      "name": "SwapUsdcToSolEvent",
+      "discriminator": [
+        120,
+        133,
+        126,
+        74,
+        60,
+        235,
+        78,
+        103
+      ]
+    },
+    {
+      "name": "TreasuryAddrUpdatedEvent",
+      "discriminator": [
+        41,
+        10,
+        212,
+        246,
+        207,
+        255,
+        150,
+        52
+      ]
+    },
+    {
+      "name": "VaultPausedUpdatedEvent",
+      "discriminator": [
+        153,
+        221,
+        94,
+        195,
+        4,
+        31,
+        116,
+        172
+      ]
+    },
+    {
+      "name": "VaultResumedEvent",
+      "discriminator": [
+        237,
+        150,
+        38,
+        144,
+        227,
+        71,
+        26,
+        192
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "ZeroAmount",
+      "msg": "Amount must be > 0"
+    },
+    {
+      "code": 6001,
+      "name": "Unauthorized",
+      "msg": "Unauthorized caller"
+    },
+    {
+      "code": 6002,
+      "name": "UnauthorizedAdmin",
+      "msg": "Only admin may call this instruction"
+    },
+    {
+      "code": 6003,
+      "name": "VaultPaused",
+      "msg": "Vault deposits are paused"
+    },
+    {
+      "code": 6004,
+      "name": "GenesisNotSeeded",
+      "msg": "Genesis deposit not seeded yet — only admin can make the first deposit"
+    },
+    {
+      "code": 6005,
+      "name": "EmergencyMode",
+      "msg": "Vault is in emergency mode — only withdrawals allowed"
+    },
+    {
+      "code": 6006,
+      "name": "NotInEmergency",
+      "msg": "Vault is not currently in emergency mode"
+    },
+    {
+      "code": 6007,
+      "name": "InsufficientShares",
+      "msg": "Insufficient shares to redeem"
+    },
+    {
+      "code": 6008,
+      "name": "StaleOracle",
+      "msg": "Oracle price is stale or unavailable"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidOraclePrice",
+      "msg": "Oracle price is zero or negative"
+    },
+    {
+      "code": 6010,
+      "name": "SlippageExceeded",
+      "msg": "Slippage tolerance exceeded — try again"
+    },
+    {
+      "code": 6011,
+      "name": "CpiFailure",
+      "msg": "CPI call to external program failed"
+    },
+    {
+      "code": 6012,
+      "name": "InsufficientWsolBalance",
+      "msg": "wSOL balance is insufficient to cover WBTC + WETH swap legs"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidMint",
+      "msg": "Token mint does not match expected canonical mint"
+    },
+    {
+      "code": 6014,
+      "name": "AccountNotInitialized",
+      "msg": "Required token account is not initialised or has zero lamports"
+    },
+    {
+      "code": 6015,
+      "name": "IncorrectOwner",
+      "msg": "Token account owner does not match expected authority"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidAccountsLength",
+      "msg": "remaining_accounts length must equal the number of active vault assets"
+    },
+    {
+      "code": 6017,
+      "name": "MathOverflow",
+      "msg": "Math overflow — value too large"
+    },
+    {
+      "code": 6018,
+      "name": "FeeTooHigh",
+      "msg": "Performance fee cannot exceed 20%"
+    },
+    {
+      "code": 6019,
+      "name": "MissingFeeRecipient",
+      "msg": "vault_fee_bps > 0 but no vault_fee_recipient account was provided"
+    },
+    {
+      "code": 6020,
+      "name": "TooEarlyRedeem",
+      "msg": "Redeem cooldown not elapsed — try again after unlock_time"
+    },
+    {
+      "code": 6021,
+      "name": "InvalidCooldown",
+      "msg": "Cooldown must be between 0 and 604 800 seconds (7 days)"
+    },
+    {
+      "code": 6022,
+      "name": "NothingToClaim",
+      "msg": "No USDC pending — swap redeemed assets to USDC first"
+    },
+    {
+      "code": 6023,
+      "name": "RedeemAlreadyPending",
+      "msg": "A redeem is already pending — claim it before starting a new one"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidAllocation",
+      "msg": "Asset allocation BPS must sum to exactly 10 000"
+    },
+    {
+      "code": 6025,
+      "name": "TooManyAssets",
+      "msg": "Asset count exceeds the maximum allowed slots"
+    },
+    {
+      "code": 6026,
+      "name": "NoAssets",
+      "msg": "Asset list must contain at least one asset"
+    },
+    {
+      "code": 6027,
+      "name": "InvalidVaultId",
+      "msg": "vault_id must equal global_state.total_vaults (sequential creation enforced)"
+    },
+    {
+      "code": 6028,
+      "name": "MissingUsdcSolPool",
+      "msg": "usdc_sol_pool must be provided when any asset uses ViaSol routing"
+    },
+    {
+      "code": 6029,
+      "name": "AssetAlreadySwapped",
+      "msg": "This asset slot has already been swapped in the current redeem — cannot swap twice"
+    },
+    {
+      "code": 6030,
+      "name": "MissingMaxShares",
+      "msg": "A Fixed vault must declare a max_shares supply cap"
+    },
+    {
+      "code": 6031,
+      "name": "InvalidMaxShares",
+      "msg": "max_shares must be greater than zero"
+    },
+    {
+      "code": 6032,
+      "name": "ShareCapExceeded",
+      "msg": "Deposit would exceed the Fixed vault's max_shares supply cap"
+    },
+    {
+      "code": 6033,
+      "name": "DepositsDisabled",
+      "msg": "Deposits are disabled program-wide"
+    },
+    {
+      "code": 6034,
+      "name": "BaseMintNotEligible",
+      "msg": "Base mint is not on the company-approved eligible list"
+    },
+    {
+      "code": 6035,
+      "name": "EligibleMintListFull",
+      "msg": "Eligible base mint list is full"
+    },
+    {
+      "code": 6036,
+      "name": "EligibleMintAlreadyListed",
+      "msg": "Mint is already on the eligible base mint list"
+    },
+    {
+      "code": 6037,
+      "name": "EligibleMintNotFound",
+      "msg": "Mint is not on the eligible base mint list"
+    },
+    {
+      "code": 6038,
+      "name": "InvalidPendingAssetSlot",
+      "msg": "asset_index refers to a USDC-native or wSOL-native slot, which never enters the pending pool"
+    }
+  ],
+  "types": [
+    {
+      "name": "AssetInfo",
+      "docs": [
+        "Static configuration for one asset held by the vault.",
+        "Stored inline in `Vault.assets[i]`; slot is inactive when `mint == Pubkey::default()`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "docs": [
+              "SPL mint of this asset."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_address",
+            "docs": [
+              "Orca Whirlpool pool used to swap this asset.",
+              "- `DirectUsdc`: this pool is USDC ↔ Asset",
+              "- `ViaSol`:     this pool is wSOL ↔ Asset  (USDC→wSOL uses `Vault.usdc_sol_pool`)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pyth_feed_id",
+            "docs": [
+              "Pyth price feed ID (32-byte hex) for this asset quoted in USD."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "allocation_bps",
+            "docs": [
+              "Portfolio weight in basis points. Sum across all active assets must equal 10 000."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "decimals",
+            "docs": [
+              "Token decimals — cached at init to avoid mint account reads in hot paths."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "route",
+            "docs": [
+              "Routing strategy for USDC ↔ Asset swaps."
+            ],
+            "type": {
+              "defined": {
+                "name": "PoolRoute"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AssetInitParam",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_address",
+            "type": "pubkey"
+          },
+          {
+            "name": "pyth_feed_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "allocation_bps",
+            "type": "u16"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "route",
+            "type": {
+              "defined": {
+                "name": "PoolRoute"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "gross_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee",
+            "type": "u64"
+          },
+          {
+            "name": "usdc_amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositDisableUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_deposit_disable",
+            "type": "bool"
+          },
+          {
+            "name": "new_deposit_disable",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_amount",
+            "type": "u64"
+          },
+          {
+            "name": "net_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee",
+            "type": "u64"
+          },
+          {
+            "name": "vault_fee",
+            "type": "u64"
+          },
+          {
+            "name": "shares_minted",
+            "type": "u64"
+          },
+          {
+            "name": "share_price",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EligibleBaseMintAddedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EligibleBaseMintRemovedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeRecipientUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
+            "name": "vault_manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FundType",
+      "docs": [
+        "Whether the vault's asset basket is frozen at creation or can grow over time.",
+        "",
+        "- `Fixed`   — asset count is locked at init; `Vault.max_assets` sets the cap.",
+        "- `Dynamic` — new assets can be added on the fly; `Vault.max_assets` is ignored."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Fixed"
+          },
+          {
+            "name": "Dynamic"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GlobalEmergencyUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_emergency",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GlobalState",
+      "docs": [
+        "Global configuration and counters shared across all vault instances."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "is_emergency",
+            "type": "bool"
+          },
+          {
+            "name": "total_vaults",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_addr",
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_fee_bps",
+            "type": "u64"
+          },
+          {
+            "name": "deposit_disable",
+            "docs": [
+              "When true, new deposits are blocked program-wide; redemptions stay open."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "num_eligible_base_mints",
+            "docs": [
+              "Count of active entries in `eligible_base_mints`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "eligible_base_mints",
+            "docs": [
+              "Company-approved stable mints that may be used as a vault's `base_mint`."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                10
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_recipient",
+            "docs": [
+              "Pubkey that receives accrued performance fees.",
+              "When `None`, defaults to the transaction signer at creation time."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "performance_fee_bps",
+            "docs": [
+              "Performance fee in basis points (max 2_000)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "usdc_sol_pool",
+            "docs": [
+              "Orca Whirlpool USDC↔wSOL first hop; None when all assets use DirectUsdc."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "assets",
+            "docs": [
+              "1–MAX_ASSETS entries; allocation_bps must sum to 10_000."
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "AssetInitParam"
+                }
+              }
+            }
+          },
+          {
+            "name": "fund_type",
+            "docs": [
+              "Fixed or dynamic basket; defaults to Dynamic if omitted."
+            ],
+            "type": {
+              "defined": {
+                "name": "FundType"
+              }
+            }
+          },
+          {
+            "name": "max_shares",
+            "docs": [
+              "Max outstanding shares; required for Fixed, ignored for Dynamic."
+            ],
+            "type": {
+              "option": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "NavViewResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "total_nav",
+            "docs": [
+              "Total portfolio value in USDC (6 decimals)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "share_price",
+            "docs": [
+              "Current share price (PRICE_SCALE = 1e9 denominator)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_shares",
+            "docs": [
+              "Outstanding shares at time of query."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlatformFeeUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_platform_fee_bps",
+            "type": "u64"
+          },
+          {
+            "name": "new_platform_fee_bps",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolRoute",
+      "docs": [
+        "How USDC reaches a particular asset inside the vault.",
+        "",
+        "- `DirectUsdc` — single Whirlpool hop: USDC ↔ Asset",
+        "- `ViaSol`     — two-hop: USDC → wSOL (via `Vault.usdc_sol_pool`),",
+        "then wSOL → Asset (via `AssetInfo.pool_address`)"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "DirectUsdc"
+          },
+          {
+            "name": "ViaSol"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PreviewDepositResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "shares_to_mint",
+            "docs": [
+              "Shares the user would receive for `usdc_amount` (same math as `deposit`)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_nav",
+            "docs": [
+              "Live NAV used for the quote (USDC, 6 decimals). 0 at genesis."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "share_price",
+            "docs": [
+              "Share price implied by the live NAV (PRICE_SCALE = 1e9 denominator)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_shares",
+            "docs": [
+              "Outstanding shares at time of quote."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee",
+            "docs": [
+              "Platform fee slice that would be deducted from `usdc_amount` (gross)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vault_fee",
+            "docs": [
+              "Vault performance fee slice that would be deducted from `usdc_amount` (gross)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "net_usdc",
+            "docs": [
+              "`usdc_amount` after both fee slices — this is what shares are priced against."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PreviewRedeemResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "num_assets",
+            "docs": [
+              "Number of active assets in `asset_amounts`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "asset_amounts",
+            "docs": [
+              "Proportional token amounts the user would be owed, indexed to match",
+              "`Vault.assets[0..num_assets]`. Unused slots are zero."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                8
+              ]
+            }
+          },
+          {
+            "name": "estimated_usdc_value",
+            "docs": [
+              "Oracle-priced USDC value of those assets (6 decimals) — gross, before",
+              "either fee slice, i.e. what the redeemed basket is worth right now."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_shares",
+            "docs": [
+              "Outstanding shares at time of quote."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vault_fee",
+            "docs": [
+              "Vault performance fee slice — deducted per-asset during the redeem",
+              "swaps, before `pending_usdc` is ever set. Estimated here off the",
+              "gross oracle value since the real swaps haven't run yet."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee",
+            "docs": [
+              "Platform fee slice — deducted at `claim` time from `pending_usdc`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "estimated_net_usdc",
+            "docs": [
+              "Estimate of what `claim` would actually pay out to the user, i.e.",
+              "`estimated_usdc_value - vault_fee - platform_fee`."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RedeemCooldownUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
+            "name": "vault_manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_cooldown_secs",
+            "type": "i64"
+          },
+          {
+            "name": "new_cooldown_secs",
+            "type": "i64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RedeemState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "redeemable_shares",
+            "docs": [
+              "Shares burned at request time; 0 means no active redeem."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "unlock_time",
+            "docs": [
+              "Unix timestamp — swap / claim are blocked before this."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pending_usdc",
+            "docs": [
+              "Running total of net USDC accumulated across all per-asset swaps.",
+              "Incremented each time an asset is swapped; `claim` transfers this amount."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "num_assets",
+            "docs": [
+              "Number of active asset slots at request time — how many entries of",
+              "`asset_amount_in` / `asset_swapped` / `asset_usdc_out` are meaningful."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "asset_amount_in",
+            "docs": [
+              "Per-asset input amount (native token units) the redeemer must swap,",
+              "snapshotted at `request_redeem` time as the user's proportional slice of",
+              "the pool: `floor(pool_balance[i] × shares / total_shares)`.",
+              "Indexed to match `Vault.assets[i]`. The per-asset swap instructions read",
+              "directly from this array instead of re-deriving the proportion."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                8
+              ]
+            }
+          },
+          {
+            "name": "asset_swapped",
+            "docs": [
+              "Per-asset swap completion flag (indexed by `AssetInfo` slot).",
+              "`true` once asset[i] has been fully swapped to USDC; prevents re-swapping."
+            ],
+            "type": {
+              "array": [
+                "bool",
+                8
+              ]
+            }
+          },
+          {
+            "name": "asset_usdc_out",
+            "docs": [
+              "Net USDC (after performance fee) received from each per-asset swap.",
+              "Slot [i] is only meaningful when `asset_swapped[i] == true`."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RequestRedeemEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares_burned",
+            "type": "u64"
+          },
+          {
+            "name": "unlock_time",
+            "type": "i64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ShareMetadataCreatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
+            "name": "vault_manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "uri",
+            "type": "string"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapAssetToSolEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_index",
+            "type": "u8"
+          },
+          {
+            "name": "asset_in",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapAssetToUsdcEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_index",
+            "type": "u8"
+          },
+          {
+            "name": "asset_in",
+            "type": "u64"
+          },
+          {
+            "name": "gross_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "net_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapSolToAssetEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_index",
+            "type": "u8"
+          },
+          {
+            "name": "wsol_in",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapSolToUsdcEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_index",
+            "type": "u8"
+          },
+          {
+            "name": "wsol_in",
+            "type": "u64"
+          },
+          {
+            "name": "gross_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "net_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapUsdcToAssetEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset_index",
+            "type": "u8"
+          },
+          {
+            "name": "usdc_in",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SwapUsdcToSolEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_in",
+            "type": "u64"
+          },
+          {
+            "name": "wsol_out",
+            "type": "u64"
+          },
+          {
+            "name": "distributable_sol",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryAddrUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_treasury_addr",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_treasury_addr",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_usdc_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "last_usdc_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "last_shares_minted",
+            "type": "u64"
+          },
+          {
+            "name": "last_deposit_ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Vault",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_id",
+            "docs": [
+              "Sequential global id assigned at creation (== GlobalState.total_vaults at",
+              "the time of creation). Part of every PDA seed for this vault."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "When true, new deposits are paused program-wide; redemptions stay open."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "vault_manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_shares",
+            "docs": [
+              "Total outstanding shares (mirrors share_mint.supply, kept in sync)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_usdc_value",
+            "docs": [
+              "Last-known total portfolio value in USDC (6 decimals).",
+              "Updated by: deposit (+usdc_amount), redeem (-usdc_out)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "ath_share_price",
+            "type": "u64"
+          },
+          {
+            "name": "rolling_high_price",
+            "type": "u64"
+          },
+          {
+            "name": "rolling_window_start",
+            "type": "i64"
+          },
+          {
+            "name": "total_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "total_withdrawn",
+            "type": "u64"
+          },
+          {
+            "name": "performance_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "total_pending_usdc",
+            "docs": [
+              "Total undeployed USDC owed to inflow swaps (Direct and ViaSol groups)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_pending_sol",
+            "docs": [
+              "Total undeployed wSOL owed to ViaSol asset legs. Zero until the",
+              "USDC→wSOL hop runs."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "usdc_target_amount",
+            "docs": [
+              "USDC pending per asset — DirectUsdc non-native and non-wSOL-native ViaSol",
+              "slots. Zero for USDC-native and wSOL-native slots."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                8
+              ]
+            }
+          },
+          {
+            "name": "sol_target_bps",
+            "docs": [
+              "Fixed ViaSol wSOL split in bps (sums to 10_000 across non-wSOL-native",
+              "ViaSol assets). Set once in `create_etf`; immutable after creation."
+            ],
+            "type": {
+              "array": [
+                "u16",
+                8
+              ]
+            }
+          },
+          {
+            "name": "redeem_cooldown_secs",
+            "docs": [
+              "Cooldown (seconds) from request_redeem → swap / claim allowed.",
+              "Defaults to REDEEM_COOLDOWN_SECS (86 400). Configurable by admin."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority_bump",
+            "type": "u8"
+          },
+          {
+            "name": "share_mint_bump",
+            "type": "u8"
+          },
+          {
+            "name": "usdc_vault_bump",
+            "type": "u8"
+          },
+          {
+            "name": "fund_type",
+            "docs": [
+              "Whether this vault's asset basket is fixed or can grow dynamically."
+            ],
+            "type": {
+              "defined": {
+                "name": "FundType"
+              }
+            }
+          },
+          {
+            "name": "max_shares",
+            "docs": [
+              "Hard cap on total outstanding shares (supply cap) for a `Fixed` vault.",
+              "Deposits that would push `total_shares` above this are rejected. Only",
+              "enforced when `fund_type == Fixed`; `None` means uncapped (always the",
+              "case for `Dynamic`)."
+            ],
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "usdc_sol_pool",
+            "docs": [
+              "Orca Whirlpool pool for USDC ↔ wSOL.",
+              "Required (Some) when any asset uses `route == ViaSol`; None for USDC-only vaults."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "num_assets",
+            "docs": [
+              "Number of active asset slots (1–MAX_ASSETS).",
+              "Slots `[0..num_assets)` are active; remaining slots are zeroed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "assets",
+            "docs": [
+              "Per-asset configuration."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "AssetInfo"
+                  }
+                },
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultPausedUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
+            "name": "vault_manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_paused",
+            "type": "bool"
+          },
+          {
+            "name": "new_paused",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultResumedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
+            "name": "vault_manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_rolling_high",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ]
+}

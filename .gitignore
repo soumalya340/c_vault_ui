@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# sqlite feed store
+data/*.sqlite
+data/*.sqlite-*
+
+# sqlite / json feed store
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/pyth_feeds.json
