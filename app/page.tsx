@@ -67,7 +67,7 @@ function GuillocheRosette({ className }: { className?: string }) {
 
 export default function Home() {
   return (
-    <Providers endpoint={getRpcEndpoint(ACTIVE_NETWORK)}>
+    <Providers endpoint={getRpcEndpoint(ACTIVE_NETWORK)} network={ACTIVE_NETWORK}>
       <HomeInner />
     </Providers>
   );

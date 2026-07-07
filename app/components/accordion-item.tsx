@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import type { Network } from '@/lib/cvault';
+import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import {
   REQUIRES_WALLET,
@@ -36,6 +37,8 @@ export function AccordionItem({
     solscan?: string;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [ownedVaults, setOwnedVaults] = useState<VaultRecord[]>([]);
+  const [vaultsLoading, setVaultsLoading] = useState(false);
 
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
@@ -44,6 +47,43 @@ export function AccordionItem({
 
   const style = SECTION_STYLE[section];
   const needsWallet = REQUIRES_WALLET.has(fn.id);
+  const hasVaultIdField = fn.fields.some((field) => field.name === 'vault_id');
+
+  // Vault ID is picked from the vaults this wallet owns, not typed by hand —
+  // fetched from Supabase (single source of truth for what exists) and
+  // filtered to rows this wallet created.
+  const loadOwnedVaults = useCallback(
+    (owner: string, cancelledRef: { current: boolean }) => {
+      setVaultsLoading(true);
+      fetchVaults(network)
+        .then((rows) => {
+          if (cancelledRef.current) return;
+          const owned = rows.filter((v) => v.creator === owner);
+          setOwnedVaults(owned);
+          if (owned.length > 0) {
+            setValues((prev) =>
+              prev.vault_id ? prev : { ...prev, vault_id: String(owned[0].vault_id) },
+            );
+          }
+        })
+        .catch(() => {
+          if (!cancelledRef.current) setOwnedVaults([]);
+        })
+        .finally(() => {
+          if (!cancelledRef.current) setVaultsLoading(false);
+        });
+    },
+    [network],
+  );
+
+  useEffect(() => {
+    if (!open || !hasVaultIdField || !publicKey) return;
+    const cancelledRef = { current: false };
+    loadOwnedVaults(publicKey.toBase58(), cancelledRef);
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, [open, hasVaultIdField, publicKey, loadOwnedVaults]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,7 +198,35 @@ export function AccordionItem({
               {fn.fields.map((field) => (
                 <div key={field.name} className={field.wide ? 'sm:col-span-2' : undefined}>
                   <label className={fieldLabelClass}>{field.label}</label>
-                  {field.type === 'select' ? (
+                  {field.name === 'vault_id' ? (
+                    !publicKey ? (
+                      <select disabled className={selectClass}>
+                        <option>Connect wallet to see your vaults</option>
+                      </select>
+                    ) : vaultsLoading ? (
+                      <select disabled className={selectClass}>
+                        <option>Loading your vaults…</option>
+                      </select>
+                    ) : ownedVaults.length === 0 ? (
+                      <select disabled className={selectClass}>
+                        <option>No vaults owned by this wallet</option>
+                      </select>
+                    ) : (
+                      <select
+                        value={values.vault_id ?? String(ownedVaults[0].vault_id)}
+                        onChange={(e) =>
+                          setValues((prev) => ({ ...prev, vault_id: e.target.value }))
+                        }
+                        className={selectClass}
+                      >
+                        {ownedVaults.map((v) => (
+                          <option key={v.vault_address} value={v.vault_id}>
+                            CVLT-{v.vault_id} · {v.symbol} · {v.name}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  ) : field.type === 'select' ? (
                     <select
                       value={values[field.name] ?? field.options?.[0]?.value ?? ''}
                       onChange={(e) =>
