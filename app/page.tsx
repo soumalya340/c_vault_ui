@@ -9,6 +9,7 @@ import { CreateEtfPanel } from '@/app/components/create-etf-panel';
 import { ExecuteSwapsPanel } from '@/app/components/execute-swaps-panel';
 import { NetworkStatus } from '@/app/components/network-toggle';
 import { WalletButton } from '@/app/components/wallet-button';
+import { UnwrapWsolButton } from '@/app/components/unwrap-wsol-button';
 import {
   VIEW_FUNCTIONS,
   VAULT_OPS_FUNCTIONS,
@@ -95,6 +96,7 @@ function HomeInner() {
             </div>
             <div className="flex items-center gap-3 md:gap-4">
               <NetworkStatus />
+              <UnwrapWsolButton network={ACTIVE_NETWORK} />
               <WalletButton />
             </div>
           </nav>
