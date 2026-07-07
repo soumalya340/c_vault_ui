@@ -400,14 +400,20 @@ export async function createEtf(
   const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
   const vaultId = (gs.totalVaults as BN).toNumber();
 
-  const sig = await (program.methods as any)
+  // Build the instruction and send it through sendV0 rather than Anchor's
+  // `.rpc()`: `.rpc()` confirms via the websocket subscription with a hard 30s
+  // cap, which the public devnet RPC trips even when the tx lands ("not
+  // confirmed / unknown if it succeeded"). sendV0 polls signature status.
+  const createIx = await (program.methods as any)
     .createEtf(params, name, symbol, uri)
     .accounts({
       authority: wallet.publicKey,
       usdcMint: baseMint,
       sharesTokenProgram: TOKEN_2022_PROGRAM_ID,
     } as never)
-    .rpc();
+    .instruction();
+
+  const sig = await sendV0(connection, wallet, [createIx]);
 
   const pdas = deriveVaultPdas(vaultId, baseMint);
   return {

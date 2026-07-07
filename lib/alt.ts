@@ -25,6 +25,7 @@ import { SystemProgram } from '@solana/web3.js';
 
 import { WHIRLPOOL_PROGRAM_ID, WSOL_MINT } from './constants';
 import type { PoolCtx } from './whirlpool';
+import { confirmBySignaturePolling } from './confirm';
 
 const EXTEND_BATCH = 20;
 
@@ -100,7 +101,7 @@ export async function createVaultAlt(
     recentSlot: slot,
   });
 
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
 
   const txs: Transaction[] = [new Transaction().add(createIx)];
   for (let i = 0; i < addresses.length; i += EXTEND_BATCH) {
@@ -121,13 +122,19 @@ export async function createVaultAlt(
     tx.feePayer = authority;
   }
 
+  // Sign every tx in a single wallet prompt, then land them one at a time.
+  // Each is confirmed by polling signature status (not the flaky public-RPC
+  // websocket) so a slow-to-confirm create/extend doesn't trip the 30s
+  // "not confirmed" error. The extend txs depend on the create landing first,
+  // so ordering is preserved.
   const signed = await wallet.signAllTransactions(txs);
   for (const tx of signed) {
-    const sig = await connection.sendRawTransaction(tx.serialize());
-    await connection.confirmTransaction(
-      { signature: sig, blockhash, lastValidBlockHeight },
-      'confirmed',
-    );
+    const raw = tx.serialize();
+    const sig = await connection.sendRawTransaction(raw, {
+      skipPreflight: false,
+      maxRetries: 5,
+    });
+    await confirmBySignaturePolling(connection, sig, { lastValidBlockHeight });
   }
 
   return lutAddress;
@@ -152,7 +159,7 @@ export async function sendV0(
   ixs: TransactionInstruction[],
   lut?: AddressLookupTableAccount | null,
 ): Promise<string> {
-  const latest = await connection.getLatestBlockhash();
+  const latest = await connection.getLatestBlockhash('confirmed');
   const message = new TransactionMessage({
     payerKey: wallet.publicKey,
     recentBlockhash: latest.blockhash,
@@ -164,7 +171,15 @@ export async function sendV0(
 
   const tx = new VersionedTransaction(message);
   const signed = (await wallet.signTransaction(tx)) as VersionedTransaction;
-  const sig = await connection.sendTransaction(signed);
-  await connection.confirmTransaction({ signature: sig, ...latest }, 'confirmed');
+  const sig = await connection.sendTransaction(signed, {
+    skipPreflight: false,
+    maxRetries: 5,
+  });
+  // Poll signature status instead of relying on the websocket subscription —
+  // the public devnet RPC drops those under load, which surfaces as the 30s
+  // "not confirmed / unknown if it succeeded" error even when the tx landed.
+  await confirmBySignaturePolling(connection, sig, {
+    lastValidBlockHeight: latest.lastValidBlockHeight,
+  });
   return sig;
 }
