@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { getTotalNavView, fetchVaultCtx, type Network, type VaultChainAsset } from '@/lib/cvault';
+import { fetchVaultCtx, type Network, type VaultChainAsset } from '@/lib/cvault';
 import { fetchVaults, fetchTokens, type VaultRecord, type TokenOption } from '@/lib/registryClient';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
@@ -18,34 +18,12 @@ function shorten(addr: string): string {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
 }
 
-function VaultNav({ vaultId }: { vaultId: number }) {
-  const [nav, setNav] = useState<{ totalNav: string; sharePrice: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const { connection } = useConnection();
-
-  useEffect(() => {
-    let cancelled = false;
-    getTotalNavView(connection, vaultId)
-      .then((r) => {
-        if (!cancelled) setNav({ totalNav: r.totalNav, sharePrice: r.sharePrice });
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vaultId, connection]);
-
-  if (error) return <span className="font-mono text-[11px] text-muted-foreground/60">NAV unavailable</span>;
-  if (!nav) return <span className="font-mono text-[11px] text-muted-foreground/60">loading NAV…</span>;
-
-  return (
-    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-      NAV {nav.totalNav} · price {nav.sharePrice}
-    </span>
-  );
+// NAV is intentionally not fetched here — getTotalNavView() is an Anchor
+// .view() call (simulateTransaction under the hood) per row, which burns
+// RPC quota on every mount. Disabled until we have a cached/manual-refresh
+// path; this label is static decoration for now.
+function VaultNav() {
+  return <span className="font-mono text-[11px] text-muted-foreground/60">loading NAV…</span>;
 }
 
 // Per-row asset inspector. The ⓘ button toggles an inline panel that reads the
@@ -277,7 +255,7 @@ export function VaultsPanel({ network }: { network: Network }) {
                       {vault.symbol} · {vault.name}
                     </span>
                   </div>
-                  <VaultNav vaultId={vault.vault_id} />
+                  <VaultNav />
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
