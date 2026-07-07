@@ -32,7 +32,6 @@ import { SECTION_STYLE } from './function-defs';
 import {
   btnGhostClass,
   btnPrimaryClass,
-  btnSecondaryClass,
   fieldLabelClass,
   inputClass,
   outputPanelClass,
@@ -50,7 +49,8 @@ import {
 
 interface AssetDraft {
   mint: string;
-  allocationBps: string;
+  /** User-facing percentage, e.g. "1.01" for 1.01% — up to 2 decimals. */
+  allocationPct: string;
   /** Derived from which pool is picked — base-mint pair ⇒ DirectUsdc, wSOL pair ⇒ ViaSol. */
   route: 'DirectUsdc' | 'ViaSol';
   /** Every orca_pools row that includes this token mint (either side). */
@@ -66,7 +66,7 @@ interface AssetDraft {
 
 const EMPTY_ASSET: AssetDraft = {
   mint: '',
-  allocationBps: '',
+  allocationPct: '',
   route: 'DirectUsdc',
   tokenPools: [],
   poolAddress: '',
@@ -98,6 +98,13 @@ function parseFeedId(hex: string): number[] {
     throw new Error('Price feed id must be 64 hex characters (or blank).');
   }
   return Array.from(Buffer.from(clean, 'hex'));
+}
+
+/** "1.01" (percent, ≤2 decimals) → 101 (raw on-chain allocation_bps). */
+function pctToBps(pct: string): number {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
 }
 
 /**
@@ -154,6 +161,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const [fundType, setFundType] = useState<'dynamic' | 'fixed'>('dynamic');
   const [maxShares, setMaxShares] = useState('');
   const [assets, setAssets] = useState<AssetDraft[]>([{ ...EMPTY_ASSET }]);
+  const [activeAssetIndex, setActiveAssetIndex] = useState(0);
 
   // base/wSOL pool — auto-resolved, required when any asset routes ViaSol.
   const [solPool, setSolPool] = useState<{
@@ -223,10 +231,9 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const symbolForMint = (mint: string) => tokenByMint.get(mint)?.symbol ?? mint;
   const baseMintSymbol = baseMint ? symbolForMint(baseMint) : '';
 
-  const allocationTotal = assets.reduce(
-    (sum, a) => sum + (Number(a.allocationBps) || 0),
-    0,
-  );
+  // Summed in raw bps (percent × 100) to avoid float drift; displayed as percent.
+  const allocationTotalBps = assets.reduce((sum, a) => sum + pctToBps(a.allocationPct), 0);
+  const allocationTotalPct = (allocationTotalBps / 100).toFixed(2);
 
   const updateAsset = (index: number, patch: Partial<AssetDraft>) => {
     setAssets((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
@@ -346,8 +353,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
     try {
       if (!baseMint) throw new Error('Pick a base mint.');
       if (assets.length === 0) throw new Error('Add at least one asset.');
-      if (allocationTotal !== 10_000) {
-        throw new Error(`Allocations must sum to 10000 BPS (currently ${allocationTotal}).`);
+      if (allocationTotalBps !== 10_000) {
+        throw new Error(`Allocations must sum to 100% (currently ${allocationTotalPct}%).`);
       }
 
       const assetParams: AssetParam[] = assets.map((draft, i) => {
@@ -363,7 +370,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           mint: new PublicKey(token.mint),
           poolAddress: new PublicKey(draft.poolAddress),
           pythFeedId: parseFeedId(draft.pythFeedId),
-          allocationBps: Number(draft.allocationBps) || 0,
+          allocationBps: pctToBps(draft.allocationPct),
           decimals: token.decimals,
           route: draft.route === 'ViaSol' ? { viaSol: {} } : { directUsdc: {} },
         };
@@ -670,9 +677,9 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             <span className={`${sectionLabelClass} font-bold uppercase`}>Asset basket</span>
             <span
               className="font-mono text-[11px] tabular-nums"
-              style={{ color: allocationTotal === 10_000 ? style.accent : '#A63A2B' }}
+              style={{ color: allocationTotalBps === 10_000 ? style.accent : '#A63A2B' }}
             >
-              {allocationTotal} / 10000 BPS
+              {allocationTotalPct}% / 100%
             </span>
           </div>
 
@@ -683,8 +690,98 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             </p>
           )}
 
+          {/* Inline asset tab strip — one pill per basket slot. */}
+          <div
+            role="tablist"
+            aria-label="Asset basket slots"
+            className="flex flex-wrap divide-x divide-border border-b border-border bg-foreground/[0.015]"
+          >
+            {assets.map((asset, i) => {
+              const token = tokenByMint.get(asset.mint);
+              const active = i === activeAssetIndex;
+              const complete =
+                asset.mint && asset.poolAddress && Number(asset.allocationPct) > 0;
+              const tabColorClass = active
+                ? 'text-background'
+                : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground';
+
+              if (!asset.mint) {
+                // Empty slot — the tab itself is the token picker, no extra click needed.
+                return (
+                  <label
+                    key={i}
+                    className={`relative flex items-center gap-1.5 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.06em] transition-colors duration-150 ${tabColorClass} ${active ? '' : 'cursor-pointer'}`}
+                    style={active ? { background: style.accent } : undefined}
+                    onClick={() => setActiveAssetIndex(i)}
+                  >
+                    <span className={active ? '' : 'text-seal'} style={{ opacity: 0.5 }}>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        setActiveAssetIndex(i);
+                        updateAsset(i, {
+                          mint: e.target.value,
+                          tokenPools: [],
+                          poolAddress: '',
+                          poolLabel: '',
+                          poolMissing: false,
+                          pythFeedId: '',
+                          pythFromRegistry: false,
+                          route: 'DirectUsdc',
+                        });
+                      }}
+                      className="cursor-pointer appearance-none bg-transparent pr-3 font-mono text-[11px] font-bold uppercase tracking-[0.06em] focus-visible:outline-none [&>option]:bg-background [&>option]:text-foreground [&>option]:normal-case"
+                    >
+                      <option value="" disabled>
+                        — pick token —
+                      </option>
+                      {assetTokenOptions.map((t) => (
+                        <option key={t.mint} value={t.mint}>
+                          {t.symbol} · {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                );
+              }
+
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setActiveAssetIndex(i)}
+                  className={`flex items-center gap-1.5 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.06em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset ${tabColorClass}`}
+                  style={active ? { background: style.accent } : undefined}
+                >
+                  <span
+                    className={active ? '' : 'text-seal'}
+                    style={!active && !complete ? { opacity: 0.5 } : undefined}
+                  >
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span>{token ? token.symbol : asset.mint}</span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => {
+                setAssets((prev) => [...prev, { ...EMPTY_ASSET }]);
+                setActiveAssetIndex(assets.length);
+              }}
+              className="flex items-center px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.06em] text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.04] hover:text-foreground"
+            >
+              + Add
+            </button>
+          </div>
+
           <div className="divide-y divide-border">
             {assets.map((asset, i) => {
+              if (i !== activeAssetIndex) return null;
               const token = tokenByMint.get(asset.mint);
               return (
                 <div key={i} className="space-y-3 px-4 py-4">
@@ -696,7 +793,13 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                     {assets.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => setAssets((prev) => prev.filter((_, j) => j !== i))}
+                        onClick={() =>
+                          setAssets((prev) => {
+                            const next = prev.filter((_, j) => j !== i);
+                            setActiveAssetIndex((cur) => Math.min(cur, next.length - 1));
+                            return next;
+                          })
+                        }
                         className={btnGhostClass}
                       >
                         Remove
@@ -732,13 +835,22 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                       </select>
                     </div>
                     <div>
-                      <label className={fieldLabelClass}>Allocation (BPS)</label>
+                      <label className={fieldLabelClass}>Allocation (%)</label>
                       <input
                         className={inputClass}
                         type="number"
-                        value={asset.allocationBps}
-                        onChange={(e) => updateAsset(i, { allocationBps: e.target.value })}
-                        placeholder="10000"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={asset.allocationPct ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          // Allow free typing but cap precision at 2 decimals.
+                          if (/^\d*\.?\d{0,2}$/.test(v)) {
+                            updateAsset(i, { allocationPct: v });
+                          }
+                        }}
+                        placeholder="100.00"
                         required
                       />
                     </div>
@@ -835,15 +947,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             })}
           </div>
 
-          <div className="border-t border-border px-4 py-3">
-            <button
-              type="button"
-              onClick={() => setAssets((prev) => [...prev, { ...EMPTY_ASSET }])}
-              className={btnSecondaryClass}
-            >
-              + Add asset
-            </button>
-          </div>
         </div>
 
         {!connected && (
