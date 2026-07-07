@@ -32,22 +32,63 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const mintA = params.get("mintA");
     const mintB = params.get("mintB");
+    const mint = params.get("mint");
+    const counterMints = params.get("counterMints");
     const network = params.get("network") ?? "devnet";
 
+    const poolSelect =
+      "pool_address, mint_a, mint_b, symbol_a, symbol_b, decimals_a, decimals_b, tick_spacing, network";
+
+    // All pools involving `mint` (either side) — used before a base mint is picked.
+    if (mint && !counterMints && !mintA) {
+      const supabase = createServiceClient();
+      const { data, error } = await supabase
+        .from("orca_pools")
+        .select(poolSelect)
+        .eq("network", network)
+        .or(`mint_a.eq.${mint},mint_b.eq.${mint}`);
+
+      if (error) throw error;
+
+      return NextResponse.json({ pools: (data as PoolRow[] | null) ?? [] });
+    }
+
+    // List mode: every pool pairing `mint` with any of `counterMints`
+    // (e.g. base mint and wSOL) — powers the pool picker dropdown.
+    if (mint && counterMints) {
+      const others = counterMints.split(",").map((m) => m.trim()).filter(Boolean);
+      if (others.length === 0) {
+        return NextResponse.json({ pools: [] });
+      }
+
+      const supabase = createServiceClient();
+      const orClauses = others.flatMap((other) => [
+        `and(mint_a.eq.${mint},mint_b.eq.${other})`,
+        `and(mint_a.eq.${other},mint_b.eq.${mint})`,
+      ]);
+      const { data, error } = await supabase
+        .from("orca_pools")
+        .select(poolSelect)
+        .eq("network", network)
+        .or(orClauses.join(","));
+
+      if (error) throw error;
+
+      return NextResponse.json({ pools: (data as PoolRow[] | null) ?? [] });
+    }
+
+    // Single-pair lookup mode (exact pair, either mint order).
     if (!mintA || !mintB) {
       return NextResponse.json(
-        { error: "mintA and mintB query params are required" },
+        { error: "mintA and mintB (or mint and counterMints) query params are required" },
         { status: 400 },
       );
     }
 
     const supabase = createServiceClient();
-    // A pool for (X, Y) may be stored in either mint order.
     const { data, error } = await supabase
       .from("orca_pools")
-      .select(
-        "pool_address, mint_a, mint_b, symbol_a, symbol_b, decimals_a, decimals_b, tick_spacing, network",
-      )
+      .select(poolSelect)
       .eq("network", network)
       .or(
         `and(mint_a.eq.${mintA},mint_b.eq.${mintB}),and(mint_a.eq.${mintB},mint_b.eq.${mintA})`,

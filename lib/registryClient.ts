@@ -110,6 +110,37 @@ export async function fetchPool(
   return pool;
 }
 
+/** Every pool in `orca_pools` that includes `mint` on either side. */
+export async function fetchAllPoolsForMint(
+  mint: string,
+  network: string,
+): Promise<PoolRecord[]> {
+  const params = new URLSearchParams({ mint, network });
+  const res = await fetch(`/api/pools?${params}`);
+  const { pools } = await jsonOrThrow<{ pools: PoolRecord[] }>(res);
+  return pools;
+}
+
+/**
+ * Every pool pairing `mint` with any of `counterMints` (e.g. the base mint
+ * and wSOL) — powers the pool picker dropdown so a token with both a
+ * base-mint pool and a SOL pool lets the user choose either.
+ */
+export async function fetchPoolsForToken(
+  mint: string,
+  counterMints: string[],
+  network: string,
+): Promise<PoolRecord[]> {
+  const params = new URLSearchParams({
+    mint,
+    counterMints: counterMints.join(','),
+    network,
+  });
+  const res = await fetch(`/api/pools?${params}`);
+  const { pools } = await jsonOrThrow<{ pools: PoolRecord[] }>(res);
+  return pools;
+}
+
 /** Pyth feed id for a mint from `PythInfo` — null when absent. */
 export async function fetchPythInfo(mint: string): Promise<PythRecord | null> {
   const res = await fetch(`/api/pyth?mint=${encodeURIComponent(mint)}`);

@@ -51,3 +51,4 @@ data/*.sqlite-shm
 data/pyth_feeds.json
 
 deps
+docs
