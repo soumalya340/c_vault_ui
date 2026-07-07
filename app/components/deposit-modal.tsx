@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { BN } from '@coral-xyz/anchor';
 import { useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
-import { deposit, previewDeposit, type Network } from '@/lib/cvault';
+import { depositAndDeploy, previewDeposit, type Network } from '@/lib/cvault';
 import type { VaultRecord } from '@/lib/registryClient';
 import {
   btnGhostClass,
@@ -59,15 +59,22 @@ export function DepositModal({
     setResult(null);
     try {
       if (!amount.trim()) throw new Error('Enter an amount.');
-      const r = await deposit(
+      // One v0 transaction via the vault's ALT: deposit + all inflow swap
+      // legs. No pre-checks — the program enforces everything (Plan.md §9).
+      const r = await depositAndDeploy(
         connection,
         anchorWallet,
         vault.vault_id,
         new BN(amount.trim()),
         new BN(minSharesOut.trim() || '0'),
+        vault.alt_address,
         network,
       );
-      setResult({ type: 'success', text: `Deposited into vault №${vault.vault_id}.`, solscan: r.link });
+      setResult({
+        type: 'success',
+        text: `Deposited into vault №${vault.vault_id} — swaps executed in the same transaction.`,
+        solscan: r.link,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const isRejection =

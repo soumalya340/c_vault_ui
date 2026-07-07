@@ -34,6 +34,9 @@ export type VaultRow = {
   assets: VaultAssetRow[];
   creator: string;
   tx_signature: string;
+  /** Address Lookup Table created at vault-creation time — used to bundle
+   *  deposit/redeem swap legs into single v0 transactions (Plan.md §6-7). */
+  alt_address: string | null;
   created_at?: string;
 };
 
@@ -120,6 +123,7 @@ export async function POST(request: Request) {
       assets: body.assets,
       creator: body.creator!,
       tx_signature: body.tx_signature!,
+      alt_address: body.alt_address ?? null,
     };
 
     const supabase = createServiceClient();

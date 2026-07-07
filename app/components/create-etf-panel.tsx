@@ -6,8 +6,25 @@ import { BN } from '@coral-xyz/anchor';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 
-import { createEtf, type AssetParam, type Network } from '@/lib/cvault';
-import { fetchTokens, saveVault, type TokenOption } from '@/lib/registryClient';
+import {
+  createEtf,
+  deriveGlobalStatePda,
+  pythFeedAccount,
+  vaultAssetAta,
+  WSOL_MINT,
+  type AssetParam,
+  type Network,
+} from '@/lib/cvault';
+import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
+import { fetchPoolCtx } from '@/lib/whirlpool';
+import {
+  fetchPool,
+  fetchPythInfo,
+  fetchTokens,
+  savePythInfo,
+  saveVault,
+  type TokenOption,
+} from '@/lib/registryClient';
 import { SECTION_STYLE } from './function-defs';
 import {
   btnGhostClass,
@@ -22,28 +39,40 @@ import {
 } from './ui-classes';
 
 // Create ETF vault — create_etf.rs initialises the vault AND its Token-2022
-// share metadata inside one instruction, so this panel is a single combined
-// flow: one form, one signature, one transaction. Assets are picked from the
-// forge token_registry (nothing hardcoded); after the transaction lands, the
-// vault row is recorded in the Supabase `vaults` table.
+// share metadata inside one instruction. Pool addresses come exclusively from
+// the Supabase `orca_pools` table (no manual entry — Plan.md §4); pyth feed
+// ids come from `PythInfo` with a manual fallback that is written back on
+// success (Plan.md §5). After the vault lands, an Address Lookup Table with
+// every swap-leg account is created and stored with the vault row (§6).
 
 interface AssetDraft {
-  mint: string; // token_registry mint (select)
-  poolAddress: string;
+  mint: string;
   allocationBps: string;
   route: 'DirectUsdc' | 'ViaSol';
-  pythFeedId: string; // optional 64-char hex
+  /** Auto-filled from orca_pools — read-only in the UI. */
+  poolAddress: string;
+  poolLabel: string;
+  poolMissing: boolean;
+  /** From PythInfo when available; editable only when the registry misses. */
+  pythFeedId: string;
+  pythFromRegistry: boolean;
+  looking: boolean;
 }
 
 const EMPTY_ASSET: AssetDraft = {
   mint: '',
-  poolAddress: '',
   allocationBps: '',
   route: 'DirectUsdc',
+  poolAddress: '',
+  poolLabel: '',
+  poolMissing: false,
   pythFeedId: '',
+  pythFromRegistry: false,
+  looking: false,
 };
 
 const ZERO_FEED_ID = '0'.repeat(64);
+const WSOL = WSOL_MINT.toBase58();
 
 function parseFeedId(hex: string): number[] {
   const clean = hex.trim().replace(/^0x/, '') || ZERO_FEED_ID;
@@ -51,6 +80,13 @@ function parseFeedId(hex: string): number[] {
     throw new Error('Price feed id must be 64 hex characters (or blank).');
   }
   return Array.from(Buffer.from(clean, 'hex'));
+}
+
+/** The counter-mint whose pool a slot swaps through, given its route. */
+function poolCounterMint(assetMint: string, route: AssetDraft['route'], baseMint: string): string {
+  // wSOL-native slots trade on the base/wSOL pool regardless of route.
+  if (assetMint === WSOL) return baseMint;
+  return route === 'ViaSol' ? WSOL : baseMint;
 }
 
 export function CreateEtfPanel({ network }: { network: Network }) {
@@ -71,10 +107,17 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const [performanceFeeBps, setPerformanceFeeBps] = useState('1000');
   const [fundType, setFundType] = useState<'dynamic' | 'fixed'>('dynamic');
   const [maxShares, setMaxShares] = useState('');
-  const [usdcSolPool, setUsdcSolPool] = useState('');
   const [assets, setAssets] = useState<AssetDraft[]>([{ ...EMPTY_ASSET }]);
 
+  // base/wSOL pool — auto-resolved, required when any asset routes ViaSol.
+  const [solPool, setSolPool] = useState<{
+    address: string;
+    missing: boolean;
+    looking: boolean;
+  }>({ address: '', missing: false, looking: false });
+
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -106,6 +149,66 @@ export function CreateEtfPanel({ network }: { network: Network }) {
     setAssets((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
   };
 
+  const hasViaSol = assets.some(
+    (a) => a.route === 'ViaSol' || (a.mint && a.mint === WSOL),
+  );
+
+  // ── Supabase lookups: pool per asset slot (Plan.md §3-4) ──
+  const assetLookupKey = assets.map((a) => `${a.mint}|${a.route}`).join(',');
+  useEffect(() => {
+    let cancelled = false;
+    assets.forEach((asset, i) => {
+      if (!asset.mint || !baseMint) return;
+      const counter = poolCounterMint(asset.mint, asset.route, baseMint);
+      updateAsset(i, { looking: true, poolMissing: false });
+      fetchPool(asset.mint === WSOL ? WSOL : asset.mint, counter, network)
+        .then((pool) => {
+          if (cancelled) return;
+          updateAsset(i, {
+            looking: false,
+            poolAddress: pool?.pool_address ?? '',
+            poolLabel: pool ? `${pool.symbol_a}/${pool.symbol_b}` : '',
+            poolMissing: !pool,
+          });
+        })
+        .catch(() => {
+          if (!cancelled) updateAsset(i, { looking: false, poolAddress: '', poolMissing: true });
+        });
+      // Pyth id — keyed by mint only; manual entries are preserved.
+      fetchPythInfo(asset.mint)
+        .then((pyth) => {
+          if (cancelled || !pyth) return;
+          updateAsset(i, { pythFeedId: pyth.pyth_id, pythFromRegistry: true });
+        })
+        .catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetLookupKey, baseMint, network]);
+
+  // ── base/wSOL pool lookup (needed for any ViaSol routing) ──
+  useEffect(() => {
+    if (!baseMint || !hasViaSol) {
+      setSolPool({ address: '', missing: false, looking: false });
+      return;
+    }
+    let cancelled = false;
+    setSolPool((s) => ({ ...s, looking: true, missing: false }));
+    fetchPool(baseMint, WSOL, network)
+      .then((pool) => {
+        if (cancelled) return;
+        setSolPool({ address: pool?.pool_address ?? '', missing: !pool, looking: false });
+      })
+      .catch(() => {
+        if (!cancelled) setSolPool({ address: '', missing: true, looking: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [baseMint, hasViaSol, network]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!connected || !anchorWallet || !publicKey) {
@@ -126,12 +229,15 @@ export function CreateEtfPanel({ network }: { network: Network }) {
       const assetParams: AssetParam[] = assets.map((draft, i) => {
         const token = tokenByMint.get(draft.mint);
         if (!token) throw new Error(`Asset ${i + 1}: pick a token from the registry.`);
-        if (!draft.poolAddress.trim()) {
-          throw new Error(`Asset ${i + 1} (${token.symbol}): pool address is required.`);
+        if (!draft.poolAddress) {
+          throw new Error(
+            `Asset ${i + 1} (${token.symbol}): no pool in orca_pools for this pair — ` +
+              'pools cannot be entered manually. Create the pool first.',
+          );
         }
         return {
           mint: new PublicKey(token.mint),
-          poolAddress: new PublicKey(draft.poolAddress.trim()),
+          poolAddress: new PublicKey(draft.poolAddress),
           pythFeedId: parseFeedId(draft.pythFeedId),
           allocationBps: Number(draft.allocationBps) || 0,
           decimals: token.decimals,
@@ -139,11 +245,14 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         };
       });
 
-      const needsSolPool = assets.some((a) => a.route === 'ViaSol');
-      if (needsSolPool && !usdcSolPool.trim()) {
-        throw new Error('A base/wSOL pool is required when any asset routes ViaSol.');
+      if (hasViaSol && !solPool.address) {
+        throw new Error(
+          'No base/wSOL pool in orca_pools — required when any asset routes ViaSol. ' +
+            'Pools cannot be entered manually.',
+        );
       }
 
+      setStatus('Creating vault (create_etf)…');
       const created = await createEtf(
         connection,
         anchorWallet,
@@ -151,7 +260,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         {
           feeRecipient: feeRecipient.trim() ? new PublicKey(feeRecipient.trim()) : null,
           performanceFeeBps: Number(performanceFeeBps) || 0,
-          usdcSolPool: usdcSolPool.trim() ? new PublicKey(usdcSolPool.trim()) : null,
+          usdcSolPool: solPool.address ? new PublicKey(solPool.address) : null,
           assets: assetParams,
           fundType: fundType === 'fixed' ? { fixed: {} } : { dynamic: {} },
           maxShares: maxShares.trim() ? new BN(maxShares.trim()) : null,
@@ -162,7 +271,69 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         network,
       );
 
+      // Record manually supplied pyth ids so the next lookup finds them (§5).
+      for (const draft of assets) {
+        const feedId = draft.pythFeedId.trim().replace(/^0x/, '');
+        if (!draft.pythFromRegistry && feedId && feedId !== ZERO_FEED_ID) {
+          const token = tokenByMint.get(draft.mint);
+          try {
+            await savePythInfo({
+              token_name: token?.symbol ?? draft.mint,
+              pyth_id: feedId,
+              mint_address: draft.mint,
+            });
+          } catch {
+            // non-fatal — the vault row still records the feed id
+          }
+        }
+      }
+
+      // Build the vault's ALT: every account the swap legs touch (§6).
+      let altAddress: string | null = null;
+      let altNote = '';
+      try {
+        setStatus('Creating address lookup table…');
+        const poolAddrs = Array.from(
+          new Set(
+            [...assetParams.map((a) => a.poolAddress.toBase58()), solPool.address].filter(Boolean),
+          ),
+        );
+        const poolCtxs = await Promise.all(
+          poolAddrs.map((p) => fetchPoolCtx(connection, new PublicKey(p))),
+        );
+        const assetMints = assetParams.map((a) => a.mint);
+        const ataMints = hasViaSol && !assetMints.some((m) => m.equals(WSOL_MINT))
+          ? [...assetMints, WSOL_MINT]
+          : assetMints;
+        const priceFeeds = assetParams
+          .filter((a) => a.pythFeedId.some((b) => b !== 0))
+          .map((a) => pythFeedAccount(a.pythFeedId));
+
+        const lut = await createVaultAlt(
+          connection,
+          anchorWallet,
+          buildVaultAltAddresses({
+            globalState: deriveGlobalStatePda(),
+            vaultPda: created.vaultPda,
+            vaultAuthority: created.vaultAuthority,
+            sharesMint: created.sharesMint,
+            usdcVault: created.usdcVault,
+            baseMint: new PublicKey(baseMint),
+            assetMints,
+            vaultAssetAtas: ataMints.map((m) => vaultAssetAta(created.vaultAuthority, m)),
+            priceFeeds,
+            pools: poolCtxs,
+          }),
+        );
+        altAddress = lut.toBase58();
+      } catch (err) {
+        altNote = `\n\nALT creation failed (deposits fall back to static keys): ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+      }
+
       // Record the vault in Supabase — the Vaults tab reads only from there.
+      setStatus('Recording vault…');
       let registryNote = '';
       try {
         await saveVault({
@@ -180,7 +351,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           performance_fee_bps: Number(performanceFeeBps) || 0,
           fund_type: fundType,
           max_shares: maxShares.trim() || null,
-          usdc_sol_pool: usdcSolPool.trim() || null,
+          usdc_sol_pool: solPool.address || null,
           assets: assets.map((draft, i) => ({
             mint: assetParams[i].mint.toBase58(),
             pool_address: assetParams[i].poolAddress.toBase58(),
@@ -191,6 +362,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           })),
           creator: publicKey.toBase58(),
           tx_signature: created.tx,
+          alt_address: altAddress,
         });
       } catch (err) {
         registryNote = `\n\nVault created on-chain but recording it failed: ${
@@ -203,7 +375,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         text:
           `ETF vault №${created.vaultId} created — share metadata set in the same transaction.\n` +
           `vault: ${created.vaultPda.toBase58()}\n` +
-          `shares mint: ${created.sharesMint.toBase58()}${registryNote}`,
+          `shares mint: ${created.sharesMint.toBase58()}\n` +
+          `lookup table: ${altAddress ?? '— (creation failed)'}${altNote}${registryNote}`,
         solscan: created.link,
       });
     } catch (err) {
@@ -216,6 +389,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         text: isRejection ? 'Transaction cancelled.' : msg,
       });
     } finally {
+      setStatus(null);
       setLoading(false);
     }
   };
@@ -231,7 +405,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           Create ETF vault
         </span>
         <span className={`${sectionLabelClass} uppercase`}>
-          vault + share metadata · one transaction
+          vault + share metadata + lookup table
         </span>
       </div>
 
@@ -240,8 +414,9 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           className="border-l-2 py-0.5 pl-3 text-sm leading-[1.55] text-muted-foreground"
           style={{ borderColor: `${style.accent}44` }}
         >
-          create_etf initialises the vault and its Token-2022 share metadata in a
-          single instruction. Assets are sourced from the forge token registry.
+          Pools resolve automatically from orca_pools (a missing pool blocks
+          creation); pyth feed ids resolve from PythInfo with manual fallback.
+          The vault&apos;s swap lookup table is created right after create_etf.
         </p>
 
         {/* ── Share metadata ── */}
@@ -338,15 +513,25 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               />
             </div>
           )}
-          <div>
-            <label className={fieldLabelClass}>Base/wSOL pool (ViaSol only)</label>
-            <input
-              className={inputClass}
-              value={usdcSolPool}
-              onChange={(e) => setUsdcSolPool(e.target.value)}
-              placeholder="Whirlpool address"
-            />
-          </div>
+          {hasViaSol && (
+            <div>
+              <label className={fieldLabelClass}>Base/wSOL pool (auto)</label>
+              <p className="mt-1 break-all font-mono text-[11px] leading-relaxed">
+                {solPool.looking && <span className="text-muted-foreground">looking up…</span>}
+                {!solPool.looking && solPool.address && (
+                  <span className="text-foreground">{solPool.address}</span>
+                )}
+                {!solPool.looking && solPool.missing && (
+                  <span className="text-destructive">
+                    not in orca_pools — required for ViaSol routing
+                  </span>
+                )}
+                {!solPool.looking && !solPool.address && !solPool.missing && (
+                  <span className="text-muted-foreground">pick a base mint first</span>
+                )}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* ── Asset basket ── */}
@@ -388,13 +573,21 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                       </button>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <div>
                       <label className={fieldLabelClass}>Token</label>
                       <select
                         className={selectClass}
                         value={asset.mint}
-                        onChange={(e) => updateAsset(i, { mint: e.target.value })}
+                        onChange={(e) =>
+                          updateAsset(i, {
+                            mint: e.target.value,
+                            poolAddress: '',
+                            poolMissing: false,
+                            pythFeedId: '',
+                            pythFromRegistry: false,
+                          })
+                        }
                         required
                       >
                         <option value="">— pick token —</option>
@@ -404,16 +597,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                           </option>
                         ))}
                       </select>
-                    </div>
-                    <div>
-                      <label className={fieldLabelClass}>Pool address</label>
-                      <input
-                        className={inputClass}
-                        value={asset.poolAddress}
-                        onChange={(e) => updateAsset(i, { poolAddress: e.target.value })}
-                        placeholder="Whirlpool address"
-                        required
-                      />
                     </div>
                     <div>
                       <label className={fieldLabelClass}>Allocation (BPS)</label>
@@ -432,20 +615,57 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                         className={selectClass}
                         value={asset.route}
                         onChange={(e) =>
-                          updateAsset(i, { route: e.target.value as 'DirectUsdc' | 'ViaSol' })
+                          updateAsset(i, {
+                            route: e.target.value as 'DirectUsdc' | 'ViaSol',
+                            poolAddress: '',
+                            poolMissing: false,
+                          })
                         }
                       >
                         <option value="DirectUsdc">DirectUsdc</option>
                         <option value="ViaSol">ViaSol</option>
                       </select>
                     </div>
-                    <div className="sm:col-span-2 lg:col-span-4">
-                      <label className={fieldLabelClass}>Price feed id (hex, optional)</label>
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <label className={fieldLabelClass}>Pool (from orca_pools — read-only)</label>
+                      <p className="mt-1 break-all font-mono text-[11px] leading-relaxed">
+                        {asset.looking && <span className="text-muted-foreground">looking up…</span>}
+                        {!asset.looking && asset.poolAddress && (
+                          <span className="text-foreground">
+                            {asset.poolLabel && (
+                              <span className="mr-2 text-muted-foreground">{asset.poolLabel}</span>
+                            )}
+                            {asset.poolAddress}
+                          </span>
+                        )}
+                        {!asset.looking && asset.poolMissing && (
+                          <span className="text-destructive">
+                            pool not found in orca_pools — it must be created before this
+                            vault can exist (manual entry is not allowed)
+                          </span>
+                        )}
+                        {!asset.looking && !asset.poolAddress && !asset.poolMissing && (
+                          <span className="text-muted-foreground">
+                            pick a token and base mint to resolve the pool
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <label className={fieldLabelClass}>
+                        Price feed id{' '}
+                        {asset.pythFromRegistry
+                          ? '(from PythInfo — read-only)'
+                          : '(not in PythInfo — enter manually, it will be saved)'}
+                      </label>
                       <input
                         className={inputClass}
                         value={asset.pythFeedId}
-                        onChange={(e) => updateAsset(i, { pythFeedId: e.target.value })}
+                        onChange={(e) =>
+                          updateAsset(i, { pythFeedId: e.target.value, pythFromRegistry: false })
+                        }
                         placeholder="64 hex chars — blank = zeroed feed id"
+                        readOnly={asset.pythFromRegistry}
                       />
                     </div>
                   </div>
@@ -472,7 +692,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         )}
 
         <button type="submit" disabled={loading} className={btnPrimaryClass}>
-          {loading ? 'Processing…' : connected ? 'Create ETF' : 'Connect wallet'}
+          {loading ? (status ?? 'Processing…') : connected ? 'Create ETF' : 'Connect wallet'}
         </button>
 
         {result && (

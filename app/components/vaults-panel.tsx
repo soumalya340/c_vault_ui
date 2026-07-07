@@ -150,7 +150,7 @@ export function VaultsPanel({ network }: { network: Network }) {
                       className={btnPrimaryClass}
                       style={{ borderColor: SECTION_STYLE['vault-ops'].accent, background: SECTION_STYLE['vault-ops'].accent }}
                     >
-                      Redeem
+                      Redeem &amp; Claim
                     </button>
                   </div>
                 </div>

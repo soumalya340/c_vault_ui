@@ -42,7 +42,27 @@ export interface VaultRecord {
   assets: VaultAssetRecord[];
   creator: string;
   tx_signature: string;
+  /** ALT created alongside the vault; bundles deposit/redeem swap accounts. */
+  alt_address: string | null;
   created_at?: string;
+}
+
+export interface PoolRecord {
+  pool_address: string;
+  mint_a: string;
+  mint_b: string;
+  symbol_a: string;
+  symbol_b: string;
+  decimals_a: number;
+  decimals_b: number;
+  tick_spacing: number;
+  network: string;
+}
+
+export interface PythRecord {
+  token_name: string;
+  pyth_id: string; // 64-char hex feed id, no 0x prefix
+  mint_address: string;
 }
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
@@ -71,6 +91,35 @@ export async function fetchVaults(network: string): Promise<VaultRecord[]> {
 
 export async function saveVault(row: Omit<VaultRecord, 'created_at'>): Promise<void> {
   const res = await fetch('/api/vaults', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(row),
+  });
+  await jsonOrThrow<{ ok: boolean }>(res);
+}
+
+/** Pool for a mint pair (either order) from `orca_pools` — null when absent. */
+export async function fetchPool(
+  mintA: string,
+  mintB: string,
+  network: string,
+): Promise<PoolRecord | null> {
+  const params = new URLSearchParams({ mintA, mintB, network });
+  const res = await fetch(`/api/pools?${params}`);
+  const { pool } = await jsonOrThrow<{ pool: PoolRecord | null }>(res);
+  return pool;
+}
+
+/** Pyth feed id for a mint from `PythInfo` — null when absent. */
+export async function fetchPythInfo(mint: string): Promise<PythRecord | null> {
+  const res = await fetch(`/api/pyth?mint=${encodeURIComponent(mint)}`);
+  const { pyth } = await jsonOrThrow<{ pyth: PythRecord | null }>(res);
+  return pyth;
+}
+
+/** Record a manually supplied pyth feed id so future lookups find it. */
+export async function savePythInfo(row: PythRecord): Promise<void> {
+  const res = await fetch('/api/pyth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(row),
