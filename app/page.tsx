@@ -6,6 +6,7 @@ import { TabBar } from '@/app/components/tab-bar';
 import { SectionBlock } from '@/app/components/section-block';
 import { VaultsPanel } from '@/app/components/vaults-panel';
 import { CreateEtfPanel } from '@/app/components/create-etf-panel';
+import { ExecuteSwapsPanel } from '@/app/components/execute-swaps-panel';
 import { NetworkStatus } from '@/app/components/network-toggle';
 import { WalletButton } from '@/app/components/wallet-button';
 import {
@@ -150,6 +151,7 @@ function HomeInner() {
               {activeTab === 'vault-ops' && (
                 <div className="space-y-6">
                   <CreateEtfPanel network={ACTIVE_NETWORK} />
+                  <ExecuteSwapsPanel network={ACTIVE_NETWORK} />
                   <SectionBlock
                     id="vault-ops"
                     label="Vault operations"
