@@ -83,6 +83,15 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     fields: [VAULT_ID_FIELD],
     submitLabel: 'Fetch my position',
   },
+  {
+    id: 'view_vault_asset_balances',
+    number: '07',
+    title: 'Vault asset balances',
+    description:
+      'Live token balance the vault holds for each asset — read from each asset ATA on-chain and shown in human-readable units.',
+    fields: [VAULT_ID_FIELD],
+    submitLabel: 'Fetch asset balances',
+  },
 ];
 
 /** Vault Ops №02+ — every non-create vault operation comes from vault_ops.rs. */

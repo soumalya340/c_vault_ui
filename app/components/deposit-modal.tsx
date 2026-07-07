@@ -1,10 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BN } from '@coral-xyz/anchor';
+import { PublicKey } from '@solana/web3.js';
+import {
+  depositAndDeploy,
+  previewDeposit,
+  parseUnits,
+  fetchMintDecimals,
+  describePreviewError,
+  type Network,
+} from '@/lib/cvault';
 import { useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
-import { depositAndDeploy, previewDeposit, type Network } from '@/lib/cvault';
-import type { VaultRecord } from '@/lib/registryClient';
+import { fetchTokens, type VaultRecord } from '@/lib/registryClient';
 import {
   btnGhostClass,
   btnPrimaryClass,
@@ -37,16 +45,62 @@ export function DepositModal({
     solscan?: string;
   } | null>(null);
 
+  // Base-mint metadata for human-readable amounts. Symbol/decimals come from
+  // the token registry; decimals fall back to the on-chain mint account.
+  const [baseDecimals, setBaseDecimals] = useState<number | null>(null);
+  const [baseSymbol, setBaseSymbol] = useState('base');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const tokens = await fetchTokens();
+        const match = tokens.find((t) => t.mint === vault.base_mint);
+        if (match) {
+          if (!cancelled) {
+            setBaseDecimals(match.decimals);
+            setBaseSymbol(match.symbol);
+          }
+          return;
+        }
+      } catch {
+        // Registry unavailable — fall through to the on-chain mint read.
+      }
+      try {
+        const decimals = await fetchMintDecimals(connection, new PublicKey(vault.base_mint));
+        if (!cancelled) setBaseDecimals(decimals);
+      } catch {
+        // Leave decimals null — the amount field stays disabled until known.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, vault.base_mint]);
+
+  // Live raw-unit echo shown under the amount field, so the raw value the
+  // program receives is always visible.
+  let rawUnits: string | null = null;
+  if (baseDecimals !== null && amount.trim()) {
+    try {
+      rawUnits = parseUnits(amount, baseDecimals).toString();
+    } catch {
+      rawUnits = null;
+    }
+  }
+
   const handlePreview = async () => {
+    if (baseDecimals === null) return;
     setPreviewing(true);
     setPreview(null);
     try {
-      const r = await previewDeposit(connection, vault.vault_id, new BN(amount || '0'));
+      const raw = parseUnits(amount || '0', baseDecimals);
+      const r = await previewDeposit(connection, vault.vault_id, raw);
       setPreview(
         `≈ ${r.sharesToMint} shares · NAV ${r.totalNav} · price ${r.sharePrice}`,
       );
     } catch (err) {
-      setPreview(err instanceof Error ? err.message : String(err));
+      setPreview(describePreviewError(err));
     } finally {
       setPreviewing(false);
     }
@@ -55,17 +109,22 @@ export function DepositModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!anchorWallet) return;
+    if (baseDecimals === null) {
+      setResult({ type: 'error', text: 'Base token decimals not loaded yet — try again in a moment.' });
+      return;
+    }
     setLoading(true);
     setResult(null);
     try {
       if (!amount.trim()) throw new Error('Enter an amount.');
+      const rawAmount = parseUnits(amount, baseDecimals);
       // One v0 transaction via the vault's ALT: deposit + all inflow swap
       // legs. No pre-checks — the program enforces everything (Plan.md §9).
       const r = await depositAndDeploy(
         connection,
         anchorWallet,
         vault.vault_id,
-        new BN(amount.trim()),
+        rawAmount,
         new BN(minSharesOut.trim() || '0'),
         vault.alt_address,
         network,
@@ -110,15 +169,26 @@ export function DepositModal({
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
           <div>
-            <label className={fieldLabelClass}>Amount (raw base units)</label>
+            <label className={fieldLabelClass}>
+              Amount ({baseSymbol})
+            </label>
             <input
               className={inputClass}
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder="1000000000"
+              placeholder={baseDecimals === null ? 'loading…' : '100'}
+              disabled={baseDecimals === null}
               required
             />
+            <p className="mt-1.5 font-mono text-[11px] text-muted-foreground/70">
+              {baseDecimals === null
+                ? 'Resolving base token decimals…'
+                : rawUnits
+                  ? `= ${rawUnits} base units (${baseDecimals} decimals)`
+                  : `Enter a ${baseSymbol} amount (e.g. 100)`}
+            </p>
           </div>
           <div>
             <label className={fieldLabelClass}>Min shares out (0 = no slippage check)</label>
@@ -135,13 +205,15 @@ export function DepositModal({
             <button
               type="button"
               onClick={handlePreview}
-              disabled={previewing || !amount.trim()}
+              disabled={previewing || !amount.trim() || baseDecimals === null}
               className={btnSecondaryClass}
             >
               {previewing ? 'Previewing…' : 'Preview'}
             </button>
             {preview && (
-              <span className="font-mono text-[11px] text-muted-foreground">{preview}</span>
+              <span className="font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {preview}
+              </span>
             )}
           </div>
 

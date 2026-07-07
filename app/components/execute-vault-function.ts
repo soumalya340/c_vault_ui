@@ -20,9 +20,12 @@ import {
   previewDeposit,
   previewRedeem,
   getUserPosition,
+  getVaultAssetBalances,
+  describePreviewError,
   DEFAULT_VAULT_ID,
   type Network,
 } from '@/lib/cvault';
+import { fetchTokens } from '@/lib/registryClient';
 
 function bn(v: string | undefined, fallback = '0'): BN {
   return new BN(v && v.length > 0 ? v : fallback);
@@ -66,9 +69,31 @@ export async function executeVaultFunction(
     case 'view_nav':
       return getTotalNavView(connection, id);
     case 'preview_deposit':
-      return previewDeposit(connection, id, bn(v.usdc_amount));
+      try {
+        return await previewDeposit(connection, id, bn(v.usdc_amount));
+      } catch (err) {
+        throw new Error(describePreviewError(err));
+      }
     case 'preview_redeem':
-      return previewRedeem(connection, id, bn(v.shares));
+      try {
+        return await previewRedeem(connection, id, bn(v.shares));
+      } catch (err) {
+        throw new Error(describePreviewError(err));
+      }
+    case 'view_vault_asset_balances': {
+      const [balances, tokens] = await Promise.all([
+        getVaultAssetBalances(connection, id),
+        fetchTokens().catch(() => []),
+      ]);
+      const symbolByMint = new Map(tokens.map((t) => [t.mint, t.symbol]));
+      return balances.map((b) => ({
+        asset: symbolByMint.get(b.mint) ?? b.mint,
+        balance: b.uiAmount,
+        raw: b.raw,
+        decimals: b.decimals,
+        mint: b.mint,
+      }));
+    }
     case 'view_my_position':
       if (!publicKey) throw new Error('Connect wallet');
       return getUserPosition(connection, id, publicKey);

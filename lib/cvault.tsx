@@ -19,6 +19,8 @@ import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction,
   createApproveInstruction,
+  getMint,
+  unpackAccount,
 } from '@solana/spl-token';
 import { BN } from '@coral-xyz/anchor';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
@@ -180,6 +182,25 @@ async function fetchTreasury(connection: Connection): Promise<PublicKey> {
 
 // ─── Admin instructions (GlobalState-scoped, devnet) ─────────────────────────
 
+/**
+ * Send a single-instruction Anchor method through sendV0 (build instruction →
+ * v0 tx → poll-confirm) instead of Anchor's `.rpc()`. `.rpc()` confirms via the
+ * websocket subscription with a hard 30s cap, which the public devnet RPC trips
+ * even when the tx lands ("not confirmed / unknown if it succeeded"). Every
+ * admin / vault-ops call routes through here so they all get robust confirmation.
+ */
+async function sendMethod(
+  connection: Connection,
+  wallet: AnchorWallet,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  methodBuilder: any,
+  network: Network,
+) {
+  const ix = await methodBuilder.instruction();
+  const sig = await sendV0(connection, wallet, [ix]);
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+
 function globalAdminAccounts(admin: PublicKey) {
   return { globalState: deriveGlobalStatePda(), admin } as Record<string, PublicKey>;
 }
@@ -191,11 +212,14 @@ export async function initGlobalState(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .initGlobalState(new BN(platformFeeBps))
-    .accounts({ authority: wallet.publicKey } as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .initGlobalState(new BN(platformFeeBps))
+      .accounts({ authority: wallet.publicKey } as never),
+    network,
+  );
 }
 
 export async function addEligibleBaseMint(
@@ -205,11 +229,14 @@ export async function addEligibleBaseMint(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .addEligibleBaseMint(mint)
-    .accounts(globalAdminAccounts(wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .addEligibleBaseMint(mint)
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
+    network,
+  );
 }
 
 export async function removeEligibleBaseMint(
@@ -219,11 +246,14 @@ export async function removeEligibleBaseMint(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .removeEligibleBaseMint(mint)
-    .accounts(globalAdminAccounts(wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .removeEligibleBaseMint(mint)
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
+    network,
+  );
 }
 
 export async function updatePlatformFeeBps(
@@ -233,11 +263,14 @@ export async function updatePlatformFeeBps(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .updatePlatformFeeBps(new BN(platformFeeBps))
-    .accounts(globalAdminAccounts(wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .updatePlatformFeeBps(new BN(platformFeeBps))
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
+    network,
+  );
 }
 
 export async function updateTreasuryAddr(
@@ -247,11 +280,14 @@ export async function updateTreasuryAddr(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .updateTreasuryAddr(treasury)
-    .accounts(globalAdminAccounts(wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .updateTreasuryAddr(treasury)
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
+    network,
+  );
 }
 
 export async function setEmergency(
@@ -261,11 +297,14 @@ export async function setEmergency(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .setEmergency(isEmergency)
-    .accounts(globalAdminAccounts(wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .setEmergency(isEmergency)
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
+    network,
+  );
 }
 
 export async function setDepositDisable(
@@ -275,11 +314,14 @@ export async function setDepositDisable(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .setDepositDisable(disabled)
-    .accounts(globalAdminAccounts(wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .setDepositDisable(disabled)
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
+    network,
+  );
 }
 
 // ─── Vault Ops — vault_ops.rs (vault-manager-scoped) ─────────────────────────
@@ -296,11 +338,14 @@ export async function resume(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .resume(new BN(vaultId))
-    .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .resume(new BN(vaultId))
+      .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never),
+    network,
+  );
 }
 
 export async function setPaused(
@@ -311,11 +356,14 @@ export async function setPaused(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .setPaused(new BN(vaultId), paused)
-    .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .setPaused(new BN(vaultId), paused)
+      .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never),
+    network,
+  );
 }
 
 export async function setRedeemCooldown(
@@ -326,11 +374,14 @@ export async function setRedeemCooldown(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .setRedeemCooldown(new BN(vaultId), new BN(cooldownSecs))
-    .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .setRedeemCooldown(new BN(vaultId), new BN(cooldownSecs))
+      .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never),
+    network,
+  );
 }
 
 export async function setFeeRecipient(
@@ -341,11 +392,14 @@ export async function setFeeRecipient(
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
-  const sig = await (program.methods as any)
-    .setFeeRecipient(new BN(vaultId), feeRecipient)
-    .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never)
-    .rpc();
-  return { tx: sig, link: solscanLink(sig, network) };
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .setFeeRecipient(new BN(vaultId), feeRecipient)
+      .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never),
+    network,
+  );
 }
 
 // ─── Create ETF (create_etf.rs — vault + Token-2022 metadata in one tx) ──────
@@ -1417,4 +1471,111 @@ export async function vaultWsolBalance(
   } catch {
     return 0n;
   }
+}
+
+// ─── Human-readable ↔ raw token amounts ──────────────────────────────────────
+
+/**
+ * Convert a human-readable decimal string (e.g. "1.5", "100") into raw base
+ * units for a mint with `decimals` decimals — exact integer math, no floats.
+ * Throws on malformed input or more fractional digits than the mint allows.
+ */
+export function parseUnits(amount: string, decimals: number): BN {
+  const trimmed = amount.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error(`Invalid amount: "${amount}"`);
+  }
+  const [whole, frac = ''] = trimmed.split('.');
+  if (frac.length > decimals) {
+    throw new Error(`Too many decimal places — max ${decimals} for this token.`);
+  }
+  const padded = frac.padEnd(decimals, '0');
+  const combined = `${whole}${padded}`.replace(/^0+(?=\d)/, '');
+  return new BN(combined || '0');
+}
+
+/**
+ * Convert a raw base-unit amount into a human-readable decimal string for a
+ * mint with `decimals` decimals — exact string math, no floats. Trailing
+ * fractional zeros are trimmed.
+ */
+export function formatUnits(raw: bigint | BN | string, decimals: number): string {
+  // Token balances are non-negative; strip any stray sign defensively.
+  const s = (typeof raw === 'string' ? raw : raw.toString()).replace(/^-/, '');
+  if (decimals === 0) return s;
+  const padded = s.padStart(decimals + 1, '0');
+  const whole = padded.slice(0, padded.length - decimals);
+  const frac = padded.slice(padded.length - decimals).replace(/0+$/, '');
+  return frac ? `${whole}.${frac}` : whole;
+}
+
+/**
+ * Resolve a mint's `decimals` from the chain (authoritative). Used when the
+ * token registry doesn't carry the base mint. Reads the SPL Token mint account.
+ */
+export async function fetchMintDecimals(
+  connection: Connection,
+  mint: PublicKey,
+): Promise<number> {
+  const info = await getMint(connection, mint, undefined, TOKEN_PROGRAM_ID);
+  return info.decimals;
+}
+
+/**
+ * Turn a preview `.view()` failure into a legible message. When a vault's
+ * asset ATAs or Pyth feed accounts don't exist yet on-chain, the simulation
+ * fails with `AccountNotFound` and an empty error message — surface that
+ * instead of a blank string.
+ */
+export function describePreviewError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? '');
+  const blob = `${raw} ${JSON.stringify((err as { simulationResponse?: unknown })?.simulationResponse ?? '')}`;
+  if (!raw.trim() || blob.includes('AccountNotFound')) {
+    return "Preview unavailable — the vault's asset accounts or price feeds aren't initialized on-chain yet.";
+  }
+  return raw;
+}
+
+// ─── Live per-asset vault balances ───────────────────────────────────────────
+
+export interface VaultAssetBalance {
+  mint: string;
+  decimals: number;
+  /** Raw base-unit balance held in the vault's ATA (0 when the ATA is absent). */
+  raw: string;
+  /** Human-readable balance derived from `raw` and `decimals`. */
+  uiAmount: string;
+}
+
+/**
+ * Live token balance the vault holds for each of its assets. Reads each asset's
+ * associated token account (vault_authority-owned) in one batched RPC call; a
+ * missing/uninitialized ATA counts as 0. Amounts are converted to
+ * human-readable form using each asset's on-chain `decimals`.
+ */
+export async function getVaultAssetBalances(
+  connection: Connection,
+  vaultId: number = DEFAULT_VAULT_ID,
+): Promise<VaultAssetBalance[]> {
+  const ctx = await fetchVaultCtx(connection, vaultId);
+  const atas = ctx.assets.map((a) => vaultAssetAta(ctx.vaultAuthority, a.mint));
+  const infos = await connection.getMultipleAccountsInfo(atas);
+
+  return ctx.assets.map((asset, i) => {
+    let raw = 0n;
+    const info = infos[i];
+    if (info) {
+      try {
+        raw = unpackAccount(atas[i], info, TOKEN_PROGRAM_ID).amount;
+      } catch {
+        raw = 0n;
+      }
+    }
+    return {
+      mint: asset.mint.toBase58(),
+      decimals: asset.decimals,
+      raw: raw.toString(),
+      uiAmount: formatUnits(raw, asset.decimals),
+    };
+  });
 }

@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { getTotalNavView, type Network } from '@/lib/cvault';
-import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
+import { getTotalNavView, fetchVaultCtx, type Network, type VaultChainAsset } from '@/lib/cvault';
+import { fetchVaults, fetchTokens, type VaultRecord, type TokenOption } from '@/lib/registryClient';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { SECTION_STYLE } from './function-defs';
-import { btnPrimaryClass, btnSecondaryClass, panelClass, sectionLabelClass } from './ui-classes';
+import { btnGhostClass, btnPrimaryClass, btnSecondaryClass, panelClass, sectionLabelClass } from './ui-classes';
 
 // Single source of truth for the Vaults tab: rows come from the Supabase
 // `vaults` table (forge/supabase/migrations/0004_vaults.sql), populated right
@@ -48,6 +48,136 @@ function VaultNav({ vaultId }: { vaultId: number }) {
   );
 }
 
+// Per-row asset inspector. The ⓘ button toggles an inline panel that reads the
+// vault's asset basket fresh from on-chain (fetchVaultCtx) at click time — no
+// websockets, no cached Supabase assets. Symbol/name resolve via the shared
+// token_registry map, falling back to a shortened mint.
+function VaultAssetsView({
+  vaultId,
+  tokenMap,
+}: {
+  vaultId: number;
+  tokenMap: Map<string, TokenOption>;
+}) {
+  const { connection } = useConnection();
+  const [open, setOpen] = useState(false);
+  const [assets, setAssets] = useState<VaultChainAsset[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchVaultCtx(connection, vaultId)
+      .then((ctx) => {
+        setAssets(ctx.assets);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [connection, vaultId]);
+
+  const toggle = useCallback(() => {
+    setOpen((wasOpen) => {
+      const next = !wasOpen;
+      // Fetch on open (and re-fetch on every re-open) so the view always
+      // reflects on-chain state at click time.
+      if (next) load();
+      return next;
+    });
+  }, [load]);
+
+  return (
+    <div className="w-full">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-label={open ? 'Hide vault assets' : 'View vault assets'}
+        title="View vault assets on-chain"
+        className="group inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-border-strong leading-none transition-colors duration-150 group-hover:border-accent">
+          {open ? '×' : 'i'}
+        </span>
+        {open ? 'Hide assets' : 'View assets'}
+      </button>
+
+      <div className={`accordion-content ${open ? 'open' : ''}`}>
+        <div className="accordion-inner">
+          <div className="mt-3 rounded-[2px] border border-border-strong bg-foreground/[0.03]">
+            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+              <span className={`${sectionLabelClass} uppercase`}>
+                {assets
+                  ? `${assets.length} asset${assets.length === 1 ? '' : 's'} on-chain`
+                  : 'assets'}
+              </span>
+              <button type="button" onClick={load} disabled={loading} className={btnGhostClass}>
+                {loading ? 'Loading…' : 'Refresh'}
+              </button>
+            </div>
+
+            {loading && !assets && (
+              <p className="px-4 py-4 font-mono text-xs text-muted-foreground">
+                <span className="mr-2 text-muted-foreground/50">&gt;</span>fetching assets…
+              </p>
+            )}
+
+            {error && (
+              <p className="px-4 py-4 font-mono text-xs text-destructive">
+                <span className="mr-2 text-muted-foreground/50">&gt;</span>assets unavailable — {error}
+              </p>
+            )}
+
+            {assets && assets.length > 0 && (
+              <ul className="divide-y divide-border">
+                {assets.map((asset, i) => {
+                  const mint = asset.mint.toBase58();
+                  const token = tokenMap.get(mint);
+                  const label = token ? token.symbol : shorten(mint);
+                  const pct = (asset.allocationBps / 100).toFixed(2);
+                  return (
+                    <li key={`${mint}-${i}`} className="flex flex-col gap-2 px-4 py-3">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
+                            {label}
+                          </span>
+                          {token?.name && (
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              {token.name}
+                            </span>
+                          )}
+                          <span className="rounded-[2px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                            {asset.route}
+                          </span>
+                        </div>
+                        <span className="font-mono text-xs tabular-nums text-foreground">{pct}%</span>
+                      </div>
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
+                        <div
+                          className="h-full rounded-full bg-accent"
+                          style={{ width: `${Math.min(asset.allocationBps / 100, 100)}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[11px] text-muted-foreground/70">
+                        mint {shorten(mint)} · {asset.decimals} dp
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function VaultsPanel({ network }: { network: Network }) {
   const style = SECTION_STYLE.vaults;
 
@@ -56,6 +186,7 @@ export function VaultsPanel({ network }: { network: Network }) {
   const [error, setError] = useState<string | null>(null);
   const [depositTarget, setDepositTarget] = useState<VaultRecord | null>(null);
   const [redeemTarget, setRedeemTarget] = useState<VaultRecord | null>(null);
+  const [tokenMap, setTokenMap] = useState<Map<string, TokenOption>>(new Map());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,6 +204,24 @@ export function VaultsPanel({ network }: { network: Network }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Token registry is fetched once and shared with every row's asset view so
+  // mints resolve to symbol/name. Failure is non-fatal — the asset view falls
+  // back to shortened mints.
+  useEffect(() => {
+    let cancelled = false;
+    fetchTokens()
+      .then((tokens) => {
+        if (cancelled) return;
+        setTokenMap(new Map(tokens.map((t) => [t.mint, t])));
+      })
+      .catch(() => {
+        // Registry unavailable — asset view falls back to shortened mints.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <section aria-label="Vaults" className="flex flex-col gap-4">
@@ -154,6 +303,8 @@ export function VaultsPanel({ network }: { network: Network }) {
                     </button>
                   </div>
                 </div>
+
+                <VaultAssetsView vaultId={vault.vault_id} tokenMap={tokenMap} />
               </div>
             ))}
           </div>
