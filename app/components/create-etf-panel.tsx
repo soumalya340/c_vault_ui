@@ -12,9 +12,9 @@ import {
   pythFeedAccount,
   vaultAssetAta,
   WSOL_MINT,
-  USDC_MINT,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
+  NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
@@ -53,8 +53,6 @@ interface AssetRow {
 
 const EMPTY_ROW: AssetRow = { assetId: '', allocationPct: '' };
 
-const USDC = USDC_MINT.toBase58();
-
 /** "1.01" (percent, ≤2 decimals) → 101 (raw on-chain allocation_bps). */
 function pctToBps(pct: string): number {
   const n = Number(pct);
@@ -68,6 +66,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const anchorWallet = useAnchorWallet();
   const { publicKey, connected } = useWallet();
   const { setVisible } = useWalletModal();
+  const usdcMint = NETWORK_CONSTANTS[network].usdcMint;
+  const usdcBase58 = usdcMint.toBase58();
 
   const [registry, setRegistry] = useState<AssetRegistryEntry[]>([]);
   const [registryError, setRegistryError] = useState<string | null>(null);
@@ -230,12 +230,12 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           connection,
           anchorWallet,
           buildVaultAltAddresses({
-            globalState: deriveGlobalStatePda(),
+            globalState: deriveGlobalStatePda(network),
             vaultPda: created.vaultPda,
             vaultAuthority: created.vaultAuthority,
             sharesMint: created.sharesMint,
             usdcVault: created.usdcVault,
-            baseMint: USDC_MINT,
+            baseMint: usdcMint,
             assetMints,
             vaultAssetAtas: ataMints.map((m, i) => {
               const tag = picked[i]?.entry.token_program_tag ?? 0;
@@ -263,7 +263,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           vault_authority: created.vaultAuthority.toBase58(),
           shares_mint: created.sharesMint.toBase58(),
           usdc_vault: created.usdcVault.toBase58(),
-          base_mint: USDC,
+          base_mint: usdcBase58,
           name,
           symbol,
           uri,
@@ -375,9 +375,9 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label className={fieldLabelClass}>Base / quote mint</label>
-            <input className={inputClass} value={`USDC · ${USDC}`} readOnly />
+            <input className={inputClass} value={`USDC · ${usdcBase58}`} readOnly />
             <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-              Program constant — mainnet USDC only
+              Program constant — {network} USDC only
             </p>
           </div>
           <div>

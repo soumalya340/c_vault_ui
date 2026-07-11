@@ -21,9 +21,9 @@ import {
   type SectionId,
 } from '@/app/components/function-defs';
 import {
-  C_VAULT_PROGRAM_ID,
   DEFAULT_VAULT_ID,
   deriveVaultPdas,
+  NETWORK_CONSTANTS,
 } from '@/lib/cvault';
 
 const MICROPRINT = 'CVAULT · ON-CHAIN ETF OPERATIONS · MAINNET READY · '.repeat(24);
@@ -109,9 +109,10 @@ function HomeInner({
 }) {
   const [view, setView] = useState<ActiveView>('home');
 
-  const { vaultPda } = deriveVaultPdas(DEFAULT_VAULT_ID);
+  const { vaultPda } = deriveVaultPdas(DEFAULT_VAULT_ID, network);
   const vaultShort = `${vaultPda.toBase58().slice(0, 8)}…${vaultPda.toBase58().slice(-8)}`;
-  const programShort = `${C_VAULT_PROGRAM_ID.toBase58().slice(0, 8)}…${C_VAULT_PROGRAM_ID.toBase58().slice(-8)}`;
+  const programId = NETWORK_CONSTANTS[network].programId;
+  const programShort = `${programId.toBase58().slice(0, 8)}…${programId.toBase58().slice(-8)}`;
 
   const navigate = (next: ActiveView) => {
     setView(next);

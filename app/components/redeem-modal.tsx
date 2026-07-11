@@ -56,7 +56,7 @@ export function RedeemModal({
     if (!publicKey) return;
     setCheckingPosition(true);
     try {
-      const pos = await getUserPosition(connection, vault.vault_id, publicKey);
+      const pos = await getUserPosition(connection, vault.vault_id, publicKey, network);
       setShareBalance(pos.shareBalance);
       setPending(
         pos.redeemState && Number(pos.redeemState.redeemableShares) > 0
@@ -86,7 +86,7 @@ export function RedeemModal({
     setPreviewing(true);
     setPreview(null);
     try {
-      const r = await previewRedeem(connection, vault.vault_id, new BN(shares || '0'));
+      const r = await previewRedeem(connection, vault.vault_id, new BN(shares || '0'), network);
       setPreview(`≈ ${r.estimatedUsdcValue} base units · ${r.numAssets} assets to swap`);
     } catch (err) {
       setPreview(err instanceof Error ? err.message : String(err));

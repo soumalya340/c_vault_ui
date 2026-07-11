@@ -84,7 +84,6 @@ export function buildVaultAltAddresses(params: {
     params.sharesMint,
     params.usdcVault,
     params.baseMint ?? USDC_MINT,
-    USDC_MINT,
     WSOL_MINT,
     ...params.assetMints,
     ...params.vaultAssetAtas,

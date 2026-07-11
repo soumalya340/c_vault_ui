@@ -1,5 +1,9 @@
 import { PublicKey } from '@solana/web3.js';
 
+/** Local copy of app/providers.tsx's Network type — kept dependency-free to avoid a cycle. */
+export type Network = 'devnet' | 'mainnet';
+
+/** Mainnet deployment — the long-standing defaults, kept as bare constants for callers that don't yet thread network through. */
 export const C_VAULT_PROGRAM_ID = new PublicKey(
   '2YW9wGokqo321EtDNWWH2CSQxFiJz3uMoNxa9dgbHn2P',
 );
@@ -20,6 +24,23 @@ export const USER_INFO_SEED = Buffer.from('user_info');
 export const REDEEM_SEED = Buffer.from('redeem');
 
 export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+/**
+ * mainnet and devnet are separate on-chain deployments of c_vault (different
+ * program id, different USDC mint) — every PDA derivation and Program()
+ * construction must key off this map rather than the bare constants above.
+ */
+export const NETWORK_CONSTANTS: Record<Network, { programId: PublicKey; usdcMint: PublicKey }> = {
+  mainnet: {
+    programId: C_VAULT_PROGRAM_ID,
+    usdcMint: USDC_MINT,
+  },
+  devnet: {
+    programId: new PublicKey('7wcJJoT1d1kSUkc3HHvH2DG1cVvDXm6psLwe2pHgdQUk'),
+    usdcMint: new PublicKey('CBh1CYgXrqK48NPKwCYe91fiUv66w9K2dBcjsKheaP23'),
+  },
+};
+
 export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 export const WBTC_MINT = new PublicKey('3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh');
 export const WETH_MINT = new PublicKey('7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs');

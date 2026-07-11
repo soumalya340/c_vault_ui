@@ -70,26 +70,26 @@ export async function executeVaultFunction(
 
   switch (fnId) {
     case 'view_global_state':
-      return getGlobalState(connection);
+      return getGlobalState(connection, net);
     case 'view_vault_state':
-      return getVaultState(connection, id);
+      return getVaultState(connection, id, net);
     case 'view_nav':
-      return getTotalNavView(connection, id);
+      return getTotalNavView(connection, id, net);
     case 'preview_deposit':
       try {
-        return await previewDeposit(connection, id, bn(v.usdc_amount));
+        return await previewDeposit(connection, id, bn(v.usdc_amount), net);
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
     case 'preview_redeem':
       try {
-        return await previewRedeem(connection, id, bn(v.shares));
+        return await previewRedeem(connection, id, bn(v.shares), net);
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
     case 'view_vault_asset_balances': {
       const [balances, tokens] = await Promise.all([
-        getVaultAssetBalances(connection, id),
+        getVaultAssetBalances(connection, id, net),
         fetchTokens().catch(() => []),
       ]);
       const symbolByMint = new Map(tokens.map((t) => [t.mint, t.symbol]));
@@ -103,7 +103,7 @@ export async function executeVaultFunction(
     }
     case 'view_my_position':
       if (!publicKey) throw new Error('Connect wallet');
-      return getUserPosition(connection, id, publicKey);
+      return getUserPosition(connection, id, publicKey, net);
     case 'init_global_state': {
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await initGlobalState(connection, anchorWallet, net);

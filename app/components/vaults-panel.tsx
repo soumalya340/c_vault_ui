@@ -33,9 +33,11 @@ function VaultNav() {
 function VaultAssetsView({
   vaultId,
   tokenMap,
+  network,
 }: {
   vaultId: number;
   tokenMap: Map<string, TokenOption>;
+  network: Network;
 }) {
   const { connection } = useConnection();
   const [open, setOpen] = useState(false);
@@ -46,7 +48,7 @@ function VaultAssetsView({
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchVaultCtx(connection, vaultId)
+    fetchVaultCtx(connection, vaultId, network)
       .then((ctx) => {
         setAssets(ctx.assets);
       })
@@ -56,7 +58,7 @@ function VaultAssetsView({
       .finally(() => {
         setLoading(false);
       });
-  }, [connection, vaultId]);
+  }, [connection, vaultId, network]);
 
   const toggle = useCallback(() => {
     setOpen((wasOpen) => {
@@ -282,7 +284,7 @@ export function VaultsPanel({ network }: { network: Network }) {
                   </div>
                 </div>
 
-                <VaultAssetsView vaultId={vault.vault_id} tokenMap={tokenMap} />
+                <VaultAssetsView vaultId={vault.vault_id} tokenMap={tokenMap} network={network} />
               </div>
             ))}
           </div>
