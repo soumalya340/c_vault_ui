@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
- * Whirlpool lookup backed by the Supabase `orca_pools` table. Pools are only
- * ever created by the pool-deployment tooling — the UI reads them, it never
- * writes them, and there is deliberately no way to enter a pool address by
- * hand (Plan.md §4).
+ * Optional Whirlpool lookup backed by Supabase `orca_pools` for convenience
+ * suggestions. Pool addresses are NOT required to exist in this table —
+ * the Create ETF UI accepts any pool address (Whirlpool or DAMM v2).
  */
 export type PoolRow = {
   pool_address: string;

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import type { Network } from '@/lib/cvault';
-import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
+import { fetchVaults, FieldError, type VaultRecord } from '@/lib/registryClient';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import {
   REQUIRES_WALLET,
@@ -36,6 +36,7 @@ export function AccordionItem({
     text: string;
     solscan?: string;
   } | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [ownedVaults, setOwnedVaults] = useState<VaultRecord[]>([]);
   const [vaultsLoading, setVaultsLoading] = useState(false);
@@ -94,6 +95,7 @@ export function AccordionItem({
 
     setLoading(true);
     setResult(null);
+    setFieldErrors({});
 
     try {
       const data = await executeVaultFunction(fn.id, values, {
@@ -114,6 +116,10 @@ export function AccordionItem({
 
       setResult({ type: 'success', text: formatResult(display), solscan: solscanUrl });
     } catch (err: unknown) {
+      if (err instanceof FieldError) {
+        setFieldErrors({ [err.field]: err.message });
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       const isRejection =
         msg.toLowerCase().includes('user rejected') ||
@@ -195,79 +201,101 @@ export function AccordionItem({
             )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {fn.fields.map((field) => (
-                <div key={field.name} className={field.wide ? 'sm:col-span-2' : undefined}>
-                  <label className={fieldLabelClass}>{field.label}</label>
-                  {field.name === 'vault_id' ? (
-                    !publicKey ? (
-                      <select disabled className={selectClass}>
-                        <option>Connect wallet to see your vaults</option>
-                      </select>
-                    ) : vaultsLoading ? (
-                      <select disabled className={selectClass}>
-                        <option>Loading your vaults…</option>
-                      </select>
-                    ) : ownedVaults.length === 0 ? (
-                      <select disabled className={selectClass}>
-                        <option>No vaults owned by this wallet</option>
-                      </select>
-                    ) : (
+              {fn.fields.map((field) => {
+                const fieldError = fieldErrors[field.name];
+                const fieldInputClass = fieldError
+                  ? `${inputClass} border-destructive focus-visible:border-destructive focus-visible:ring-destructive`
+                  : inputClass;
+                const clearFieldError = () => {
+                  if (!fieldError) return;
+                  setFieldErrors((prev) => {
+                    const rest = { ...prev };
+                    delete rest[field.name];
+                    return rest;
+                  });
+                };
+                return (
+                  <div key={field.name} className={field.wide ? 'sm:col-span-2' : undefined}>
+                    <label className={fieldLabelClass}>{field.label}</label>
+                    {field.name === 'vault_id' ? (
+                      !publicKey ? (
+                        <select disabled className={selectClass}>
+                          <option>Connect wallet to see your vaults</option>
+                        </select>
+                      ) : vaultsLoading ? (
+                        <select disabled className={selectClass}>
+                          <option>Loading your vaults…</option>
+                        </select>
+                      ) : ownedVaults.length === 0 ? (
+                        <select disabled className={selectClass}>
+                          <option>No vaults owned by this wallet</option>
+                        </select>
+                      ) : (
+                        <select
+                          value={values.vault_id ?? String(ownedVaults[0].vault_id)}
+                          onChange={(e) =>
+                            setValues((prev) => ({ ...prev, vault_id: e.target.value }))
+                          }
+                          className={selectClass}
+                        >
+                          {ownedVaults.map((v) => (
+                            <option key={v.vault_address} value={v.vault_id}>
+                              CVLT-{v.vault_id} · {v.symbol} · {v.name}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    ) : field.type === 'select' ? (
                       <select
-                        value={values.vault_id ?? String(ownedVaults[0].vault_id)}
-                        onChange={(e) =>
-                          setValues((prev) => ({ ...prev, vault_id: e.target.value }))
-                        }
-                        className={selectClass}
+                        value={values[field.name] ?? field.options?.[0]?.value ?? ''}
+                        onChange={(e) => {
+                          clearFieldError();
+                          setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
+                        }}
+                        className={fieldInputClass}
                       >
-                        {ownedVaults.map((v) => (
-                          <option key={v.vault_address} value={v.vault_id}>
-                            CVLT-{v.vault_id} · {v.symbol} · {v.name}
+                        {field.options?.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
                           </option>
                         ))}
                       </select>
-                    )
-                  ) : field.type === 'select' ? (
-                    <select
-                      value={values[field.name] ?? field.options?.[0]?.value ?? ''}
-                      onChange={(e) =>
-                        setValues((prev) => ({ ...prev, [field.name]: e.target.value }))
-                      }
-                      className={selectClass}
-                    >
-                      {field.options?.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : field.name === 'assets_json' ? (
-                    <textarea
-                      value={values[field.name] ?? ''}
-                      onChange={(e) =>
-                        setValues((prev) => ({ ...prev, [field.name]: e.target.value }))
-                      }
-                      rows={6}
-                      placeholder={field.hint}
-                      className={`${inputClass} text-xs`}
-                    />
-                  ) : (
-                    <input
-                      type={field.type ?? 'text'}
-                      placeholder={field.placeholder}
-                      value={values[field.name] ?? ''}
-                      onChange={(e) =>
-                        setValues((prev) => ({ ...prev, [field.name]: e.target.value }))
-                      }
-                      className={inputClass}
-                    />
-                  )}
-                  {field.hint && field.name !== 'assets_json' && (
-                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
-                      {field.hint}
-                    </p>
-                  )}
-                </div>
-              ))}
+                    ) : field.name === 'assets_json' ? (
+                      <textarea
+                        value={values[field.name] ?? ''}
+                        onChange={(e) => {
+                          clearFieldError();
+                          setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
+                        }}
+                        rows={6}
+                        placeholder={field.hint}
+                        className={`${fieldInputClass} text-xs`}
+                      />
+                    ) : (
+                      <input
+                        type={field.type ?? 'text'}
+                        placeholder={field.placeholder}
+                        value={values[field.name] ?? ''}
+                        onChange={(e) => {
+                          clearFieldError();
+                          setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
+                        }}
+                        className={fieldInputClass}
+                      />
+                    )}
+                    {fieldError && (
+                      <p className="mt-1.5 font-mono text-xs leading-relaxed text-destructive">
+                        {fieldError}
+                      </p>
+                    )}
+                    {field.hint && field.name !== 'assets_json' && (
+                      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
+                        {field.hint}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             <button type="submit" disabled={loading} className={btnPrimaryClass}>

@@ -23,8 +23,17 @@ import {
 } from '@solana/spl-token';
 import { SystemProgram } from '@solana/web3.js';
 
-import { WHIRLPOOL_PROGRAM_ID, WSOL_MINT } from './constants';
+import {
+  WHIRLPOOL_PROGRAM_ID,
+  DAMM_V2_PROGRAM_ID,
+  DAMM_V2_POOL_AUTHORITY,
+  DAMM_V2_EVENT_AUTHORITY,
+  MEMO_PROGRAM_ID,
+  WSOL_MINT,
+  USDC_MINT,
+} from './constants';
 import type { PoolCtx } from './whirlpool';
+import type { DammPoolCtx } from './damm';
 import { confirmBySignaturePolling } from './confirm';
 
 const EXTEND_BATCH = 20;
@@ -51,11 +60,13 @@ export function buildVaultAltAddresses(params: {
   vaultAuthority: PublicKey;
   sharesMint: PublicKey;
   usdcVault: PublicKey;
-  baseMint: PublicKey;
+  baseMint?: PublicKey;
   assetMints: PublicKey[];
   vaultAssetAtas: PublicKey[];
   priceFeeds: PublicKey[];
   pools: PoolCtx[];
+  dammPools?: DammPoolCtx[];
+  extraKeys?: PublicKey[];
 }): PublicKey[] {
   return dedupe([
     SystemProgram.programId,
@@ -63,12 +74,17 @@ export function buildVaultAltAddresses(params: {
     TOKEN_2022_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     WHIRLPOOL_PROGRAM_ID,
+    DAMM_V2_PROGRAM_ID,
+    DAMM_V2_POOL_AUTHORITY,
+    DAMM_V2_EVENT_AUTHORITY,
+    MEMO_PROGRAM_ID,
     params.globalState,
     params.vaultPda,
     params.vaultAuthority,
     params.sharesMint,
     params.usdcVault,
-    params.baseMint,
+    params.baseMint ?? USDC_MINT,
+    USDC_MINT,
     WSOL_MINT,
     ...params.assetMints,
     ...params.vaultAssetAtas,
@@ -77,9 +93,19 @@ export function buildVaultAltAddresses(params: {
       p.address,
       p.info.tokenVaultA,
       p.info.tokenVaultB,
+      p.info.tokenMintA,
+      p.info.tokenMintB,
       p.oracle,
       ...p.tickArrays,
     ]),
+    ...(params.dammPools ?? []).flatMap((p) => [
+      p.address,
+      p.info.tokenVaultA,
+      p.info.tokenVaultB,
+      p.info.tokenMintA,
+      p.info.tokenMintB,
+    ]),
+    ...(params.extraKeys ?? []),
   ]);
 }
 

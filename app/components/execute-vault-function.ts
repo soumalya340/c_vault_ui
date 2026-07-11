@@ -4,16 +4,14 @@ import type { AnchorWallet } from '@solana/wallet-adapter-react';
 import type { Connection } from '@solana/web3.js';
 import {
   initGlobalState,
-  addEligibleBaseMint,
-  removeEligibleBaseMint,
   setEmergency,
-  setDepositDisable,
-  resume,
   setPaused,
-  setRedeemCooldown,
   setFeeRecipient,
-  updatePlatformFeeBps,
+  setVaultEmergencyLock,
+  createAsset,
+  setAssetActive,
   updateTreasuryAddr,
+  setTwapKeeper,
   getGlobalState,
   getVaultState,
   getTotalNavView,
@@ -25,7 +23,7 @@ import {
   DEFAULT_VAULT_ID,
   type Network,
 } from '@/lib/cvault';
-import { fetchTokens } from '@/lib/registryClient';
+import { fetchTokens, fetchAssetRegistry, saveAssetRegistryEntry, FieldError } from '@/lib/registryClient';
 
 function bn(v: string | undefined, fallback = '0'): BN {
   return new BN(v && v.length > 0 ? v : fallback);
@@ -40,11 +38,20 @@ function vaultId(v: Record<string, string>): number {
   return v.vault_id?.trim() ? Number(v.vault_id) : DEFAULT_VAULT_ID;
 }
 
+/** 32-byte Pyth feed id as hex (with or without 0x); blank => zero feed. */
+function pythFeedIdBytes(v: string | undefined): number[] {
+  const hex = (v ?? '').trim().replace(/^0x/i, '');
+  if (hex.length === 0) return Array(32).fill(0);
+  if (hex.length !== 64) throw new Error('Pyth feed ID must be 64 hex chars (32 bytes)');
+  const bytes: number[] = [];
+  for (let i = 0; i < 64; i += 2) bytes.push(parseInt(hex.slice(i, i + 2), 16));
+  return bytes;
+}
+
 /**
  * Runs every instruction on the View / Vault Ops / Admin accordion tabs
  * (`app/components/function-defs.ts`). Create ETF, Deposit, and Redeem each
- * have their own dedicated panels (create-etf-panel.tsx, vaults-panel.tsx)
- * and are not dispatched from here.
+ * have their own dedicated panels and are not dispatched from here.
  */
 export async function executeVaultFunction(
   fnId: string,
@@ -99,17 +106,7 @@ export async function executeVaultFunction(
       return getUserPosition(connection, id, publicKey);
     case 'init_global_state': {
       if (!anchorWallet) throw new Error('Wallet required');
-      const r = await initGlobalState(connection, anchorWallet, Number(v.platform_fee_bps || 0), net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'add_eligible_base_mint': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await addEligibleBaseMint(connection, anchorWallet, pk(v.mint), net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'remove_eligible_base_mint': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await removeEligibleBaseMint(connection, anchorWallet, pk(v.mint), net);
+      const r = await initGlobalState(connection, anchorWallet, net);
       return { tx: r.tx, solscan: r.link };
     }
     case 'set_emergency': {
@@ -117,24 +114,9 @@ export async function executeVaultFunction(
       const r = await setEmergency(connection, anchorWallet, v.is_emergency === 'true', net);
       return { tx: r.tx, solscan: r.link };
     }
-    case 'set_deposit_disable': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setDepositDisable(connection, anchorWallet, v.disabled === 'true', net);
-      return { tx: r.tx, solscan: r.link };
-    }
     case 'set_paused': {
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await setPaused(connection, anchorWallet, id, v.paused === 'true', net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'resume': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await resume(connection, anchorWallet, id, net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'set_redeem_cooldown': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setRedeemCooldown(connection, anchorWallet, id, Number(v.cooldown_secs || 86400), net);
       return { tx: r.tx, solscan: r.link };
     }
     case 'set_fee_recipient': {
@@ -142,14 +124,100 @@ export async function executeVaultFunction(
       const r = await setFeeRecipient(connection, anchorWallet, id, pk(v.fee_recipient), net);
       return { tx: r.tx, solscan: r.link };
     }
-    case 'update_platform_fee_bps': {
+    case 'set_vault_emergency_lock': {
       if (!anchorWallet) throw new Error('Wallet required');
-      const r = await updatePlatformFeeBps(connection, anchorWallet, Number(v.platform_fee_bps || 0), net);
+      const r = await setVaultEmergencyLock(connection, anchorWallet, id, v.locked === 'true', net);
+      return { tx: r.tx, solscan: r.link };
+    }
+    case 'create_asset': {
+      if (!anchorWallet) throw new Error('Wallet required');
+      const mint = pk(v.mint);
+
+      // Guard before signing: the program itself has no duplicate-mint check
+      // (each create_asset call gets a fresh asset_id regardless), so a
+      // second listing of the same mint would just create a shadow entry.
+      const existingAssets = await fetchAssetRegistry().catch(() => []);
+      const dupe = existingAssets.find((a) => a.mint === mint.toBase58());
+      if (dupe) {
+        throw new FieldError(`Mint already listed as asset #${dupe.asset_id}.`, 'mint');
+      }
+
+      const route = v.route === 'directUsdc' ? { directUsdc: {} } : { viaSol: {} };
+      const swapKind = v.swap_kind === 'dammV2' ? { dammV2: {} } : { whirlpool: {} };
+      const priceSourceTag = Number(v.price_source_tag || 0);
+      const priceDexKind = Number(v.price_dex_kind || 0);
+      const pricePoolAddress = v.price_pool_address?.trim()
+        ? pk(v.price_pool_address)
+        : PublicKey.default;
+      const poolAddress = pk(v.pool_address);
+      const pythFeedId = pythFeedIdBytes(v.pyth_feed_id);
+      const tokenProgramTag = Number(v.token_program_tag || 0);
+
+      const r = await createAsset(
+        connection,
+        anchorWallet,
+        {
+          mint,
+          poolAddress,
+          pythFeedId,
+          route,
+          priceSourceTag,
+          priceDexKind,
+          pricePoolAddress,
+          swapKind,
+          tokenProgramTag,
+        },
+        net,
+      );
+
+      try {
+        await saveAssetRegistryEntry({
+          asset_id: String(r.assetId),
+          mint: mint.toBase58(),
+          pool_address: poolAddress.toBase58(),
+          pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
+          decimals: r.decimals,
+          route: v.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
+          price_source_tag: priceSourceTag,
+          price_dex_kind: priceDexKind,
+          price_pool_address: pricePoolAddress.toBase58(),
+          swap_kind: v.swap_kind === 'dammV2' ? 'DammV2' : 'Whirlpool',
+          token_program_tag: tokenProgramTag,
+          active: true,
+        });
+      } catch (err) {
+        return {
+          tx: r.tx,
+          solscan: r.link,
+          assetId: r.assetId,
+          registryWarning: `Asset created on-chain but recording it in the registry failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        };
+      }
+
+      return { tx: r.tx, solscan: r.link, assetId: r.assetId };
+    }
+    case 'set_asset_active': {
+      if (!anchorWallet) throw new Error('Wallet required');
+      const r = await setAssetActive(
+        connection,
+        anchorWallet,
+        Number(v.asset_id || 0),
+        v.active === 'true',
+        net,
+      );
       return { tx: r.tx, solscan: r.link };
     }
     case 'update_treasury_addr': {
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await updateTreasuryAddr(connection, anchorWallet, pk(v.treasury), net);
+      return { tx: r.tx, solscan: r.link };
+    }
+    case 'set_twap_keeper': {
+      if (!anchorWallet) throw new Error('Wallet required');
+      const keeper = v.keeper?.trim() ? pk(v.keeper) : PublicKey.default;
+      const r = await setTwapKeeper(connection, anchorWallet, keeper, net);
       return { tx: r.tx, solscan: r.link };
     }
     default:

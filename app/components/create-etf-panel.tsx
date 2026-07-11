@@ -9,24 +9,21 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import {
   createEtf,
   deriveGlobalStatePda,
-  getGlobalState,
   pythFeedAccount,
   vaultAssetAta,
   WSOL_MINT,
-  type AssetParam,
+  USDC_MINT,
+  PRICE_SOURCE_PYTH,
+  PRICE_SOURCE_DEX,
   type Network,
 } from '@/lib/cvault';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
 import { fetchPoolCtx } from '@/lib/whirlpool';
+import { fetchDammPoolCtx } from '@/lib/damm';
 import {
-  fetchAllPoolsForMint,
-  fetchPool,
-  fetchPythInfo,
-  fetchTokens,
-  savePythInfo,
+  fetchAssetRegistry,
   saveVault,
-  type PoolRecord,
-  type TokenOption,
+  type AssetRegistryEntry,
 } from '@/lib/registryClient';
 import { SECTION_STYLE } from './function-defs';
 import {
@@ -40,103 +37,29 @@ import {
   selectClass,
 } from './ui-classes';
 
-// Create ETF vault — create_etf.rs initialises the vault AND its Token-2022
-// share metadata inside one instruction. Pool addresses come exclusively from
-// the Supabase `orca_pools` table (no manual entry — Plan.md §4); pyth feed
-// ids come from `PythInfo` with a manual fallback that is written back on
-// success (Plan.md §5). After the vault lands, an Address Lookup Table with
-// every swap-leg account is created and stored with the vault row (§6).
+// Create ETF vault — create_etf initialises the vault AND its Token-2022 share
+// metadata in one instruction. Assets are picked by asset_id from the global
+// registry (admin-listed via create_asset); every other attribute (mint,
+// pool, route, price source, swap venue, token program) already lives on
+// that shared AssetInfo PDA and is not re-entered here. Quote mint is always
+// mainnet USDC.
 
-interface AssetDraft {
-  mint: string;
+interface AssetRow {
+  /** Empty string = unpicked. */
+  assetId: string;
   /** User-facing percentage, e.g. "1.01" for 1.01% — up to 2 decimals. */
   allocationPct: string;
-  /** Derived from which pool is picked — base-mint pair ⇒ DirectUsdc, wSOL pair ⇒ ViaSol. */
-  route: 'DirectUsdc' | 'ViaSol';
-  /** Every orca_pools row that includes this token mint (either side). */
-  tokenPools: PoolRecord[];
-  poolAddress: string;
-  poolLabel: string;
-  poolMissing: boolean;
-  /** From PythInfo when available; editable only when the registry misses. */
-  pythFeedId: string;
-  pythFromRegistry: boolean;
-  looking: boolean;
 }
 
-const EMPTY_ASSET: AssetDraft = {
-  mint: '',
-  allocationPct: '',
-  route: 'DirectUsdc',
-  tokenPools: [],
-  poolAddress: '',
-  poolLabel: '',
-  poolMissing: false,
-  pythFeedId: '',
-  pythFromRegistry: false,
-  looking: false,
-};
+const EMPTY_ROW: AssetRow = { assetId: '', allocationPct: '' };
 
-const ZERO_FEED_ID = '0'.repeat(64);
-const WSOL = WSOL_MINT.toBase58();
-
-// SOL isn't a row in the Supabase token registry — it's wrapped to wSOL by
-// the vault's own swap legs once deposited, so it's offered here directly
-// from constants.ts rather than requiring a registry entry.
-const SOL_TOKEN_OPTION: TokenOption = {
-  token_index: 'native-sol',
-  mint: WSOL,
-  symbol: 'SOL',
-  name: 'Solana (wrapped to wSOL in-vault)',
-  decimals: 9,
-  uri: '',
-};
-
-function parseFeedId(hex: string): number[] {
-  const clean = hex.trim().replace(/^0x/, '') || ZERO_FEED_ID;
-  if (!/^[0-9a-fA-F]{64}$/.test(clean)) {
-    throw new Error('Price feed id must be 64 hex characters (or blank).');
-  }
-  return Array.from(Buffer.from(clean, 'hex'));
-}
+const USDC = USDC_MINT.toBase58();
 
 /** "1.01" (percent, ≤2 decimals) → 101 (raw on-chain allocation_bps). */
 function pctToBps(pct: string): number {
   const n = Number(pct);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100);
-}
-
-/**
- * DirectUsdc for a base-mint pair, ViaSol for a wSOL pair. A wSOL-native
- * slot is always ViaSol — it's filled by the base→wSOL leg itself, so it
- * needs `hasViaSol` to trigger that swap regardless of pool orientation.
- */
-function routeForPool(pool: PoolRecord, baseMint: string, assetMint?: string): AssetDraft['route'] {
-  if (assetMint === WSOL) return 'ViaSol';
-  const isBasePair = pool.mint_a === baseMint || pool.mint_b === baseMint;
-  return isBasePair ? 'DirectUsdc' : 'ViaSol';
-}
-
-/**
- * Pools valid for vault creation: token paired with the base mint or wSOL.
- * A wSOL-native slot (asset.mint === WSOL) always trades on the base/wSOL
- * pool itself — it has no separate "wSOL vs wSOL" pair to pick.
- */
-function validPoolsForAsset(asset: AssetDraft, baseMint: string): PoolRecord[] {
-  if (!asset.mint || !baseMint) return [];
-  if (asset.mint === WSOL) {
-    return asset.tokenPools.filter(
-      (p) => p.mint_a === baseMint || p.mint_b === baseMint,
-    );
-  }
-  return asset.tokenPools.filter(
-    (p) =>
-      p.mint_a === baseMint ||
-      p.mint_b === baseMint ||
-      p.mint_a === WSOL ||
-      p.mint_b === WSOL,
-  );
 }
 
 export function CreateEtfPanel({ network }: { network: Network }) {
@@ -146,29 +69,22 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const { publicKey, connected } = useWallet();
   const { setVisible } = useWalletModal();
 
-  const [tokens, setTokens] = useState<TokenOption[]>([]);
-  const [tokensError, setTokensError] = useState<string | null>(null);
-
-  const [eligibleBaseMints, setEligibleBaseMints] = useState<string[]>([]);
-  const [baseMintsError, setBaseMintsError] = useState<string | null>(null);
+  const [registry, setRegistry] = useState<AssetRegistryEntry[]>([]);
+  const [registryError, setRegistryError] = useState<string | null>(null);
 
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [uri, setUri] = useState('');
-  const [baseMint, setBaseMint] = useState('');
   const [feeRecipient, setFeeRecipient] = useState('');
-  const [performanceFeeBps, setPerformanceFeeBps] = useState('1000');
+  const [depositFeeBps, setDepositFeeBps] = useState('0');
+  const [redeemFeeBps, setRedeemFeeBps] = useState('100');
   const [fundType, setFundType] = useState<'dynamic' | 'fixed'>('dynamic');
   const [maxShares, setMaxShares] = useState('');
-  const [assets, setAssets] = useState<AssetDraft[]>([{ ...EMPTY_ASSET }]);
-  const [activeAssetIndex, setActiveAssetIndex] = useState(0);
+  const [rows, setRows] = useState<AssetRow[]>([{ ...EMPTY_ROW }]);
+  const [activeRowIndex, setActiveRowIndex] = useState(0);
 
-  // base/wSOL pool — auto-resolved, required when any asset routes ViaSol.
-  const [solPool, setSolPool] = useState<{
-    address: string;
-    missing: boolean;
-    looking: boolean;
-  }>({ address: '', missing: false, looking: false });
+  // USDC/wSOL pool — required when any picked asset routes ViaSol. Free-form address.
+  const [solPool, setSolPool] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -179,166 +95,41 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   } | null>(null);
 
   useEffect(() => {
-    fetchTokens()
-      .then((rows) => {
-        setTokens(rows);
-        setTokensError(null);
-      })
-      .catch((err) =>
-        setTokensError(err instanceof Error ? err.message : String(err)),
-      );
-  }, []);
-
-  // Base mint options come from GlobalState.eligible_base_mints on-chain —
-  // the company-approved list — not the full token registry.
-  useEffect(() => {
+    if (network !== 'devnet') return;
     let cancelled = false;
-    getGlobalState(connection)
-      .then((gs) => {
+    fetchAssetRegistry()
+      .then((rows) => {
         if (cancelled) return;
-        setEligibleBaseMints(gs.eligibleBaseMints);
-        setBaseMintsError(null);
+        setRegistry(rows);
+        setRegistryError(null);
       })
       .catch((err) => {
         if (cancelled) return;
-        setBaseMintsError(err instanceof Error ? err.message : String(err));
+        setRegistryError(err instanceof Error ? err.message : String(err));
       });
     return () => {
       cancelled = true;
     };
-  }, [connection]);
+  }, [network]);
 
-  // Asset-basket token choices: registry tokens plus native SOL (wSOL).
-  const assetTokenOptions = useMemo(
-    () => [SOL_TOKEN_OPTION, ...tokens.filter((t) => t.mint !== WSOL)],
-    [tokens],
+  const activeAssets = useMemo(
+    () => (network === 'devnet' ? registry.filter((a) => a.active) : []),
+    [registry, network],
   );
 
-  const tokenByMint = useMemo(
-    () => new Map(assetTokenOptions.map((t) => [t.mint, t])),
-    [assetTokenOptions],
+  const assetById = useMemo(
+    () => new Map(registry.map((a) => [a.asset_id, a])),
+    [registry],
   );
 
-  const baseMintOptions = useMemo(
-    () =>
-      eligibleBaseMints.map((mint) => {
-        const token = tokenByMint.get(mint);
-        return { mint, label: token ? `${token.symbol} · ${token.name}` : mint };
-      }),
-    [eligibleBaseMints, tokenByMint],
-  );
-
-  const symbolForMint = (mint: string) => tokenByMint.get(mint)?.symbol ?? mint;
-  const baseMintSymbol = baseMint ? symbolForMint(baseMint) : '';
-
-  // Summed in raw bps (percent × 100) to avoid float drift; displayed as percent.
-  const allocationTotalBps = assets.reduce((sum, a) => sum + pctToBps(a.allocationPct), 0);
+  const allocationTotalBps = rows.reduce((sum, r) => sum + pctToBps(r.allocationPct), 0);
   const allocationTotalPct = (allocationTotalBps / 100).toFixed(2);
 
-  const updateAsset = (index: number, patch: Partial<AssetDraft>) => {
-    setAssets((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
+  const updateRow = (index: number, patch: Partial<AssetRow>) => {
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   };
 
-  const hasViaSol = assets.some(
-    (a) => a.route === 'ViaSol' || (a.mint && a.mint === WSOL),
-  );
-
-  // ── Supabase: all orca_pools rows for each token mint (Plan.md §3-4) ──
-  const assetLookupKey = assets.map((a) => a.mint).join(',');
-  useEffect(() => {
-    let cancelled = false;
-    assets.forEach((asset, i) => {
-      if (!asset.mint) return;
-      updateAsset(i, { looking: true, poolMissing: false });
-      fetchAllPoolsForMint(asset.mint, network)
-        .then((pools) => {
-          if (cancelled) return;
-          updateAsset(i, {
-            looking: false,
-            tokenPools: pools,
-            poolMissing: pools.length === 0,
-            poolAddress: '',
-            poolLabel: '',
-            route: 'DirectUsdc',
-          });
-        })
-        .catch(() => {
-          if (!cancelled) {
-            updateAsset(i, {
-              looking: false,
-              tokenPools: [],
-              poolAddress: '',
-              poolLabel: '',
-              poolMissing: true,
-            });
-          }
-        });
-      // Pyth id — keyed by mint only; manual entries are preserved.
-      fetchPythInfo(asset.mint)
-        .then((pyth) => {
-          if (cancelled || !pyth) return;
-          updateAsset(i, { pythFeedId: pyth.pyth_id, pythFromRegistry: true });
-        })
-        .catch(() => {});
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetLookupKey, network]);
-
-  // Auto-select when exactly one valid pool; clear stale picks when base mint changes.
-  const poolSelectionKey = assets
-    .map((a) => `${a.mint}:${a.tokenPools.map((p) => p.pool_address).join('|')}:${a.poolAddress}`)
-    .join(';');
-  useEffect(() => {
-    if (!baseMint) return;
-    assets.forEach((asset, i) => {
-      const valid = validPoolsForAsset(asset, baseMint);
-      if (valid.length === 1) {
-        const picked = valid[0];
-        if (asset.poolAddress === picked.pool_address) return;
-        updateAsset(i, {
-          poolAddress: picked.pool_address,
-          poolLabel: `${picked.symbol_a}/${picked.symbol_b}`,
-          route: routeForPool(picked, baseMint, asset.mint),
-        });
-        return;
-      }
-      if (
-        asset.poolAddress &&
-        !valid.some((p) => p.pool_address === asset.poolAddress)
-      ) {
-        updateAsset(i, {
-          poolAddress: '',
-          poolLabel: '',
-          route: 'DirectUsdc',
-        });
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseMint, poolSelectionKey]);
-
-  // ── base/wSOL pool lookup (needed for any ViaSol routing) ──
-  useEffect(() => {
-    if (!baseMint || !hasViaSol) {
-      setSolPool({ address: '', missing: false, looking: false });
-      return;
-    }
-    let cancelled = false;
-    setSolPool((s) => ({ ...s, looking: true, missing: false }));
-    fetchPool(baseMint, WSOL, network)
-      .then((pool) => {
-        if (cancelled) return;
-        setSolPool({ address: pool?.pool_address ?? '', missing: !pool, looking: false });
-      })
-      .catch(() => {
-        if (!cancelled) setSolPool({ address: '', missing: true, looking: false });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [baseMint, hasViaSol, network]);
+  const hasViaSol = rows.some((r) => assetById.get(r.assetId)?.route === 'ViaSol');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -351,48 +142,35 @@ export function CreateEtfPanel({ network }: { network: Network }) {
     setResult(null);
 
     try {
-      if (!baseMint) throw new Error('Pick a base mint.');
-      if (assets.length === 0) throw new Error('Add at least one asset.');
+      if (rows.length === 0) throw new Error('Add at least one asset.');
       if (allocationTotalBps !== 10_000) {
         throw new Error(`Allocations must sum to 100% (currently ${allocationTotalPct}%).`);
       }
 
-      const assetParams: AssetParam[] = assets.map((draft, i) => {
-        const token = tokenByMint.get(draft.mint);
-        if (!token) throw new Error(`Asset ${i + 1}: pick a token from the registry.`);
-        if (!draft.poolAddress) {
-          throw new Error(
-            `Asset ${i + 1} (${token.symbol}): no pool in orca_pools for this pair — ` +
-              'pools cannot be entered manually. Create the pool first.',
-          );
-        }
-        return {
-          mint: new PublicKey(token.mint),
-          poolAddress: new PublicKey(draft.poolAddress),
-          pythFeedId: parseFeedId(draft.pythFeedId),
-          allocationBps: pctToBps(draft.allocationPct),
-          decimals: token.decimals,
-          route: draft.route === 'ViaSol' ? { viaSol: {} } : { directUsdc: {} },
-        };
+      const picked = rows.map((row, i) => {
+        if (!row.assetId) throw new Error(`Asset ${i + 1}: pick a token.`);
+        const entry = assetById.get(row.assetId);
+        if (!entry) throw new Error(`Asset ${i + 1}: unknown asset id ${row.assetId}.`);
+        return { entry, allocationBps: pctToBps(row.allocationPct) };
       });
 
-      if (hasViaSol && !solPool.address) {
-        throw new Error(
-          'No base/wSOL pool in orca_pools — required when any asset routes ViaSol. ' +
-            'Pools cannot be entered manually.',
-        );
+      if (hasViaSol && !solPool.trim()) {
+        throw new Error('USDC/wSOL pool address is required when any asset routes ViaSol.');
       }
 
       setStatus('Creating vault (create_etf)…');
       const created = await createEtf(
         connection,
         anchorWallet,
-        new PublicKey(baseMint),
         {
           feeRecipient: feeRecipient.trim() ? new PublicKey(feeRecipient.trim()) : null,
-          performanceFeeBps: Number(performanceFeeBps) || 0,
-          usdcSolPool: solPool.address ? new PublicKey(solPool.address) : null,
-          assets: assetParams,
+          depositFeeBps: Number(depositFeeBps) || 0,
+          redeemFeeBps: Number(redeemFeeBps) || 0,
+          usdcSolPool: solPool.trim() ? new PublicKey(solPool.trim()) : null,
+          assets: picked.map((p) => ({
+            assetId: Number(p.entry.asset_id),
+            allocationBps: p.allocationBps,
+          })),
           fundType: fundType === 'fixed' ? { fixed: {} } : { dynamic: {} },
           maxShares: maxShares.trim() ? new BN(maxShares.trim()) : null,
         },
@@ -402,43 +180,51 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         network,
       );
 
-      // Record manually supplied pyth ids so the next lookup finds them (§5).
-      for (const draft of assets) {
-        const feedId = draft.pythFeedId.trim().replace(/^0x/, '');
-        if (!draft.pythFromRegistry && feedId && feedId !== ZERO_FEED_ID) {
-          const token = tokenByMint.get(draft.mint);
-          try {
-            await savePythInfo({
-              token_name: token?.symbol ?? draft.mint,
-              pyth_id: feedId,
-              mint_address: draft.mint,
-            });
-          } catch {
-            // non-fatal — the vault row still records the feed id
-          }
-        }
-      }
-
-      // Build the vault's ALT: every account the swap legs touch (§6).
       let altAddress: string | null = null;
       let altNote = '';
       try {
         setStatus('Creating address lookup table…');
-        const poolAddrs = Array.from(
-          new Set(
-            [...assetParams.map((a) => a.poolAddress.toBase58()), solPool.address].filter(Boolean),
-          ),
+        const whirlpoolAddrs: PublicKey[] = [];
+        const dammAddrs: PublicKey[] = [];
+
+        for (const { entry } of picked) {
+          const poolAddr = new PublicKey(entry.pool_address);
+          if (entry.swap_kind === 'DammV2') dammAddrs.push(poolAddr);
+          else whirlpoolAddrs.push(poolAddr);
+          if (entry.price_source_tag === PRICE_SOURCE_DEX) {
+            const pricePool = new PublicKey(entry.price_pool_address);
+            if (entry.price_dex_kind === 1) dammAddrs.push(pricePool);
+            else whirlpoolAddrs.push(pricePool);
+          }
+        }
+        if (solPool.trim()) {
+          whirlpoolAddrs.push(new PublicKey(solPool.trim()));
+        }
+
+        const uniqueWp = Array.from(new Set(whirlpoolAddrs.map((p) => p.toBase58()))).map(
+          (s) => new PublicKey(s),
         );
+        const uniqueDamm = Array.from(new Set(dammAddrs.map((p) => p.toBase58()))).map(
+          (s) => new PublicKey(s),
+        );
+
         const poolCtxs = await Promise.all(
-          poolAddrs.map((p) => fetchPoolCtx(connection, new PublicKey(p))),
+          uniqueWp.map((p) => fetchPoolCtx(connection, p).catch(() => null)),
         );
-        const assetMints = assetParams.map((a) => a.mint);
-        const ataMints = hasViaSol && !assetMints.some((m) => m.equals(WSOL_MINT))
-          ? [...assetMints, WSOL_MINT]
-          : assetMints;
-        const priceFeeds = assetParams
-          .filter((a) => a.pythFeedId.some((b) => b !== 0))
-          .map((a) => pythFeedAccount(a.pythFeedId));
+        const dammCtxs = await Promise.all(
+          uniqueDamm.map((p) => fetchDammPoolCtx(connection, p).catch(() => null)),
+        );
+
+        const assetMints = picked.map((p) => new PublicKey(p.entry.mint));
+        const ataMints =
+          hasViaSol && !assetMints.some((m) => m.equals(WSOL_MINT))
+            ? [...assetMints, WSOL_MINT]
+            : assetMints;
+        const priceFeeds = picked
+          .filter((p) => p.entry.price_source_tag === PRICE_SOURCE_PYTH)
+          .map((p) => Array.from(Buffer.from(p.entry.pyth_feed_id, 'hex')))
+          .filter((bytes) => bytes.some((b) => b !== 0))
+          .map((bytes) => pythFeedAccount(bytes));
 
         const lut = await createVaultAlt(
           connection,
@@ -449,11 +235,15 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             vaultAuthority: created.vaultAuthority,
             sharesMint: created.sharesMint,
             usdcVault: created.usdcVault,
-            baseMint: new PublicKey(baseMint),
+            baseMint: USDC_MINT,
             assetMints,
-            vaultAssetAtas: ataMints.map((m) => vaultAssetAta(created.vaultAuthority, m)),
+            vaultAssetAtas: ataMints.map((m, i) => {
+              const tag = picked[i]?.entry.token_program_tag ?? 0;
+              return vaultAssetAta(created.vaultAuthority, m, tag);
+            }),
             priceFeeds,
-            pools: poolCtxs,
+            pools: poolCtxs.filter((p): p is NonNullable<typeof p> => p != null),
+            dammPools: dammCtxs.filter((p): p is NonNullable<typeof p> => p != null),
           }),
         );
         altAddress = lut.toBase58();
@@ -463,7 +253,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         }`;
       }
 
-      // Record the vault in Supabase — the Vaults tab reads only from there.
       setStatus('Recording vault…');
       let registryNote = '';
       try {
@@ -474,22 +263,22 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           vault_authority: created.vaultAuthority.toBase58(),
           shares_mint: created.sharesMint.toBase58(),
           usdc_vault: created.usdcVault.toBase58(),
-          base_mint: baseMint,
+          base_mint: USDC,
           name,
           symbol,
           uri,
           fee_recipient: feeRecipient.trim() || publicKey.toBase58(),
-          performance_fee_bps: Number(performanceFeeBps) || 0,
+          performance_fee_bps: Number(redeemFeeBps) || 0,
           fund_type: fundType,
           max_shares: maxShares.trim() || null,
-          usdc_sol_pool: solPool.address || null,
-          assets: assets.map((draft, i) => ({
-            mint: assetParams[i].mint.toBase58(),
-            pool_address: assetParams[i].poolAddress.toBase58(),
-            allocation_bps: assetParams[i].allocationBps,
-            decimals: assetParams[i].decimals,
-            route: draft.route,
-            pyth_feed_id: draft.pythFeedId.trim().replace(/^0x/, '') || ZERO_FEED_ID,
+          usdc_sol_pool: solPool.trim() || null,
+          assets: picked.map((p) => ({
+            mint: p.entry.mint,
+            pool_address: p.entry.pool_address,
+            allocation_bps: p.allocationBps,
+            decimals: p.entry.decimals,
+            route: p.entry.route,
+            pyth_feed_id: p.entry.pyth_feed_id,
           })),
           creator: publicKey.toBase58(),
           tx_signature: created.tx,
@@ -508,7 +297,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           `vault: ${created.vaultPda.toBase58()}\n` +
           `shares mint: ${created.sharesMint.toBase58()}\n` +
           `lookup table: ${altAddress ?? '— (creation failed)'}${altNote}${registryNote}`,
-        solscan: created.link,
+        solscan: created.tx ? created.link : undefined,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -545,13 +334,11 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           className="border-l-2 py-0.5 pl-3 text-sm leading-[1.55] text-muted-foreground"
           style={{ borderColor: `${style.accent}44` }}
         >
-          Pool choices list every base-mint or SOL pair from orca_pools for
-          each token — a token with no pool blocks creation; pyth feed ids
-          resolve from PythInfo with manual fallback. The vault&apos;s swap
-          lookup table is created right after create_etf.
+          Quote mint is mainnet USDC. Assets are picked from the admin-approved
+          registry — pool, route, price source, and swap venue are already set
+          per asset; only the weighting is chosen here.
         </p>
 
-        {/* ── Share metadata ── */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <label className={fieldLabelClass}>Share name</label>
@@ -585,28 +372,13 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           </div>
         </div>
 
-        {/* ── Vault config ── */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label className={fieldLabelClass}>Base mint (from GlobalState)</label>
-            <select
-              className={selectClass}
-              value={baseMint}
-              onChange={(e) => setBaseMint(e.target.value)}
-              required
-            >
-              <option value="">— pick base token —</option>
-              {baseMintOptions.map((o) => (
-                <option key={o.mint} value={o.mint}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            {baseMintsError && (
-              <p className="mt-1 font-mono text-[11px] text-destructive">
-                eligible base mints unavailable — {baseMintsError}
-              </p>
-            )}
+            <label className={fieldLabelClass}>Base / quote mint</label>
+            <input className={inputClass} value={`USDC · ${USDC}`} readOnly />
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+              Program constant — mainnet USDC only
+            </p>
           </div>
           <div>
             <label className={fieldLabelClass}>Fee recipient (blank = you)</label>
@@ -618,13 +390,23 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             />
           </div>
           <div>
-            <label className={fieldLabelClass}>Performance fee (BPS)</label>
+            <label className={fieldLabelClass}>Deposit fee (BPS)</label>
             <input
               className={inputClass}
               type="number"
-              value={performanceFeeBps}
-              onChange={(e) => setPerformanceFeeBps(e.target.value)}
-              placeholder="1000"
+              value={depositFeeBps}
+              onChange={(e) => setDepositFeeBps(e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <div>
+            <label className={fieldLabelClass}>Redeem fee (BPS)</label>
+            <input
+              className={inputClass}
+              type="number"
+              value={redeemFeeBps}
+              onChange={(e) => setRedeemFeeBps(e.target.value)}
+              placeholder="100"
             />
           </div>
           <div>
@@ -651,27 +433,19 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             </div>
           )}
           {hasViaSol && (
-            <div>
-              <label className={fieldLabelClass}>Base/wSOL pool (auto)</label>
-              <p className="mt-1 break-all font-mono text-[11px] leading-relaxed">
-                {solPool.looking && <span className="text-muted-foreground">looking up…</span>}
-                {!solPool.looking && solPool.address && (
-                  <span className="text-foreground">{solPool.address}</span>
-                )}
-                {!solPool.looking && solPool.missing && (
-                  <span className="text-destructive">
-                    {baseMintSymbol}/SOL pool does not exist — required for ViaSol routing
-                  </span>
-                )}
-                {!solPool.looking && !solPool.address && !solPool.missing && (
-                  <span className="text-muted-foreground">pick a base mint first</span>
-                )}
-              </p>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className={fieldLabelClass}>USDC/wSOL pool (any address)</label>
+              <input
+                className={inputClass}
+                value={solPool}
+                onChange={(e) => setSolPool(e.target.value)}
+                placeholder="Whirlpool USDC↔wSOL pool address"
+                required
+              />
             </div>
           )}
         </div>
 
-        {/* ── Asset basket ── */}
         <div className="border border-border">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
             <span className={`${sectionLabelClass} font-bold uppercase`}>Asset basket</span>
@@ -683,69 +457,32 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             </span>
           </div>
 
-          {tokensError && (
+          {network !== 'devnet' && (
+            <p className="px-4 py-3 font-mono text-xs text-muted-foreground">
+              <span className="mr-1 text-muted-foreground/50">&gt;</span>
+              asset picker is devnet-only for now — switch network to pick assets
+            </p>
+          )}
+          {network === 'devnet' && registryError && (
             <p className="px-4 py-3 font-mono text-xs text-destructive">
               <span className="mr-1 text-muted-foreground/50">&gt;</span>
-              token registry unavailable — {tokensError}
+              asset registry unavailable — {registryError}
             </p>
           )}
 
-          {/* Inline asset tab strip — one pill per basket slot. */}
           <div
             role="tablist"
             aria-label="Asset basket slots"
             className="flex flex-wrap divide-x divide-border border-b border-border bg-foreground/[0.015]"
           >
-            {assets.map((asset, i) => {
-              const token = tokenByMint.get(asset.mint);
-              const active = i === activeAssetIndex;
-              const complete =
-                asset.mint && asset.poolAddress && Number(asset.allocationPct) > 0;
+            {rows.map((row, i) => {
+              const entry = assetById.get(row.assetId);
+              const active = i === activeRowIndex;
+              const complete = row.assetId && Number(row.allocationPct) > 0;
               const tabColorClass = active
                 ? 'text-background'
                 : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground';
-
-              if (!asset.mint) {
-                // Empty slot — the tab itself is the token picker, no extra click needed.
-                return (
-                  <label
-                    key={i}
-                    className={`relative flex items-center gap-1.5 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.06em] transition-colors duration-150 ${tabColorClass} ${active ? '' : 'cursor-pointer'}`}
-                    style={active ? { background: style.accent } : undefined}
-                    onClick={() => setActiveAssetIndex(i)}
-                  >
-                    <span className={active ? '' : 'text-seal'} style={{ opacity: 0.5 }}>
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        setActiveAssetIndex(i);
-                        updateAsset(i, {
-                          mint: e.target.value,
-                          tokenPools: [],
-                          poolAddress: '',
-                          poolLabel: '',
-                          poolMissing: false,
-                          pythFeedId: '',
-                          pythFromRegistry: false,
-                          route: 'DirectUsdc',
-                        });
-                      }}
-                      className="cursor-pointer appearance-none bg-transparent pr-3 font-mono text-[11px] font-bold uppercase tracking-[0.06em] focus-visible:outline-none [&>option]:bg-background [&>option]:text-foreground [&>option]:normal-case"
-                    >
-                      <option value="" disabled>
-                        — pick token —
-                      </option>
-                      {assetTokenOptions.map((t) => (
-                        <option key={t.mint} value={t.mint}>
-                          {t.symbol} · {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                );
-              }
+              const label = entry ? shortMint(entry.mint) : row.assetId ? '…' : '—';
 
               return (
                 <button
@@ -753,7 +490,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  onClick={() => setActiveAssetIndex(i)}
+                  onClick={() => setActiveRowIndex(i)}
                   className={`flex items-center gap-1.5 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.06em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset ${tabColorClass}`}
                   style={active ? { background: style.accent } : undefined}
                 >
@@ -763,15 +500,15 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                   >
                     {String(i + 1).padStart(2, '0')}
                   </span>
-                  <span>{token ? token.symbol : asset.mint}</span>
+                  <span>{label}</span>
                 </button>
               );
             })}
             <button
               type="button"
               onClick={() => {
-                setAssets((prev) => [...prev, { ...EMPTY_ASSET }]);
-                setActiveAssetIndex(assets.length);
+                setRows((prev) => [...prev, { ...EMPTY_ROW }]);
+                setActiveRowIndex(rows.length);
               }}
               className="flex items-center px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.06em] text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.04] hover:text-foreground"
             >
@@ -780,23 +517,23 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           </div>
 
           <div className="divide-y divide-border">
-            {assets.map((asset, i) => {
-              if (i !== activeAssetIndex) return null;
-              const token = tokenByMint.get(asset.mint);
+            {rows.map((row, i) => {
+              if (i !== activeRowIndex) return null;
+              const entry = assetById.get(row.assetId);
               return (
                 <div key={i} className="space-y-3 px-4 py-4">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-mono text-xs font-bold tracking-[0.08em] text-seal">
                       ASSET {String(i + 1).padStart(2, '0')}
-                      {token ? ` · ${token.symbol}` : ''}
+                      {entry ? ` · ${shortMint(entry.mint)}` : ''}
                     </span>
-                    {assets.length > 1 && (
+                    {rows.length > 1 && (
                       <button
                         type="button"
                         onClick={() =>
-                          setAssets((prev) => {
+                          setRows((prev) => {
                             const next = prev.filter((_, j) => j !== i);
-                            setActiveAssetIndex((cur) => Math.min(cur, next.length - 1));
+                            setActiveRowIndex((cur) => Math.min(cur, next.length - 1));
                             return next;
                           })
                         }
@@ -806,34 +543,26 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                       </button>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <label className={fieldLabelClass}>Token</label>
                       <select
                         className={selectClass}
-                        value={asset.mint}
-                        onChange={(e) =>
-                          updateAsset(i, {
-                            mint: e.target.value,
-                            tokenPools: [],
-                            poolAddress: '',
-                            poolLabel: '',
-                            poolMissing: false,
-                            pythFeedId: '',
-                            pythFromRegistry: false,
-                            route: 'DirectUsdc',
-                          })
-                        }
+                        value={row.assetId}
+                        onChange={(e) => updateRow(i, { assetId: e.target.value })}
                         required
+                        disabled={network !== 'devnet'}
                       >
                         <option value="">— pick token —</option>
-                        {assetTokenOptions.map((t) => (
-                          <option key={t.mint} value={t.mint}>
-                            {t.symbol} · {t.name} ({t.decimals} dec)
+                        {activeAssets.map((a) => (
+                          <option key={a.asset_id} value={a.asset_id}>
+                            #{a.asset_id} · {shortMint(a.mint)} ({a.decimals} dec, {a.route})
                           </option>
                         ))}
                       </select>
                     </div>
+
                     <div>
                       <label className={fieldLabelClass}>Allocation (%)</label>
                       <input
@@ -842,103 +571,15 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                         step="0.01"
                         min="0"
                         max="100"
-                        value={asset.allocationPct ?? ''}
+                        value={row.allocationPct}
                         onChange={(e) => {
                           const v = e.target.value;
-                          // Allow free typing but cap precision at 2 decimals.
                           if (/^\d*\.?\d{0,2}$/.test(v)) {
-                            updateAsset(i, { allocationPct: v });
+                            updateRow(i, { allocationPct: v });
                           }
                         }}
                         placeholder="100.00"
                         required
-                      />
-                    </div>
-                    <div className="sm:col-span-2 lg:col-span-3">
-                      <label className={fieldLabelClass}>
-                        Pool (from orca_pools — base mint or SOL pair)
-                      </label>
-                      {asset.looking && (
-                        <p className="mt-1 font-mono text-[11px] text-muted-foreground">looking up…</p>
-                      )}
-                      {!asset.looking && !asset.mint && (
-                        <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                          pick a token first
-                        </p>
-                      )}
-                      {!asset.looking && asset.mint && !baseMint && asset.tokenPools.length > 0 && (
-                        <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                          {asset.tokenPools.length} pool
-                          {asset.tokenPools.length === 1 ? '' : 's'} in orca_pools — pick a base
-                          mint above to choose route
-                        </p>
-                      )}
-                      {!asset.looking && asset.mint && !baseMint && asset.tokenPools.length === 0 && (
-                        <p className="mt-1 font-mono text-[11px] text-destructive">
-                          {token?.symbol ?? 'token'}/SOL pool does not exist — no pool for{' '}
-                          {token?.symbol ?? 'this token'} in orca_pools
-                        </p>
-                      )}
-                      {!asset.looking && asset.mint && baseMint && (() => {
-                        const validPools = validPoolsForAsset(asset, baseMint);
-                        if (validPools.length === 0) {
-                          const sym = token?.symbol ?? 'token';
-                          return (
-                            <p className="mt-1 font-mono text-[11px] text-destructive">
-                              {baseMintSymbol}/{sym} pool does not exist, and {sym}/SOL pool
-                              does not exist — create one in orca_pools before this vault can exist
-                            </p>
-                          );
-                        }
-                        return (
-                          <>
-                            <select
-                              className={selectClass}
-                              value={asset.poolAddress}
-                              onChange={(e) => {
-                                const pool = validPools.find(
-                                  (p) => p.pool_address === e.target.value,
-                                );
-                                updateAsset(i, {
-                                  poolAddress: pool?.pool_address ?? '',
-                                  poolLabel: pool ? `${pool.symbol_a}/${pool.symbol_b}` : '',
-                                  route: pool ? routeForPool(pool, baseMint, asset.mint) : asset.route,
-                                });
-                              }}
-                              required
-                            >
-                              <option value="">— pick pool —</option>
-                              {validPools.map((p) => (
-                                <option key={p.pool_address} value={p.pool_address}>
-                                  {p.symbol_a}/{p.symbol_b} · {routeForPool(p, baseMint, asset.mint)} ·{' '}
-                                  {p.pool_address.slice(0, 4)}…{p.pool_address.slice(-4)}
-                                </option>
-                              ))}
-                            </select>
-                            {asset.poolAddress && (
-                              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                                Route: {asset.route}
-                              </p>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                    <div className="sm:col-span-2 lg:col-span-3">
-                      <label className={fieldLabelClass}>
-                        Price feed id{' '}
-                        {asset.pythFromRegistry
-                          ? '(from PythInfo — read-only)'
-                          : '(not in PythInfo — enter manually, it will be saved)'}
-                      </label>
-                      <input
-                        className={inputClass}
-                        value={asset.pythFeedId}
-                        onChange={(e) =>
-                          updateAsset(i, { pythFeedId: e.target.value, pythFromRegistry: false })
-                        }
-                        placeholder="64 hex chars — blank = zeroed feed id"
-                        readOnly={asset.pythFromRegistry}
                       />
                     </div>
                   </div>
@@ -946,7 +587,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               );
             })}
           </div>
-
         </div>
 
         {!connected && (
@@ -993,4 +633,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
       </form>
     </section>
   );
+}
+
+function shortMint(mint: string): string {
+  return mint.length > 8 ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : mint;
 }

@@ -14,6 +14,22 @@ export interface TokenOption {
   uri: string;
 }
 
+/** One row from `PreApprovedTokenRegistryDevnet` — mirrors the on-chain AssetInfo shape. */
+export interface AssetRegistryEntry {
+  asset_id: string;
+  mint: string;
+  pool_address: string;
+  pyth_feed_id: string;
+  decimals: number;
+  route: 'ViaSol' | 'DirectUsdc';
+  price_source_tag: number;
+  price_dex_kind: number;
+  price_pool_address: string;
+  swap_kind: 'Whirlpool' | 'DammV2';
+  token_program_tag: number;
+  active: boolean;
+}
+
 export interface VaultAssetRecord {
   mint: string;
   pool_address: string;
@@ -65,6 +81,20 @@ export interface PythRecord {
   mint_address: string;
 }
 
+/**
+ * Thrown by `jsonOrThrow` when the API response names which request field
+ * caused the failure (e.g. a duplicate-mint 409) — callers can attach
+ * `.field` to the matching form input instead of only showing a toast.
+ */
+export class FieldError extends Error {
+  field: string;
+  constructor(message: string, field: string) {
+    super(message);
+    this.name = 'FieldError';
+    this.field = field;
+  }
+}
+
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => null);
   if (!res.ok) {
@@ -72,7 +102,11 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
       body && typeof body === 'object' && 'error' in body
         ? String((body as { error: unknown }).error)
         : `Request failed (${res.status})`;
-    throw new Error(message);
+    const field =
+      body && typeof body === 'object' && 'field' in body
+        ? String((body as { field: unknown }).field)
+        : null;
+    throw field ? new FieldError(message, field) : new Error(message);
   }
   return body as T;
 }
@@ -81,6 +115,45 @@ export async function fetchTokens(): Promise<TokenOption[]> {
   const res = await fetch('/api/tokens');
   const { tokens } = await jsonOrThrow<{ tokens: TokenOption[] }>(res);
   return tokens;
+}
+
+/** Pre-approved assets for the Create ETF token picker (devnet only). */
+export async function fetchAssetRegistry(): Promise<AssetRegistryEntry[]> {
+  const res = await fetch('/api/asset-registry');
+  const { assets } = await jsonOrThrow<{ assets: AssetRegistryEntry[] }>(res);
+  return assets;
+}
+
+/**
+ * Mirror a just-listed `create_asset` call into `PreApprovedTokenRegistryDevnet`.
+ * Throws `FieldError` on `mint` when that mint is already listed.
+ */
+export async function saveAssetRegistryEntry(row: AssetRegistryEntry): Promise<void> {
+  const res = await fetch('/api/asset-registry', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(row),
+  });
+  await jsonOrThrow<{ ok: boolean }>(res);
+}
+
+/** Insert (or return existing) mint in `token_registry` when a new token is used. */
+export async function saveToken(row: {
+  mint: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  uri?: string;
+  pda?: string;
+  daily_cap?: string;
+}): Promise<TokenOption> {
+  const res = await fetch('/api/tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(row),
+  });
+  const { token } = await jsonOrThrow<{ token: TokenOption; created: boolean }>(res);
+  return token;
 }
 
 export async function fetchVaults(network: string): Promise<VaultRecord[]> {

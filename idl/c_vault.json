@@ -2,80 +2,17 @@
   "address": "2YW9wGokqo321EtDNWWH2CSQxFiJz3uMoNxa9dgbHn2P",
   "metadata": {
     "name": "c_vault",
-    "version": "1.1.0",
+    "version": "2.0.0",
     "spec": "0.1.0",
-    "description": "c_vault v1.1.0 — On-chain multi-fund index vault (ETF-style) for Solana"
+    "description": "c_vault v2.0.0 — On-chain multi-fund index vault (ETF-style) for Solana"
   },
   "instructions": [
-    {
-      "name": "add_eligible_base_mint",
-      "docs": [
-        "Add a company-approved stable mint to the eligible base_mint allowlist."
-      ],
-      "discriminator": [
-        40,
-        203,
-        114,
-        47,
-        122,
-        244,
-        220,
-        28
-      ],
-      "accounts": [
-        {
-          "name": "global_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "admin",
-          "signer": true,
-          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
-        }
-      ],
-      "args": [
-        {
-          "name": "mint",
-          "type": "pubkey"
-        }
-      ]
-    },
     {
       "name": "claim",
       "docs": [
         "Instruction 3 of 3 — send pending USDC to user and close RedeemState."
       ],
-      "discriminator": [
-        62,
-        198,
-        214,
-        193,
-        213,
-        159,
-        108,
-        210
-      ],
+      "discriminator": [62, 198, 214, 193, 213, 159, 108, 210],
       "accounts": [
         {
           "name": "global_state",
@@ -84,18 +21,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -107,17 +33,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -127,7 +43,8 @@
           }
         },
         {
-          "name": "base_mint"
+          "name": "usdc_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
         },
         {
           "name": "vault_authority",
@@ -136,21 +53,8 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -167,14 +71,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  100,
-                  101,
-                  101,
-                  109
-                ]
+                "value": [114, 101, 100, 101, 101, 109]
               },
               {
                 "kind": "account",
@@ -194,23 +91,15 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  100,
-                  99,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
               },
               {
-                "kind": "account",
-                "path": "vault.base_mint",
-                "account": "Vault"
+                "kind": "const",
+                "value": [
+                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
+                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
+                  166, 2, 3, 69, 47, 93, 97
+                ]
               },
               {
                 "kind": "arg",
@@ -234,7 +123,7 @@
         {
           "name": "treasury_usdc_account",
           "docs": [
-            "Platform fee slice destination — treasury's USDC ATA."
+            "Company's 20% redeem-fee slice destination — treasury's USDC ATA."
           ],
           "writable": true,
           "pda": {
@@ -249,44 +138,50 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "usdc_mint"
               }
             ],
             "program": {
               "kind": "const",
               "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
+              ]
+            }
+          }
+        },
+        {
+          "name": "fee_recipient"
+        },
+        {
+          "name": "fee_recipient_usdc_account",
+          "docs": [
+            "Vault manager's 80% redeem-fee slice destination — created idempotently",
+            "regardless of fee amount."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "fee_recipient"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
               ]
             }
           }
@@ -312,6 +207,70 @@
       ]
     },
     {
+      "name": "create_asset",
+      "docs": [
+        "Admin-only: list a new global asset. Runs pool/TVL/ownership",
+        "validation once at listing time; vaults reference it by id afterward."
+      ],
+      "discriminator": [28, 42, 120, 51, 7, 38, 156, 136],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_info",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "account",
+                "path": "global_state.total_assets",
+                "account": "GlobalState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "CreateAssetParams"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "create_etf",
       "docs": [
         "Create a new ETF fund vault, including its Token-2022 share metadata,",
@@ -319,16 +278,7 @@
         "`global_state.total_vaults`; PDA seeds are derived from it directly. The",
         "counter is incremented by 1 once the vault is initialised."
       ],
-      "discriminator": [
-        210,
-        255,
-        162,
-        136,
-        167,
-        106,
-        173,
-        169
-      ],
+      "discriminator": [210, 255, 162, 136, 167, 106, 173, 169],
       "accounts": [
         {
           "name": "global_state",
@@ -342,18 +292,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -369,17 +308,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "account",
@@ -391,29 +320,14 @@
         },
         {
           "name": "vault_authority",
-          "docs": [
-            "Per-vault PDA that signs CPIs on behalf of this vault."
-          ],
+          "docs": ["Per-vault PDA that signs CPIs on behalf of this vault."],
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -439,19 +353,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  115,
-                  104,
-                  97,
-                  114,
-                  101,
-                  115,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
-                ]
+                "value": [115, 104, 97, 114, 101, 115, 95, 109, 105, 110, 116]
               },
               {
                 "kind": "account",
@@ -463,26 +365,13 @@
         },
         {
           "name": "usdc_vault",
-          "docs": [
-            "USDC token account custodied by this vault."
-          ],
+          "docs": ["USDC token account custodied by this vault."],
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  100,
-                  99,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "account",
@@ -513,9 +402,7 @@
         },
         {
           "name": "shares_token_program",
-          "docs": [
-            "Token-2022 program — used for the share mint."
-          ]
+          "docs": ["Token-2022 program — used for the share mint."]
         },
         {
           "name": "token_program",
@@ -560,16 +447,7 @@
         "`Fixed` vaults near their max_shares cap, the deposit is clamped to",
         "remaining headroom rather than rejected."
       ],
-      "discriminator": [
-        242,
-        35,
-        198,
-        137,
-        82,
-        225,
-        242,
-        182
-      ],
+      "discriminator": [242, 35, 198, 137, 82, 225, 242, 182],
       "accounts": [
         {
           "name": "global_state",
@@ -578,18 +456,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -602,17 +469,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -622,7 +479,8 @@
           }
         },
         {
-          "name": "base_mint"
+          "name": "usdc_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
         },
         {
           "name": "vault_authority",
@@ -631,21 +489,8 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -662,23 +507,15 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  100,
-                  99,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
               },
               {
-                "kind": "account",
-                "path": "vault.base_mint",
-                "account": "Vault"
+                "kind": "const",
+                "value": [
+                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
+                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
+                  166, 2, 3, 69, 47, 93, 97
+                ]
               },
               {
                 "kind": "arg",
@@ -694,19 +531,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  115,
-                  104,
-                  97,
-                  114,
-                  101,
-                  115,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
-                ]
+                "value": [115, 104, 97, 114, 101, 115, 95, 109, 105, 110, 116]
               },
               {
                 "kind": "arg",
@@ -736,9 +561,7 @@
         },
         {
           "name": "base_token_program",
-          "docs": [
-            "Classic SPL Token program (for USDC transfers)."
-          ],
+          "docs": ["Classic SPL Token program (for USDC transfers)."],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
@@ -752,17 +575,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  105,
-                  110,
-                  102,
-                  111
-                ]
+                "value": [117, 115, 101, 114, 95, 105, 110, 102, 111]
               },
               {
                 "kind": "account",
@@ -784,7 +597,7 @@
         {
           "name": "treasury_usdc_account",
           "docs": [
-            "Platform fee slice destination — treasury's USDC ATA."
+            "Company's 20% deposit-fee slice destination — treasury's USDC ATA."
           ],
           "writable": true,
           "pda": {
@@ -799,44 +612,15 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "usdc_mint"
               }
             ],
             "program": {
               "kind": "const",
               "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
               ]
             }
           }
@@ -844,7 +628,7 @@
         {
           "name": "fee_recipient_usdc_account",
           "docs": [
-            "Vault fee slice destination — vault's fee_recipient USDC ATA."
+            "Vault manager's 80% deposit-fee slice destination — vault's fee_recipient USDC ATA."
           ],
           "writable": true,
           "pda": {
@@ -859,44 +643,15 @@
               },
               {
                 "kind": "account",
-                "path": "base_mint"
+                "path": "usdc_mint"
               }
             ],
             "program": {
               "kind": "const",
               "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
               ]
             }
           }
@@ -931,33 +686,45 @@
         "Read-only: returns live NAV, share price, and total shares.",
         "Call with `.view()` from the TypeScript client — no wallet signature needed."
       ],
-      "discriminator": [
-        218,
-        231,
-        15,
-        92,
-        175,
-        53,
-        10,
-        196
-      ],
+      "discriminator": [218, 231, 15, 92, 175, 53, 10, 196],
       "accounts": [
+        {
+          "name": "global_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
+                ]
+              }
+            ]
+          }
+        },
         {
           "name": "vault",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
                 "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -985,16 +752,7 @@
       "docs": [
         "Create the GlobalState singleton. Must be called once before any vault is created."
       ],
-      "discriminator": [
-        225,
-        88,
-        176,
-        139,
-        158,
-        113,
-        203,
-        37
-      ],
+      "discriminator": [225, 88, 176, 139, 158, 113, 203, 37],
       "accounts": [
         {
           "name": "global_state",
@@ -1004,18 +762,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -1032,12 +779,7 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": [
-        {
-          "name": "platform_fee_bps",
-          "type": "u64"
-        }
-      ]
+      "args": []
     },
     {
       "name": "preview_deposit",
@@ -1045,16 +787,7 @@
         "Read-only: shares a `usdc_amount` deposit would mint right now.",
         "Call with `.view()` from the TypeScript client — no wallet signature needed."
       ],
-      "discriminator": [
-        16,
-        61,
-        8,
-        235,
-        146,
-        126,
-        80,
-        84
-      ],
+      "discriminator": [16, 61, 8, 235, 146, 126, 80, 84],
       "accounts": [
         {
           "name": "global_state",
@@ -1063,18 +796,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -1086,16 +808,24 @@
             "seeds": [
               {
                 "kind": "const",
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
                 "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -1128,16 +858,7 @@
         "Read-only: asset amounts + estimated USDC that burning `shares` would return.",
         "Call with `.view()` from the TypeScript client — no wallet signature needed."
       ],
-      "discriminator": [
-        122,
-        195,
-        125,
-        8,
-        168,
-        149,
-        50,
-        40
-      ],
+      "discriminator": [122, 195, 125, 8, 168, 149, 50, 40],
       "accounts": [
         {
           "name": "global_state",
@@ -1146,18 +867,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -1169,16 +879,24 @@
             "seeds": [
               {
                 "kind": "const",
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
                 "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -1187,6 +905,38 @@
               }
             ]
           }
+        },
+        {
+          "name": "user_info",
+          "docs": [
+            "The redeemer's UserInfo — read-only, used only to estimate the",
+            "profit-gated vault fee. Must already exist (same requirement as the",
+            "real `request_redeem`); a caller with no UserInfo would have their",
+            "real redeem rejected with `InsufficientTrackedBasis`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [117, 115, 101, 114, 95, 105, 110, 102, 111]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user",
+          "docs": [
+            "require the caller to sign, so any pubkey may be passed to preview any",
+            "user's redeem quote."
+          ]
         }
       ],
       "args": [
@@ -1206,74 +956,11 @@
       }
     },
     {
-      "name": "remove_eligible_base_mint",
-      "docs": [
-        "Remove a mint from the eligible base_mint allowlist."
-      ],
-      "discriminator": [
-        161,
-        169,
-        254,
-        180,
-        121,
-        233,
-        191,
-        54
-      ],
-      "accounts": [
-        {
-          "name": "global_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "admin",
-          "signer": true,
-          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
-        }
-      ],
-      "args": [
-        {
-          "name": "mint",
-          "type": "pubkey"
-        }
-      ]
-    },
-    {
       "name": "request_redeem",
       "docs": [
         "Instruction 1 of 3 — burn shares, record proportional asset amounts, start 24hr cooldown."
       ],
-      "discriminator": [
-        105,
-        49,
-        44,
-        38,
-        207,
-        241,
-        33,
-        173
-      ],
+      "discriminator": [105, 49, 44, 38, 207, 241, 33, 173],
       "accounts": [
         {
           "name": "global_state",
@@ -1282,18 +969,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -1306,17 +982,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -1332,21 +998,8 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -1363,19 +1016,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  115,
-                  104,
-                  97,
-                  114,
-                  101,
-                  115,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
-                ]
+                "value": [115, 104, 97, 114, 101, 115, 95, 109, 105, 110, 116]
               },
               {
                 "kind": "arg",
@@ -1395,14 +1036,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  100,
-                  101,
-                  101,
-                  109
-                ]
+                "value": [114, 101, 100, 101, 101, 109]
               },
               {
                 "kind": "account",
@@ -1416,15 +1050,37 @@
           }
         },
         {
+          "name": "user_info",
+          "docs": [
+            "Must already exist — a user with no UserInfo has `shares_held == 0`",
+            "and can never pass the tracked-basis check below. Not `init_if_needed`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [117, 115, 101, 114, 95, 105, 110, 102, 111]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
           "name": "user",
           "writable": true,
           "signer": true
         },
         {
           "name": "token_program",
-          "docs": [
-            "Token-2022 program (for c_vault share burn)."
-          ]
+          "docs": ["Token-2022 program (for c_vault share burn)."]
         },
         {
           "name": "system_program",
@@ -1443,96 +1099,25 @@
       ]
     },
     {
-      "name": "resume",
+      "name": "set_asset_active",
       "docs": [
-        "Resume vault after pause and reset the rolling high-price window."
+        "Admin-only: activate/deactivate a listed asset. Deactivation blocks",
+        "only *new* `create_etf` inclusion — existing vaults unaffected."
       ],
-      "discriminator": [
-        1,
-        166,
-        51,
-        170,
-        127,
-        32,
-        141,
-        206
-      ],
+      "discriminator": [165, 233, 175, 225, 134, 100, 175, 173],
       "accounts": [
         {
-          "name": "vault",
+          "name": "asset_info",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [97, 115, 115, 101, 116]
               },
               {
                 "kind": "arg",
-                "path": "vault_id"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault_manager",
-          "signer": true
-        }
-      ],
-      "args": [
-        {
-          "name": "vault_id",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "set_deposit_disable",
-      "docs": [
-        "Turn program-wide deposit blocking on or off."
-      ],
-      "discriminator": [
-        252,
-        10,
-        198,
-        195,
-        233,
-        165,
-        23,
-        20
-      ],
-      "accounts": [
-        {
-          "name": "global_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
-                ]
+                "path": "asset_id"
               }
             ]
           }
@@ -1545,7 +1130,11 @@
       ],
       "args": [
         {
-          "name": "deposit_disable",
+          "name": "asset_id",
+          "type": "u64"
+        },
+        {
+          "name": "active",
           "type": "bool"
         }
       ]
@@ -1555,16 +1144,7 @@
       "docs": [
         "Turn global emergency mode on or off (blocks new deposits program-wide)."
       ],
-      "discriminator": [
-        179,
-        20,
-        193,
-        82,
-        138,
-        173,
-        228,
-        62
-      ],
+      "discriminator": [179, 20, 193, 82, 138, 173, 228, 62],
       "accounts": [
         {
           "name": "global_state",
@@ -1574,18 +1154,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -1609,16 +1178,7 @@
       "docs": [
         "Update the pubkey that receives accrued performance fees for this vault."
       ],
-      "discriminator": [
-        227,
-        18,
-        215,
-        42,
-        237,
-        246,
-        151,
-        66
-      ],
+      "discriminator": [227, 18, 215, 42, 237, 246, 151, 66],
       "accounts": [
         {
           "name": "vault",
@@ -1627,17 +1187,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -1667,16 +1217,7 @@
       "docs": [
         "Pause or unpause deposits for this vault (withdrawals always remain open)."
       ],
-      "discriminator": [
-        91,
-        60,
-        125,
-        192,
-        176,
-        225,
-        166,
-        218
-      ],
+      "discriminator": [91, 60, 125, 192, 176, 225, 166, 218],
       "accounts": [
         {
           "name": "vault",
@@ -1685,17 +1226,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -1721,20 +1252,48 @@
       ]
     },
     {
-      "name": "set_redeem_cooldown",
+      "name": "set_twap_keeper",
       "docs": [
-        "Update the redeem cooldown (0 … 604 800 s). Applies to future redeems only."
+        "Admin-only: assign (or clear, via `Pubkey::default()`) the wallet",
+        "allowed to call `update_dex_twap`."
       ],
-      "discriminator": [
-        204,
-        185,
-        60,
-        240,
-        215,
-        68,
-        253,
-        99
+      "discriminator": [230, 148, 202, 190, 241, 104, 231, 188],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
       ],
+      "args": [
+        {
+          "name": "keeper",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_vault_emergency_lock",
+      "docs": [
+        "Admin-only: lock or unlock deposits for a single vault (redemptions",
+        "always remain open). Independent of the vault manager's own",
+        "`set_paused`."
+      ],
+      "discriminator": [40, 209, 252, 153, 13, 31, 52, 80],
       "accounts": [
         {
           "name": "vault",
@@ -1743,17 +1302,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -1763,8 +1312,9 @@
           }
         },
         {
-          "name": "vault_manager",
-          "signer": true
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
         }
       ],
       "args": [
@@ -1773,8 +1323,8 @@
           "type": "u64"
         },
         {
-          "name": "cooldown_secs",
-          "type": "i64"
+          "name": "locked",
+          "type": "bool"
         }
       ]
     },
@@ -1785,34 +1335,16 @@
         "The input amount is read from `RedeemState.asset_amount_in[asset_index]`.",
         "Follow with `swap_sol_to_usdc` to finish converting the wSOL to USDC."
       ],
-      "discriminator": [
-        250,
-        76,
-        72,
-        172,
-        51,
-        51,
-        187,
-        1
-      ],
+      "discriminator": [250, 76, 72, 172, 51, 51, 187, 1],
       "accounts": [
         {
           "name": "vault",
+          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -1828,21 +1360,8 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -1853,19 +1372,28 @@
           }
         },
         {
-          "name": "redeem_state",
+          "name": "asset_info",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  100,
-                  101,
-                  101,
-                  109
-                ]
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "redeem_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [114, 101, 100, 101, 101, 109]
               },
               {
                 "kind": "account",
@@ -1881,49 +1409,6 @@
         {
           "name": "user",
           "signer": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "whirlpool_program",
-          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
-        },
-        {
-          "name": "whirlpool",
-          "writable": true
-        },
-        {
-          "name": "token_owner_account_a",
-          "writable": true
-        },
-        {
-          "name": "token_vault_a",
-          "writable": true
-        },
-        {
-          "name": "token_owner_account_b",
-          "writable": true
-        },
-        {
-          "name": "token_vault_b",
-          "writable": true
-        },
-        {
-          "name": "tick_array_0",
-          "writable": true
-        },
-        {
-          "name": "tick_array_1",
-          "writable": true
-        },
-        {
-          "name": "tick_array_2",
-          "writable": true
-        },
-        {
-          "name": "oracle"
         }
       ],
       "args": [
@@ -1953,34 +1438,16 @@
         "`RedeemState.asset_amount_in[asset_index]`; net USDC is accumulated into",
         "`pending_usdc`. Call once per DirectUsdc asset before `claim`."
       ],
-      "discriminator": [
-        254,
-        176,
-        17,
-        106,
-        42,
-        254,
-        168,
-        233
-      ],
+      "discriminator": [254, 176, 17, 106, 42, 254, 168, 233],
       "accounts": [
         {
           "name": "vault",
+          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -1996,26 +1463,28 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
                 "kind": "arg",
                 "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_info",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
               }
             ]
           }
@@ -2027,14 +1496,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  100,
-                  101,
-                  101,
-                  109
-                ]
+                "value": [114, 101, 100, 101, 101, 109]
               },
               {
                 "kind": "account",
@@ -2054,23 +1516,15 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  100,
-                  99,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
               },
               {
-                "kind": "account",
-                "path": "vault.base_mint",
-                "account": "Vault"
+                "kind": "const",
+                "value": [
+                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
+                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
+                  166, 2, 3, 69, 47, 93, 97
+                ]
               },
               {
                 "kind": "arg",
@@ -2082,49 +1536,6 @@
         {
           "name": "user",
           "signer": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "whirlpool_program",
-          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
-        },
-        {
-          "name": "whirlpool",
-          "writable": true
-        },
-        {
-          "name": "token_owner_account_a",
-          "writable": true
-        },
-        {
-          "name": "token_vault_a",
-          "writable": true
-        },
-        {
-          "name": "token_owner_account_b",
-          "writable": true
-        },
-        {
-          "name": "token_vault_b",
-          "writable": true
-        },
-        {
-          "name": "tick_array_0",
-          "writable": true
-        },
-        {
-          "name": "tick_array_1",
-          "writable": true
-        },
-        {
-          "name": "tick_array_2",
-          "writable": true
-        },
-        {
-          "name": "oracle"
         }
       ],
       "args": [
@@ -2152,16 +1563,7 @@
         "Permissionless: deploy the vault's pending wSOL into one ViaSol asset.",
         "Amount = total_pending_sol × sol_target_bps[idx] / 10_000; no-ops if 0."
       ],
-      "discriminator": [
-        154,
-        244,
-        238,
-        229,
-        181,
-        164,
-        138,
-        31
-      ],
+      "discriminator": [154, 244, 238, 229, 181, 164, 138, 31],
       "accounts": [
         {
           "name": "vault",
@@ -2170,17 +1572,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -2196,26 +1588,28 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
                 "kind": "arg",
                 "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_info",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
               }
             ]
           }
@@ -2227,49 +1621,6 @@
           ],
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "whirlpool_program",
-          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
-        },
-        {
-          "name": "whirlpool",
-          "writable": true
-        },
-        {
-          "name": "token_owner_account_a",
-          "writable": true
-        },
-        {
-          "name": "token_vault_a",
-          "writable": true
-        },
-        {
-          "name": "token_owner_account_b",
-          "writable": true
-        },
-        {
-          "name": "token_vault_b",
-          "writable": true
-        },
-        {
-          "name": "tick_array_0",
-          "writable": true
-        },
-        {
-          "name": "tick_array_1",
-          "writable": true
-        },
-        {
-          "name": "tick_array_2",
-          "writable": true
-        },
-        {
-          "name": "oracle"
         }
       ],
       "args": [
@@ -2299,16 +1650,7 @@
         "`pending_usdc`. `wsol_amount` is the wSOL produced by the prior",
         "`swap_asset_to_sol` leg (a runtime value, not the stored asset amount)."
       ],
-      "discriminator": [
-        169,
-        2,
-        247,
-        19,
-        104,
-        227,
-        106,
-        59
-      ],
+      "discriminator": [169, 2, 247, 19, 104, 227, 106, 59],
       "accounts": [
         {
           "name": "vault",
@@ -2316,17 +1658,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -2342,21 +1674,8 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -2373,14 +1692,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  100,
-                  101,
-                  101,
-                  109
-                ]
+                "value": [114, 101, 100, 101, 101, 109]
               },
               {
                 "kind": "account",
@@ -2400,23 +1712,15 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  100,
-                  99,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
               },
               {
-                "kind": "account",
-                "path": "vault.base_mint",
-                "account": "Vault"
+                "kind": "const",
+                "value": [
+                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
+                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
+                  166, 2, 3, 69, 47, 93, 97
+                ]
               },
               {
                 "kind": "arg",
@@ -2430,8 +1734,16 @@
           "signer": true
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "token_program_a",
+          "docs": ["Token program for mint A (owner of `token_mint_a`)."]
+        },
+        {
+          "name": "token_program_b",
+          "docs": ["Token program for mint B (owner of `token_mint_b`)."]
+        },
+        {
+          "name": "memo_program",
+          "address": "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
         },
         {
           "name": "whirlpool_program",
@@ -2440,6 +1752,12 @@
         {
           "name": "whirlpool",
           "writable": true
+        },
+        {
+          "name": "token_mint_a"
+        },
+        {
+          "name": "token_mint_b"
         },
         {
           "name": "token_owner_account_a",
@@ -2470,7 +1788,8 @@
           "writable": true
         },
         {
-          "name": "oracle"
+          "name": "oracle",
+          "writable": true
         }
       ],
       "args": [
@@ -2502,16 +1821,7 @@
         "Permissionless: deploy the vault's pending USDC into one DirectUsdc asset.",
         "Amount is derived on-chain from `vault.usdc_target_amount[idx]`; no-ops if 0."
       ],
-      "discriminator": [
-        247,
-        114,
-        135,
-        217,
-        212,
-        91,
-        4,
-        14
-      ],
+      "discriminator": [247, 114, 135, 217, 212, 91, 4, 14],
       "accounts": [
         {
           "name": "vault",
@@ -2520,17 +1830,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -2546,26 +1846,28 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
                 "kind": "arg",
                 "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_info",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
               }
             ]
           }
@@ -2577,49 +1879,6 @@
           ],
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "whirlpool_program",
-          "address": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
-        },
-        {
-          "name": "whirlpool",
-          "writable": true
-        },
-        {
-          "name": "token_owner_account_a",
-          "writable": true
-        },
-        {
-          "name": "token_vault_a",
-          "writable": true
-        },
-        {
-          "name": "token_owner_account_b",
-          "writable": true
-        },
-        {
-          "name": "token_vault_b",
-          "writable": true
-        },
-        {
-          "name": "tick_array_0",
-          "writable": true
-        },
-        {
-          "name": "tick_array_1",
-          "writable": true
-        },
-        {
-          "name": "tick_array_2",
-          "writable": true
-        },
-        {
-          "name": "oracle"
         }
       ],
       "args": [
@@ -2647,16 +1906,7 @@
         "Permissionless: convert the vault's ViaSol-bound pending USDC → wSOL.",
         "Size derived on-chain; no-ops if nothing is pending."
       ],
-      "discriminator": [
-        240,
-        185,
-        104,
-        11,
-        245,
-        153,
-        45,
-        177
-      ],
+      "discriminator": [240, 185, 104, 11, 245, 153, 45, 177],
       "accounts": [
         {
           "name": "vault",
@@ -2665,17 +1915,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  116,
-                  102,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
               },
               {
                 "kind": "arg",
@@ -2691,21 +1931,8 @@
               {
                 "kind": "const",
                 "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
                 ]
               },
               {
@@ -2724,8 +1951,16 @@
           "signer": true
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "token_program_a",
+          "docs": ["Token program for mint A (owner of `token_mint_a`)."]
+        },
+        {
+          "name": "token_program_b",
+          "docs": ["Token program for mint B (owner of `token_mint_b`)."]
+        },
+        {
+          "name": "memo_program",
+          "address": "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
         },
         {
           "name": "whirlpool_program",
@@ -2734,6 +1969,12 @@
         {
           "name": "whirlpool",
           "writable": true
+        },
+        {
+          "name": "token_mint_a"
+        },
+        {
+          "name": "token_mint_b"
         },
         {
           "name": "token_owner_account_a",
@@ -2764,7 +2005,8 @@
           "writable": true
         },
         {
-          "name": "oracle"
+          "name": "oracle",
+          "writable": true
         },
         {
           "name": "wsol_owner_account",
@@ -2791,74 +2033,73 @@
       ]
     },
     {
-      "name": "update_platform_fee_bps",
+      "name": "update_dex_twap",
       "docs": [
-        "Update the platform fee charged in basis points (max 20%)."
+        "Keeper-only: advance TWAP for one DEX-priced global asset without",
+        "minting shares. Never mint-path.",
+        "",
+        "`twap_live_state` is written directly into `asset.twap.last_price_x64`",
+        "and stamps `last_update_twap_keeper_ts`."
       ],
-      "discriminator": [
-        104,
-        160,
-        220,
-        153,
-        191,
-        74,
-        242,
-        58
-      ],
+      "discriminator": [144, 64, 180, 12, 223, 33, 140, 232],
       "accounts": [
         {
           "name": "global_state",
-          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
           }
         },
         {
-          "name": "admin",
-          "signer": true,
-          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+          "name": "asset_info",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "asset_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "docs": ["Pays the transaction (client must set this as fee payer)."],
+          "signer": true
+        },
+        {
+          "name": "keeper",
+          "docs": [
+            "Authorized TWAP keeper — signature / auth only; does not pay."
+          ],
+          "signer": true
         }
       ],
       "args": [
         {
-          "name": "platform_fee_bps",
+          "name": "asset_id",
+          "type": "u64"
+        },
+        {
+          "name": "twap_live_state",
           "type": "u64"
         }
       ]
     },
     {
       "name": "update_treasury_addr",
-      "docs": [
-        "Update the program-wide treasury recipient address."
-      ],
-      "discriminator": [
-        89,
-        118,
-        189,
-        91,
-        22,
-        6,
-        105,
-        149
-      ],
+      "docs": ["Update the program-wide treasury recipient address."],
+      "discriminator": [89, 118, 189, 91, 22, 6, 105, 149],
       "accounts": [
         {
           "name": "global_state",
@@ -2868,18 +2109,7 @@
               {
                 "kind": "const",
                 "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108,
-                  95,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
                 ]
               }
             ]
@@ -2901,318 +2131,106 @@
   ],
   "accounts": [
     {
+      "name": "AssetInfo",
+      "discriminator": [75, 65, 53, 105, 227, 67, 182, 239]
+    },
+    {
       "name": "GlobalState",
-      "discriminator": [
-        163,
-        46,
-        74,
-        168,
-        216,
-        123,
-        133,
-        98
-      ]
+      "discriminator": [163, 46, 74, 168, 216, 123, 133, 98]
     },
     {
       "name": "RedeemState",
-      "discriminator": [
-        69,
-        112,
-        71,
-        246,
-        9,
-        201,
-        117,
-        14
-      ]
+      "discriminator": [69, 112, 71, 246, 9, 201, 117, 14]
     },
     {
       "name": "UserInfo",
-      "discriminator": [
-        83,
-        134,
-        200,
-        56,
-        144,
-        56,
-        10,
-        62
-      ]
+      "discriminator": [83, 134, 200, 56, 144, 56, 10, 62]
     },
     {
       "name": "Vault",
-      "discriminator": [
-        211,
-        8,
-        232,
-        43,
-        2,
-        152,
-        117,
-        119
-      ]
+      "discriminator": [211, 8, 232, 43, 2, 152, 117, 119]
     }
   ],
   "events": [
     {
-      "name": "ClaimEvent",
-      "discriminator": [
-        93,
-        15,
-        70,
-        170,
-        48,
-        140,
-        212,
-        219
-      ]
+      "name": "AssetActiveUpdatedEvent",
+      "discriminator": [79, 44, 159, 217, 162, 211, 209, 151]
     },
     {
-      "name": "DepositDisableUpdatedEvent",
-      "discriminator": [
-        189,
-        162,
-        210,
-        97,
-        4,
-        187,
-        180,
-        233
-      ]
+      "name": "AssetCreatedEvent",
+      "discriminator": [47, 25, 140, 25, 184, 163, 176, 56]
+    },
+    {
+      "name": "ClaimEvent",
+      "discriminator": [93, 15, 70, 170, 48, 140, 212, 219]
     },
     {
       "name": "DepositEvent",
-      "discriminator": [
-        120,
-        248,
-        61,
-        83,
-        31,
-        142,
-        107,
-        144
-      ]
+      "discriminator": [120, 248, 61, 83, 31, 142, 107, 144]
     },
     {
-      "name": "EligibleBaseMintAddedEvent",
-      "discriminator": [
-        150,
-        20,
-        38,
-        22,
-        178,
-        195,
-        155,
-        49
-      ]
-    },
-    {
-      "name": "EligibleBaseMintRemovedEvent",
-      "discriminator": [
-        172,
-        211,
-        133,
-        129,
-        24,
-        229,
-        30,
-        182
-      ]
+      "name": "DexTwapUpdatedEvent",
+      "discriminator": [189, 245, 64, 172, 227, 208, 16, 63]
     },
     {
       "name": "FeeRecipientUpdatedEvent",
-      "discriminator": [
-        253,
-        5,
-        188,
-        179,
-        215,
-        147,
-        124,
-        145
-      ]
+      "discriminator": [253, 5, 188, 179, 215, 147, 124, 145]
     },
     {
       "name": "GlobalEmergencyUpdatedEvent",
-      "discriminator": [
-        72,
-        128,
-        254,
-        33,
-        86,
-        233,
-        193,
-        107
-      ]
-    },
-    {
-      "name": "PlatformFeeUpdatedEvent",
-      "discriminator": [
-        7,
-        32,
-        168,
-        42,
-        6,
-        254,
-        146,
-        165
-      ]
+      "discriminator": [72, 128, 254, 33, 86, 233, 193, 107]
     },
     {
       "name": "RedeemCooldownUpdatedEvent",
-      "discriminator": [
-        40,
-        218,
-        188,
-        103,
-        74,
-        204,
-        123,
-        115
-      ]
+      "discriminator": [40, 218, 188, 103, 74, 204, 123, 115]
     },
     {
       "name": "RequestRedeemEvent",
-      "discriminator": [
-        120,
-        214,
-        88,
-        168,
-        105,
-        172,
-        248,
-        7
-      ]
+      "discriminator": [120, 214, 88, 168, 105, 172, 248, 7]
     },
     {
       "name": "ShareMetadataCreatedEvent",
-      "discriminator": [
-        125,
-        88,
-        91,
-        45,
-        193,
-        144,
-        23,
-        105
-      ]
+      "discriminator": [125, 88, 91, 45, 193, 144, 23, 105]
     },
     {
       "name": "SwapAssetToSolEvent",
-      "discriminator": [
-        107,
-        95,
-        14,
-        89,
-        170,
-        92,
-        216,
-        74
-      ]
+      "discriminator": [107, 95, 14, 89, 170, 92, 216, 74]
     },
     {
       "name": "SwapAssetToUsdcEvent",
-      "discriminator": [
-        153,
-        205,
-        66,
-        197,
-        216,
-        101,
-        63,
-        199
-      ]
+      "discriminator": [153, 205, 66, 197, 216, 101, 63, 199]
     },
     {
       "name": "SwapSolToAssetEvent",
-      "discriminator": [
-        189,
-        38,
-        200,
-        235,
-        60,
-        83,
-        221,
-        238
-      ]
+      "discriminator": [189, 38, 200, 235, 60, 83, 221, 238]
     },
     {
       "name": "SwapSolToUsdcEvent",
-      "discriminator": [
-        4,
-        73,
-        33,
-        126,
-        41,
-        250,
-        141,
-        145
-      ]
+      "discriminator": [4, 73, 33, 126, 41, 250, 141, 145]
     },
     {
       "name": "SwapUsdcToAssetEvent",
-      "discriminator": [
-        108,
-        74,
-        48,
-        195,
-        117,
-        33,
-        33,
-        78
-      ]
+      "discriminator": [108, 74, 48, 195, 117, 33, 33, 78]
     },
     {
       "name": "SwapUsdcToSolEvent",
-      "discriminator": [
-        120,
-        133,
-        126,
-        74,
-        60,
-        235,
-        78,
-        103
-      ]
+      "discriminator": [120, 133, 126, 74, 60, 235, 78, 103]
     },
     {
       "name": "TreasuryAddrUpdatedEvent",
-      "discriminator": [
-        41,
-        10,
-        212,
-        246,
-        207,
-        255,
-        150,
-        52
-      ]
+      "discriminator": [41, 10, 212, 246, 207, 255, 150, 52]
+    },
+    {
+      "name": "TwapKeeperUpdatedEvent",
+      "discriminator": [221, 153, 175, 109, 231, 230, 213, 223]
+    },
+    {
+      "name": "VaultEmergencyLockUpdatedEvent",
+      "discriminator": [30, 65, 59, 191, 154, 135, 9, 87]
     },
     {
       "name": "VaultPausedUpdatedEvent",
-      "discriminator": [
-        153,
-        221,
-        94,
-        195,
-        4,
-        31,
-        116,
-        172
-      ]
-    },
-    {
-      "name": "VaultResumedEvent",
-      "discriminator": [
-        237,
-        150,
-        38,
-        144,
-        227,
-        71,
-        26,
-        192
-      ]
+      "discriminator": [153, 221, 94, 195, 4, 31, 116, 172]
     }
   ],
   "errors": [
@@ -3238,201 +2256,359 @@
     },
     {
       "code": 6004,
-      "name": "GenesisNotSeeded",
-      "msg": "Genesis deposit not seeded yet — only admin can make the first deposit"
+      "name": "VaultAdminLocked",
+      "msg": "Vault deposits are locked by admin — contact support"
     },
     {
       "code": 6005,
+      "name": "GenesisNotSeeded",
+      "msg": "Genesis deposit not seeded yet — only admin or vault manager can make the first deposit"
+    },
+    {
+      "code": 6006,
       "name": "EmergencyMode",
       "msg": "Vault is in emergency mode — only withdrawals allowed"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "NotInEmergency",
       "msg": "Vault is not currently in emergency mode"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "InsufficientShares",
       "msg": "Insufficient shares to redeem"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "StaleOracle",
       "msg": "Oracle price is stale or unavailable"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "InvalidOraclePrice",
       "msg": "Oracle price is zero or negative"
     },
     {
-      "code": 6010,
+      "code": 6011,
+      "name": "InvalidOracleOwner",
+      "msg": "Oracle account owner does not match expected Pyth Receiver program"
+    },
+    {
+      "code": 6012,
       "name": "SlippageExceeded",
       "msg": "Slippage tolerance exceeded — try again"
     },
     {
-      "code": 6011,
+      "code": 6013,
       "name": "CpiFailure",
       "msg": "CPI call to external program failed"
     },
     {
-      "code": 6012,
+      "code": 6014,
       "name": "InsufficientWsolBalance",
       "msg": "wSOL balance is insufficient to cover WBTC + WETH swap legs"
     },
     {
-      "code": 6013,
+      "code": 6015,
       "name": "InvalidMint",
       "msg": "Token mint does not match expected canonical mint"
     },
     {
-      "code": 6014,
+      "code": 6016,
       "name": "AccountNotInitialized",
       "msg": "Required token account is not initialised or has zero lamports"
     },
     {
-      "code": 6015,
+      "code": 6017,
       "name": "IncorrectOwner",
       "msg": "Token account owner does not match expected authority"
     },
     {
-      "code": 6016,
+      "code": 6018,
       "name": "InvalidAccountsLength",
       "msg": "remaining_accounts length must equal the number of active vault assets"
     },
     {
-      "code": 6017,
+      "code": 6019,
+      "name": "MismatchedAccount",
+      "msg": "Unrecognized account — does not match the vault's stored asset ATA"
+    },
+    {
+      "code": 6020,
       "name": "MathOverflow",
       "msg": "Math overflow — value too large"
     },
     {
-      "code": 6018,
+      "code": 6021,
       "name": "FeeTooHigh",
-      "msg": "Performance fee cannot exceed 20%"
+      "msg": "Deposit fee cannot exceed 600 bps (6%)"
     },
     {
-      "code": 6019,
-      "name": "MissingFeeRecipient",
-      "msg": "vault_fee_bps > 0 but no vault_fee_recipient account was provided"
+      "code": 6022,
+      "name": "InvalidRedeemFee",
+      "msg": "Redeem fee must be between 50 and 1000 bps (0.5%-10%)"
     },
     {
-      "code": 6020,
+      "code": 6023,
       "name": "TooEarlyRedeem",
       "msg": "Redeem cooldown not elapsed — try again after unlock_time"
     },
     {
-      "code": 6021,
+      "code": 6024,
       "name": "InvalidCooldown",
       "msg": "Cooldown must be between 0 and 604 800 seconds (7 days)"
     },
     {
-      "code": 6022,
+      "code": 6025,
       "name": "NothingToClaim",
       "msg": "No USDC pending — swap redeemed assets to USDC first"
     },
     {
-      "code": 6023,
+      "code": 6026,
       "name": "RedeemAlreadyPending",
       "msg": "A redeem is already pending — claim it before starting a new one"
     },
     {
-      "code": 6024,
+      "code": 6027,
       "name": "InvalidAllocation",
       "msg": "Asset allocation BPS must sum to exactly 10 000"
     },
     {
-      "code": 6025,
+      "code": 6028,
       "name": "TooManyAssets",
       "msg": "Asset count exceeds the maximum allowed slots"
     },
     {
-      "code": 6026,
+      "code": 6029,
       "name": "NoAssets",
       "msg": "Asset list must contain at least one asset"
     },
     {
-      "code": 6027,
+      "code": 6030,
       "name": "InvalidVaultId",
       "msg": "vault_id must equal global_state.total_vaults (sequential creation enforced)"
     },
     {
-      "code": 6028,
+      "code": 6031,
       "name": "MissingUsdcSolPool",
       "msg": "usdc_sol_pool must be provided when any asset uses ViaSol routing"
     },
     {
-      "code": 6029,
+      "code": 6032,
       "name": "AssetAlreadySwapped",
       "msg": "This asset slot has already been swapped in the current redeem — cannot swap twice"
     },
     {
-      "code": 6030,
+      "code": 6033,
+      "name": "AssetInactive",
+      "msg": "Referenced asset exists but is not active — admin has deactivated it"
+    },
+    {
+      "code": 6034,
+      "name": "AssetIdMismatch",
+      "msg": "A remaining_accounts entry's derived PDA does not match the claimed asset_id"
+    },
+    {
+      "code": 6035,
+      "name": "AssetInfoNotWritable",
+      "msg": "AssetInfo account must be writable to persist TWAP updates"
+    },
+    {
+      "code": 6036,
       "name": "MissingMaxShares",
       "msg": "A Fixed vault must declare a max_shares supply cap"
     },
     {
-      "code": 6031,
+      "code": 6037,
       "name": "InvalidMaxShares",
       "msg": "max_shares must be greater than zero"
     },
     {
-      "code": 6032,
+      "code": 6038,
       "name": "ShareCapExceeded",
       "msg": "Deposit would exceed the Fixed vault's max_shares supply cap"
     },
     {
-      "code": 6033,
-      "name": "DepositsDisabled",
-      "msg": "Deposits are disabled program-wide"
+      "code": 6039,
+      "name": "QuoteMintNotEligible",
+      "msg": "usdc_mint must be the canonical USDC mint"
     },
     {
-      "code": 6034,
-      "name": "BaseMintNotEligible",
-      "msg": "Base mint is not on the company-approved eligible list"
-    },
-    {
-      "code": 6035,
+      "code": 6040,
       "name": "EligibleMintListFull",
       "msg": "Eligible base mint list is full"
     },
     {
-      "code": 6036,
+      "code": 6041,
       "name": "EligibleMintAlreadyListed",
       "msg": "Mint is already on the eligible base mint list"
     },
     {
-      "code": 6037,
+      "code": 6042,
       "name": "EligibleMintNotFound",
       "msg": "Mint is not on the eligible base mint list"
     },
     {
-      "code": 6038,
+      "code": 6043,
       "name": "InvalidPendingAssetSlot",
       "msg": "asset_index refers to a USDC-native or wSOL-native slot, which never enters the pending pool"
+    },
+    {
+      "code": 6044,
+      "name": "TwapWindowTooShort",
+      "msg": "Insufficient TWAP history to mint/redeem against this asset yet"
+    },
+    {
+      "code": 6045,
+      "name": "UnsupportedDexKind",
+      "msg": "Pool account owner does not match the asset's declared DexKind"
+    },
+    {
+      "code": 6046,
+      "name": "TwapKeeperNotSet",
+      "msg": "No TWAP keeper has been assigned yet"
+    },
+    {
+      "code": 6047,
+      "name": "UnauthorizedTwapKeeper",
+      "msg": "Signer is not the assigned TWAP keeper"
+    },
+    {
+      "code": 6048,
+      "name": "LivePriceDiscrepancy",
+      "msg": "Live price discrepancy — source not reliable (TWAP observation and keeper stamp both stale)"
+    },
+    {
+      "code": 6049,
+      "name": "NotDexPricedAsset",
+      "msg": "asset_index does not refer to a Dex-priced asset"
+    },
+    {
+      "code": 6050,
+      "name": "InvalidPoolPair",
+      "msg": "Pool must include USDC or wSOL as one side of the pair"
+    },
+    {
+      "code": 6051,
+      "name": "InvalidTokenProgram",
+      "msg": "token_program_tag must be 0 (SPL Token) or 1 (Token-2022)"
+    },
+    {
+      "code": 6052,
+      "name": "UnsupportedSwapKind",
+      "msg": "remaining_accounts don't match this asset's configured swap_kind"
+    },
+    {
+      "code": 6053,
+      "name": "InsufficientTrackedBasis",
+      "msg": "Redeeming more shares than this program has tracked cost basis for — shares acquired by transfer are not redeemable through this program"
     }
   ],
   "types": [
     {
-      "name": "AssetInfo",
+      "name": "AssetActiveUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_id",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_active",
+            "type": "bool"
+          },
+          {
+            "name": "new_active",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AssetAllocation",
       "docs": [
-        "Static configuration for one asset held by the vault.",
-        "Stored inline in `Vault.assets[i]`; slot is inactive when `mint == Pubkey::default()`."
+        "One (asset, weight) pair a vault manager includes when creating a vault.",
+        "`asset_id` must reference an existing, `active` `AssetInfo` PDA (checked",
+        "against `remaining_accounts` in `create_etf`). All other asset config",
+        "(mint, pool, pricing, route, swap venue) lives on that shared `AssetInfo`",
+        "— not supplied here."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
+            "name": "asset_id",
+            "type": "u64"
+          },
+          {
+            "name": "allocation_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AssetCreatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_id",
+            "type": "u64"
+          },
+          {
             "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AssetInfo",
+      "docs": [
+        "Admin-managed global asset listing. One PDA per asset",
+        "(`[ASSET_SEED, asset_id.to_le_bytes()]`), shared across every vault that",
+        "references it via `Vault.asset_ids[]`. Vault-specific weighting",
+        "(`allocation_bps`) lives on `Vault`, not here."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_id",
             "docs": [
-              "SPL mint of this asset."
+              "Global id assigned at creation (== GlobalState.total_assets at the",
+              "time of creation). Part of this account's PDA seeds."
             ],
+            "type": "u64"
+          },
+          {
+            "name": "mint",
+            "docs": ["SPL mint of this asset."],
             "type": "pubkey"
           },
           {
             "name": "pool_address",
             "docs": [
-              "Orca Whirlpool pool used to swap this asset.",
+              "Orca Whirlpool or DAMM v2 pool used to SWAP this asset (see `swap_kind`).",
               "- `DirectUsdc`: this pool is USDC ↔ Asset",
               "- `ViaSol`:     this pool is wSOL ↔ Asset  (USDC→wSOL uses `Vault.usdc_sol_pool`)"
             ],
@@ -3441,80 +2617,103 @@
           {
             "name": "pyth_feed_id",
             "docs": [
-              "Pyth price feed ID (32-byte hex) for this asset quoted in USD."
+              "Pyth price feed ID (32-byte hex) for this asset quoted in USD.",
+              "Meaningful only when `price_source_tag == PRICE_SOURCE_PYTH`."
             ],
             "type": {
-              "array": [
-                "u8",
-                32
-              ]
+              "array": ["u8", 32]
             }
-          },
-          {
-            "name": "allocation_bps",
-            "docs": [
-              "Portfolio weight in basis points. Sum across all active assets must equal 10 000."
-            ],
-            "type": "u16"
           },
           {
             "name": "decimals",
             "docs": [
-              "Token decimals — cached at init to avoid mint account reads in hot paths."
+              "Token decimals — cached at `create_asset` time to avoid mint account",
+              "reads in hot paths."
             ],
             "type": "u8"
           },
           {
             "name": "route",
-            "docs": [
-              "Routing strategy for USDC ↔ Asset swaps."
-            ],
+            "docs": ["Routing strategy for USDC ↔ Asset swaps."],
             "type": {
               "defined": {
                 "name": "PoolRoute"
               }
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "AssetInitParam",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "mint",
-            "type": "pubkey"
           },
           {
-            "name": "pool_address",
-            "type": "pubkey"
-          },
-          {
-            "name": "pyth_feed_id",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "allocation_bps",
-            "type": "u16"
-          },
-          {
-            "name": "decimals",
+            "name": "price_source_tag",
+            "docs": [
+              "Where this asset's USD price comes from: `0 = Pyth`, `1 = Dex`.",
+              "Flat POD tag — **not** a nested `PriceSource` enum on-account."
+            ],
             "type": "u8"
           },
           {
-            "name": "route",
+            "name": "price_dex_kind",
+            "docs": [
+              "`DexKind` as `u8` when `price_source_tag == PRICE_SOURCE_DEX`; ignored for Pyth."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "price_pool_address",
+            "docs": [
+              "The DEX pool `sum_nav` reads for pricing when `price_source_tag` is Dex.",
+              "May differ from `pool_address` (the SWAP pool) when this asset's price",
+              "venue and swap venue diverge — see `swap_kind`.",
+              "Quote leg is always `USDC_MINT` (6 decimals) — not stored per asset."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "twap",
+            "docs": [
+              "Self-maintained on-chain TWAP state for this asset, shared globally",
+              "across every vault referencing it. Only advances when",
+              "`price_source_tag` is Dex and a deposit/redeem/keeper call touches",
+              "this asset; unused (all-zero) for Pyth-priced assets."
+            ],
             "type": {
               "defined": {
-                "name": "PoolRoute"
+                "name": "TwapState"
               }
             }
+          },
+          {
+            "name": "swap_kind",
+            "docs": [
+              "Which DEX venue SWAPS through `pool_address`. Independent of",
+              "`price_source_tag` — an asset can be priced via one venue and swapped",
+              "through the other if that's where its tradeable liquidity actually is."
+            ],
+            "type": {
+              "defined": {
+                "name": "DexKind"
+              }
+            }
+          },
+          {
+            "name": "token_program_tag",
+            "docs": [
+              "Token program for this asset's mint / vault ATAs:",
+              "`0 = classic SPL Token`, `1 = Token-2022`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "active",
+            "docs": [
+              "Admin-controlled listing status. `false` blocks this asset from",
+              "*new* `create_etf` calls only — vaults already referencing it are",
+              "unaffected."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": ["Stored PDA bump for this `AssetInfo` account."],
+            "type": "u8"
           }
         ]
       }
@@ -3533,7 +2732,11 @@
             "type": "u64"
           },
           {
-            "name": "platform_fee",
+            "name": "company_fee",
+            "type": "u64"
+          },
+          {
+            "name": "manager_fee",
             "type": "u64"
           },
           {
@@ -3548,25 +2751,65 @@
       }
     },
     {
-      "name": "DepositDisableUpdatedEvent",
+      "name": "CreateAssetParams",
+      "docs": [
+        "Admin-supplied config for listing a new global asset via `create_asset`.",
+        "`decimals` is intentionally absent — read from the passed mint account",
+        "inside the handler, not caller-supplied."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "admin",
+            "name": "mint",
             "type": "pubkey"
           },
           {
-            "name": "old_deposit_disable",
-            "type": "bool"
+            "name": "pool_address",
+            "type": "pubkey"
           },
           {
-            "name": "new_deposit_disable",
-            "type": "bool"
+            "name": "pyth_feed_id",
+            "type": {
+              "array": ["u8", 32]
+            }
           },
           {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "route",
+            "type": {
+              "defined": {
+                "name": "PoolRoute"
+              }
+            }
+          },
+          {
+            "name": "price_source_tag",
+            "docs": ["`0 = Pyth`, `1 = Dex`."],
+            "type": "u8"
+          },
+          {
+            "name": "price_dex_kind",
+            "docs": [
+              "`DexKind` as `u8` when `price_source_tag == 1`; ignored for Pyth."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "price_pool_address",
+            "type": "pubkey"
+          },
+          {
+            "name": "swap_kind",
+            "type": {
+              "defined": {
+                "name": "DexKind"
+              }
+            }
+          },
+          {
+            "name": "token_program_tag",
+            "docs": ["`0 = classic SPL Token`, `1 = Token-2022`."],
+            "type": "u8"
           }
         ]
       }
@@ -3589,11 +2832,11 @@
             "type": "u64"
           },
           {
-            "name": "platform_fee",
+            "name": "company_fee",
             "type": "u64"
           },
           {
-            "name": "vault_fee",
+            "name": "manager_fee",
             "type": "u64"
           },
           {
@@ -3612,37 +2855,47 @@
       }
     },
     {
-      "name": "EligibleBaseMintAddedEvent",
+      "name": "DexKind",
+      "docs": [
+        "Which DEX venue a DEX-priced asset or swap route refers to.",
+        "",
+        "Stored as `u8` on-account via `price_dex_kind` / as this enum for `swap_kind`."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
       "type": {
-        "kind": "struct",
-        "fields": [
+        "kind": "enum",
+        "variants": [
           {
-            "name": "admin",
-            "type": "pubkey"
+            "name": "Whirlpool"
           },
           {
-            "name": "mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
+            "name": "DammV2"
           }
         ]
       }
     },
     {
-      "name": "EligibleBaseMintRemovedEvent",
+      "name": "DexTwapUpdatedEvent",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "admin",
+            "name": "keeper",
             "type": "pubkey"
           },
           {
-            "name": "mint",
-            "type": "pubkey"
+            "name": "asset_id",
+            "type": "u64"
+          },
+          {
+            "name": "last_price_x64",
+            "type": "u128"
+          },
+          {
+            "name": "last_update_ts",
+            "type": "i64"
           },
           {
             "name": "timestamp",
@@ -3687,6 +2940,9 @@
         "- `Fixed`   — asset count is locked at init; `Vault.max_assets` sets the cap.",
         "- `Dynamic` — new assets can be added on the fly; `Vault.max_assets` is ignored."
       ],
+      "repr": {
+        "kind": "rust"
+      },
       "type": {
         "kind": "enum",
         "variants": [
@@ -3740,34 +2996,16 @@
             "type": "pubkey"
           },
           {
-            "name": "platform_fee_bps",
+            "name": "twap_keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_assets",
+            "docs": [
+              "Global asset counter — next `create_asset` call is assigned this id,",
+              "then it increments. Mirrors `total_vaults`'s role for `create_etf`."
+            ],
             "type": "u64"
-          },
-          {
-            "name": "deposit_disable",
-            "docs": [
-              "When true, new deposits are blocked program-wide; redemptions stay open."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "num_eligible_base_mints",
-            "docs": [
-              "Count of active entries in `eligible_base_mints`."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "eligible_base_mints",
-            "docs": [
-              "Company-approved stable mints that may be used as a vault's `base_mint`."
-            ],
-            "type": {
-              "array": [
-                "pubkey",
-                10
-              ]
-            }
           }
         ]
       }
@@ -3780,17 +3018,24 @@
           {
             "name": "fee_recipient",
             "docs": [
-              "Pubkey that receives accrued performance fees.",
-              "When `None`, defaults to the transaction signer at creation time."
+              "Pubkey that receives the vault manager's 80% share of deposit/redeem",
+              "fees. When `None`, defaults to the transaction signer at creation time."
             ],
             "type": {
               "option": "pubkey"
             }
           },
           {
-            "name": "performance_fee_bps",
+            "name": "deposit_fee_bps",
             "docs": [
-              "Performance fee in basis points (max 2_000)."
+              "Flat deposit fee in basis points. `0..=MAX_DEPOSIT_FEE_BPS`; `0` is valid."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "docs": [
+              "Flat redeem fee in basis points. `MIN_REDEEM_FEE_BPS..=MAX_REDEEM_FEE_BPS`; mandatory."
             ],
             "type": "u16"
           },
@@ -3806,12 +3051,13 @@
           {
             "name": "assets",
             "docs": [
-              "1–MAX_ASSETS entries; allocation_bps must sum to 10_000."
+              "1–MAX_ASSETS entries, each referencing an existing admin-approved",
+              "`AssetInfo`; allocation_bps must sum to 10_000."
             ],
             "type": {
               "vec": {
                 "defined": {
-                  "name": "AssetInitParam"
+                  "name": "AssetAllocation"
                 }
               }
             }
@@ -3846,48 +3092,18 @@
         "fields": [
           {
             "name": "total_nav",
-            "docs": [
-              "Total portfolio value in USDC (6 decimals)."
-            ],
+            "docs": ["Total portfolio value in USDC (6 decimals)."],
             "type": "u64"
           },
           {
             "name": "share_price",
-            "docs": [
-              "Current share price (PRICE_SCALE = 1e9 denominator)."
-            ],
+            "docs": ["Current share price (PRICE_SCALE = 1e9 denominator)."],
             "type": "u64"
           },
           {
             "name": "total_shares",
-            "docs": [
-              "Outstanding shares at time of query."
-            ],
+            "docs": ["Outstanding shares at time of query."],
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PlatformFeeUpdatedEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "admin",
-            "type": "pubkey"
-          },
-          {
-            "name": "old_platform_fee_bps",
-            "type": "u64"
-          },
-          {
-            "name": "new_platform_fee_bps",
-            "type": "u64"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
           }
         ]
       }
@@ -3901,6 +3117,9 @@
         "- `ViaSol`     — two-hop: USDC → wSOL (via `Vault.usdc_sol_pool`),",
         "then wSOL → Asset (via `AssetInfo.pool_address`)"
       ],
+      "repr": {
+        "kind": "rust"
+      },
       "type": {
         "kind": "enum",
         "variants": [
@@ -3941,29 +3160,23 @@
           },
           {
             "name": "total_shares",
-            "docs": [
-              "Outstanding shares at time of quote."
-            ],
+            "docs": ["Outstanding shares at time of quote."],
             "type": "u64"
           },
           {
-            "name": "platform_fee",
-            "docs": [
-              "Platform fee slice that would be deducted from `usdc_amount` (gross)."
-            ],
+            "name": "company_fee",
+            "docs": ["Company's 20% slice of the flat deposit fee."],
             "type": "u64"
           },
           {
-            "name": "vault_fee",
-            "docs": [
-              "Vault performance fee slice that would be deducted from `usdc_amount` (gross)."
-            ],
+            "name": "manager_fee",
+            "docs": ["Vault manager's 80% slice of the flat deposit fee."],
             "type": "u64"
           },
           {
             "name": "net_usdc",
             "docs": [
-              "`usdc_amount` after both fee slices — this is what shares are priced against."
+              "`usdc_amount` after the flat deposit fee — this is what shares are priced against."
             ],
             "type": "u64"
           }
@@ -3977,9 +3190,7 @@
         "fields": [
           {
             "name": "num_assets",
-            "docs": [
-              "Number of active assets in `asset_amounts`."
-            ],
+            "docs": ["Number of active assets in `asset_amounts`."],
             "type": "u8"
           },
           {
@@ -3989,40 +3200,35 @@
               "`Vault.assets[0..num_assets]`. Unused slots are zero."
             ],
             "type": {
-              "array": [
-                "u64",
-                8
-              ]
+              "array": ["u64", 8]
             }
           },
           {
             "name": "estimated_usdc_value",
             "docs": [
               "Oracle-priced USDC value of those assets (6 decimals) — gross, before",
-              "either fee slice, i.e. what the redeemed basket is worth right now."
+              "the redeem fee, i.e. what the redeemed basket is worth right now."
             ],
             "type": "u64"
           },
           {
             "name": "total_shares",
+            "docs": ["Outstanding shares at time of quote."],
+            "type": "u64"
+          },
+          {
+            "name": "company_fee",
             "docs": [
-              "Outstanding shares at time of quote."
+              "Company's 20% slice of the flat redeem fee (estimate — real swaps",
+              "haven't run yet, so the real fee at claim time may differ slightly",
+              "due to oracle moves / slippage changing the realized gross amount)."
             ],
             "type": "u64"
           },
           {
-            "name": "vault_fee",
+            "name": "manager_fee",
             "docs": [
-              "Vault performance fee slice — deducted per-asset during the redeem",
-              "swaps, before `pending_usdc` is ever set. Estimated here off the",
-              "gross oracle value since the real swaps haven't run yet."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "platform_fee",
-            "docs": [
-              "Platform fee slice — deducted at `claim` time from `pending_usdc`."
+              "Vault manager's 80% slice of the flat redeem fee (estimate)."
             ],
             "type": "u64"
           },
@@ -4030,7 +3236,7 @@
             "name": "estimated_net_usdc",
             "docs": [
               "Estimate of what `claim` would actually pay out to the user, i.e.",
-              "`estimated_usdc_value - vault_fee - platform_fee`."
+              "`estimated_usdc_value - company_fee - manager_fee`."
             ],
             "type": "u64"
           }
@@ -4079,9 +3285,7 @@
           },
           {
             "name": "unlock_time",
-            "docs": [
-              "Unix timestamp — swap / claim are blocked before this."
-            ],
+            "docs": ["Unix timestamp — swap / claim are blocked before this."],
             "type": "i64"
           },
           {
@@ -4114,10 +3318,7 @@
               "directly from this array instead of re-deriving the proportion."
             ],
             "type": {
-              "array": [
-                "u64",
-                8
-              ]
+              "array": ["u64", 8]
             }
           },
           {
@@ -4127,23 +3328,29 @@
               "`true` once asset[i] has been fully swapped to USDC; prevents re-swapping."
             ],
             "type": {
-              "array": [
-                "bool",
-                8
-              ]
+              "array": ["bool", 8]
+            }
+          },
+          {
+            "name": "asset_to_sol_done",
+            "docs": [
+              "`true` once ViaSol leg-1 (`swap_asset_to_sol`) has run for asset[i];",
+              "prevents replaying the asset→wSOL swap before leg-2 sets `asset_swapped`."
+            ],
+            "type": {
+              "array": ["bool", 8]
             }
           },
           {
             "name": "asset_usdc_out",
             "docs": [
-              "Net USDC (after performance fee) received from each per-asset swap.",
-              "Slot [i] is only meaningful when `asset_swapped[i] == true`."
+              "Gross USDC received from each per-asset swap (no fee deducted at this",
+              "step anymore — the vault/performance fee is now computed once, at",
+              "claim time, on the redemption's total). Slot [i] is only meaningful",
+              "when `asset_swapped[i] == true`."
             ],
             "type": {
-              "array": [
-                "u64",
-                8
-              ]
+              "array": ["u64", 8]
             }
           }
         ]
@@ -4251,14 +3458,6 @@
             "type": "u64"
           },
           {
-            "name": "fee",
-            "type": "u64"
-          },
-          {
-            "name": "net_usdc",
-            "type": "u64"
-          },
-          {
             "name": "timestamp",
             "type": "i64"
           }
@@ -4308,14 +3507,6 @@
           },
           {
             "name": "gross_usdc",
-            "type": "u64"
-          },
-          {
-            "name": "fee",
-            "type": "u64"
-          },
-          {
-            "name": "net_usdc",
             "type": "u64"
           },
           {
@@ -4402,7 +3593,97 @@
       }
     },
     {
+      "name": "TwapKeeperUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TwapState",
+      "docs": [
+        "Self-maintained cumulative-price TWAP for one DEX-priced asset.",
+        "",
+        "Sampled whenever a vault instruction already touches this asset's price",
+        "(deposit, redeem — never nav_view/preview, which discard their mutation).",
+        "No permissionless crank exists; the per-observation move cap",
+        "(`MAX_TWAP_MOVE_BPS`) is what stops a single attacker-triggered sample",
+        "after a quiet period from dominating the accumulated average.",
+        "",
+        "Lives inline on the global `AssetInfo` PDA (plain Borsh `#[account]`,",
+        "not zero_copy) — mutated on every deposit/redeem touching a DEX-priced",
+        "asset, which pays full Borsh (de)serialization of `AssetInfo` per",
+        "mutation. Accepted trade-off: `AssetInfo` is small and this isn't the",
+        "hottest path in the program."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "cumulative_price",
+            "docs": [
+              "Σ (price_x64 × seconds_elapsed) since asset listing (never reset;",
+              "the window is derived by subtracting `window_start_cumulative`)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "window_start_cumulative",
+            "docs": [
+              "Snapshot of `cumulative_price` as of `window_start_ts` — the start of",
+              "the current rolling window. Advanced together with `window_start_ts`",
+              "each time the window rolls in `record_observation`."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "last_price_x64",
+            "docs": [
+              "Last recorded (post-clamp) price observation, Q64.64 fixed point."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "last_update_ts",
+            "type": "i64"
+          },
+          {
+            "name": "last_update_twap_keeper_ts",
+            "type": "i64"
+          },
+          {
+            "name": "window_start_ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "UserInfo",
+      "docs": [
+        "NAV -> TOKEN PRICE",
+        "ENTRY PRICE -> ALICE JAN -> DEPOSIT 100 USDC of  10 AIVT  -> TOKEN PRICE  / NAV of 1000$ ->  FIRST ENTRY 1000 $ Stored",
+        "FEB -> 5 AIVT sellout but she took 15 extra aivt buy.",
+        "",
+        ""
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -4412,6 +3693,11 @@
           },
           {
             "name": "total_usdc_deposited",
+            "docs": [
+              "Net USDC deposited through this program, tracked for",
+              "`InsufficientTrackedBasis` guard purposes only (see `shares_held`",
+              "below) — no longer feeds any fee calculation."
+            ],
             "type": "u64"
           },
           {
@@ -4425,12 +3711,35 @@
           {
             "name": "last_deposit_ts",
             "type": "i64"
+          },
+          {
+            "name": "shares_held",
+            "docs": [
+              "Shares minted to this user via THIS program's deposit instruction and",
+              "not yet redeemed through THIS program's request_redeem. Shares",
+              "acquired by transfer are not reflected here — see",
+              "`VaultError::InsufficientTrackedBasis`."
+            ],
+            "type": "u64"
           }
         ]
       }
     },
     {
       "name": "Vault",
+      "docs": [
+        "Vault state mapped in-place via `AccountLoader` (damm-v2 zero_copy pattern).",
+        "",
+        "Layout is POD-only: no nested `Option` / `bool` (those become flag `u8`s +",
+        "value fields). `INIT_SPACE` is locked to `size_of::<Vault>()` so account",
+        "allocation matches the on-wire `repr(C)` layout (including compiler padding).",
+        "",
+        "Space at init: `8 + Vault::INIT_SPACE` (Anchor discriminator + body)."
+      ],
+      "serialization": "bytemuckunsafe",
+      "repr": {
+        "kind": "c"
+      },
       "type": {
         "kind": "struct",
         "fields": [
@@ -4445,9 +3754,20 @@
           {
             "name": "paused",
             "docs": [
-              "When true, new deposits are paused program-wide; redemptions stay open."
+              "Deposit pause flag: `0 = live`, `1 = paused`. Use `is_paused` / `set_paused`.",
+              "Redemptions stay open regardless."
             ],
-            "type": "bool"
+            "type": "u8"
+          },
+          {
+            "name": "admin_locked",
+            "docs": [
+              "Admin emergency lock: `0 = unlocked`, `1 = locked`. Blocks deposits",
+              "only for this specific vault (independent of `paused`, which is the",
+              "vault_manager's own routine pause control). Redemptions always stay",
+              "open. Use `is_admin_locked` / `set_admin_locked`."
+            ],
+            "type": "u8"
           },
           {
             "name": "vault_manager",
@@ -4458,26 +3778,15 @@
             "type": "pubkey"
           },
           {
-            "name": "base_mint",
-            "type": "pubkey"
-          },
-          {
             "name": "shares_mint",
             "type": "pubkey"
           },
           {
             "name": "total_shares",
-            "docs": [
-              "Total outstanding shares (mirrors share_mint.supply, kept in sync)."
-            ],
             "type": "u64"
           },
           {
             "name": "total_usdc_value",
-            "docs": [
-              "Last-known total portfolio value in USDC (6 decimals).",
-              "Updated by: deposit (+usdc_amount), redeem (-usdc_out)."
-            ],
             "type": "u64"
           },
           {
@@ -4501,7 +3810,19 @@
             "type": "u64"
           },
           {
-            "name": "performance_fee_bps",
+            "name": "deposit_fee_bps",
+            "docs": [
+              "Flat fee charged on every deposit, before NAV pricing. `0` = no fee.",
+              "Bounds: `0..=MAX_DEPOSIT_FEE_BPS`. Immutable after `create_etf`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "docs": [
+              "Flat fee charged on every claim, off gross `pending_usdc`. Always > 0.",
+              "Bounds: `MIN_REDEEM_FEE_BPS..=MAX_REDEEM_FEE_BPS`. Immutable after `create_etf`."
+            ],
             "type": "u16"
           },
           {
@@ -4526,10 +3847,7 @@
               "slots. Zero for USDC-native and wSOL-native slots."
             ],
             "type": {
-              "array": [
-                "u64",
-                8
-              ]
+              "array": ["u64", 8]
             }
           },
           {
@@ -4539,19 +3857,14 @@
               "ViaSol assets). Set once in `create_etf`; immutable after creation."
             ],
             "type": {
-              "array": [
-                "u16",
-                8
-              ]
+              "array": ["u16", 8]
             }
           },
           {
-            "name": "redeem_cooldown_secs",
-            "docs": [
-              "Cooldown (seconds) from request_redeem → swap / claim allowed.",
-              "Defaults to REDEEM_COOLDOWN_SECS (86 400). Configurable by admin."
-            ],
-            "type": "i64"
+            "name": "reserved_assets",
+            "type": {
+              "array": ["u64", 8]
+            }
           },
           {
             "name": "bump",
@@ -4571,9 +3884,6 @@
           },
           {
             "name": "fund_type",
-            "docs": [
-              "Whether this vault's asset basket is fixed or can grow dynamically."
-            ],
             "type": {
               "defined": {
                 "name": "FundType"
@@ -4583,24 +3893,24 @@
           {
             "name": "max_shares",
             "docs": [
-              "Hard cap on total outstanding shares (supply cap) for a `Fixed` vault.",
-              "Deposits that would push `total_shares` above this are rejected. Only",
-              "enforced when `fund_type == Fixed`; `None` means uncapped (always the",
-              "case for `Dynamic`)."
+              "Share supply cap. `0` = uncapped (Dynamic); `> 0` = Fixed cap."
             ],
-            "type": {
-              "option": "u64"
-            }
+            "type": "u64"
+          },
+          {
+            "name": "usdc_sol_pool_enabled",
+            "docs": [
+              "`1` when `usdc_sol_pool` is set; `0` for USDC-only vaults."
+            ],
+            "type": "u8"
           },
           {
             "name": "usdc_sol_pool",
             "docs": [
-              "Orca Whirlpool pool for USDC ↔ wSOL.",
-              "Required (Some) when any asset uses `route == ViaSol`; None for USDC-only vaults."
+              "Orca Whirlpool pool for USDC ↔ wSOL. Meaningful when `usdc_sol_pool_enabled != 0`.",
+              "Required when any asset uses `route == ViaSol`."
             ],
-            "type": {
-              "option": "pubkey"
-            }
+            "type": "pubkey"
           },
           {
             "name": "num_assets",
@@ -4611,20 +3921,67 @@
             "type": "u8"
           },
           {
-            "name": "assets",
+            "name": "asset_ids",
             "docs": [
-              "Per-asset configuration."
+              "Global asset ids this vault holds (indexes into the admin-managed",
+              "`AssetInfo` PDA registry, `[ASSET_SEED, id]`). Slot `i` here",
+              "corresponds to `asset_allocation_bps[i]`."
             ],
             "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "AssetInfo"
-                  }
-                },
-                8
-              ]
+              "array": ["u64", 8]
             }
+          },
+          {
+            "name": "asset_allocation_bps",
+            "docs": [
+              "This vault's target weight (basis points) for `asset_ids[i]`.",
+              "Sum across active slots must equal 10_000. Vault-specific — the",
+              "shared `AssetInfo` registry entry has no allocation of its own."
+            ],
+            "type": {
+              "array": ["u16", 8]
+            }
+          },
+          {
+            "name": "asset_ata_address",
+            "docs": [
+              "Vault-authority ATA for each active asset slot (owner =",
+              "`vault_authority` PDA, mint = that asset's mint under its token",
+              "program). Derived once in `create_etf` and cached so deposit/redeem/",
+              "view hot paths compare against a stored key instead of re-deriving.",
+              "Slots `[num_assets..MAX_ASSETS)` stay `Pubkey::default()`."
+            ],
+            "type": {
+              "array": ["pubkey", 8]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultEmergencyLockUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_locked",
+            "type": "bool"
+          },
+          {
+            "name": "new_locked",
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -4649,30 +4006,6 @@
           {
             "name": "new_paused",
             "type": "bool"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "VaultResumedEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "vault_id",
-            "type": "u64"
-          },
-          {
-            "name": "vault_manager",
-            "type": "pubkey"
-          },
-          {
-            "name": "new_rolling_high",
-            "type": "u64"
           },
           {
             "name": "timestamp",

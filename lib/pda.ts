@@ -2,6 +2,7 @@ import { PublicKey } from '@solana/web3.js';
 import {
   C_VAULT_PROGRAM_ID,
   GLOBAL_STATE_SEED,
+  ASSET_SEED,
   VAULT_SEED,
   VAULT_AUTHORITY_SEED,
   SHARES_MINT_SEED,
@@ -25,6 +26,17 @@ export function deriveGlobalStatePda(): PublicKey {
   return pda;
 }
 
+/** AssetInfo PDA `["asset", asset_id u64 LE]` — one per admin-listed asset. */
+export function deriveAssetInfoPda(assetId: number | bigint): PublicKey {
+  const arr = new Uint8Array(8);
+  new DataView(arr.buffer).setBigUint64(0, BigInt(assetId), true);
+  const [pda] = PublicKey.findProgramAddressSync(
+    [ASSET_SEED, Buffer.from(arr)],
+    C_VAULT_PROGRAM_ID,
+  );
+  return pda;
+}
+
 export interface VaultPdas {
   vaultPda: PublicKey;
   vaultAuthority: PublicKey;
@@ -33,11 +45,10 @@ export interface VaultPdas {
 }
 
 /**
- * The usdc_vault PDA is seeded with the vault's base mint — pass the actual
- * base mint for vaults not denominated in mainnet USDC (e.g. forge mock USDC
- * on devnet).
+ * The usdc_vault PDA is seeded with the USDC mint. The program only accepts
+ * mainnet USDC (`USDC_MINT`); `usdcMint` is kept as a parameter for explicitness.
  */
-export function deriveVaultPdas(vaultId: number, baseMint: PublicKey = USDC_MINT): VaultPdas {
+export function deriveVaultPdas(vaultId: number, usdcMint: PublicKey = USDC_MINT): VaultPdas {
   const idBuf = vaultIdBuf(vaultId);
   const [vaultPda] = PublicKey.findProgramAddressSync(
     [VAULT_SEED, idBuf],
@@ -52,7 +63,7 @@ export function deriveVaultPdas(vaultId: number, baseMint: PublicKey = USDC_MINT
     C_VAULT_PROGRAM_ID,
   );
   const [usdcVault] = PublicKey.findProgramAddressSync(
-    [USDC_VAULT_SEED, baseMint.toBuffer(), idBuf],
+    [USDC_VAULT_SEED, usdcMint.toBuffer(), idBuf],
     C_VAULT_PROGRAM_ID,
   );
   return { vaultPda, vaultAuthority, sharesMint, usdcVault };

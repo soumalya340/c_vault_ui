@@ -16,8 +16,29 @@ import { WalletModal } from './components/wallet-modal';
 
 export type Network = 'devnet' | 'mainnet';
 
-/** UI is devnet-only; mainnet types remain for solscan links and future enablement. */
-export const ACTIVE_NETWORK: Network = 'devnet';
+const NETWORK_STORAGE_KEY = 'cvault-network';
+
+/** Default to mainnet — program quote mint is mainnet USDC. */
+export const DEFAULT_NETWORK: Network = 'mainnet';
+
+export function getStoredNetwork(): Network {
+  if (typeof window === 'undefined') return DEFAULT_NETWORK;
+  try {
+    const saved = window.localStorage.getItem(NETWORK_STORAGE_KEY);
+    if (saved === 'mainnet' || saved === 'devnet') return saved;
+  } catch {
+    // ignore storage failures
+  }
+  return DEFAULT_NETWORK;
+}
+
+export function setStoredNetwork(network: Network): void {
+  try {
+    window.localStorage.setItem(NETWORK_STORAGE_KEY, network);
+  } catch {
+    // ignore storage failures
+  }
+}
 
 export function getRpcEndpoint(network: Network): string {
   if (network === 'mainnet') {

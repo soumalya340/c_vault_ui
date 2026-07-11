@@ -30,11 +30,13 @@ import { createProgram, createDummyWallet } from './program';
 import { sendV0, fetchAlt } from './alt';
 import {
   deriveGlobalStatePda,
+  deriveAssetInfoPda,
   deriveVaultPdas,
   deriveUserInfoPda,
   deriveRedeemStatePda,
 } from './pda';
 import { fetchPoolCtx, ownerAccountsFor, type PoolCtx } from './whirlpool';
+import { fetchDammPoolCtx, type DammPoolCtx } from './damm';
 import {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
@@ -43,6 +45,14 @@ import {
   WSOL_MINT,
   WHIRLPOOL_PROGRAM_ID,
   PYTH_PUSH_ORACLE_PROGRAM_ID,
+  MEMO_PROGRAM_ID,
+  DAMM_V2_PROGRAM_ID,
+  DAMM_V2_POOL_AUTHORITY,
+  DAMM_V2_EVENT_AUTHORITY,
+  PRICE_SOURCE_PYTH,
+  PRICE_SOURCE_DEX,
+  TOKEN_PROGRAM_TAG_SPL,
+  TOKEN_PROGRAM_TAG_TOKEN_2022,
 } from './constants';
 
 export {
@@ -51,9 +61,16 @@ export {
   DEFAULT_VAULT_ID,
   USDC_MINT,
   WSOL_MINT,
+  PRICE_SOURCE_PYTH,
+  PRICE_SOURCE_DEX,
+  TOKEN_PROGRAM_TAG_SPL,
+  TOKEN_PROGRAM_TAG_TOKEN_2022,
+  DAMM_V2_PROGRAM_ID,
+  WHIRLPOOL_PROGRAM_ID,
 };
 export {
   deriveGlobalStatePda,
+  deriveAssetInfoPda,
   deriveVaultPdas,
   deriveUserInfoPda,
   deriveRedeemStatePda,
@@ -62,18 +79,28 @@ export type { Network };
 
 // ─── On-chain vault context ───────────────────────────────────────────────────
 // Everything a vault instruction needs is read from the vault account itself
-// (asset basket, base mint, pools, feed ids) — nothing is hardcoded and no
-// manual price-feed input exists anywhere in the UI.
+// (asset basket, pools, price sources, swap venues). Quote mint is always USDC.
 
 export type AssetRoute = 'ViaSol' | 'DirectUsdc';
+export type DexKindLabel = 'Whirlpool' | 'DammV2';
 
 export interface VaultChainAsset {
+  /** Global asset id — the admin-listed AssetInfo this slot references. */
+  assetId: number;
+  /** AssetInfo PDA `["asset", asset_id]` — leading remaining-account block. */
+  assetInfoPda: PublicKey;
   mint: PublicKey;
   poolAddress: PublicKey;
   pythFeedId: number[];
   allocationBps: number;
   decimals: number;
   route: AssetRoute;
+  priceSourceTag: number;
+  priceDexKind: number;
+  pricePoolAddress: PublicKey;
+  swapKind: DexKindLabel;
+  tokenProgramTag: number;
+  vaultAssetAtaKey: PublicKey;
 }
 
 export interface VaultChainCtx {
@@ -82,6 +109,7 @@ export interface VaultChainCtx {
   vaultAuthority: PublicKey;
   sharesMint: PublicKey;
   usdcVault: PublicKey;
+  /** Always mainnet USDC — sole eligible quote mint. */
   baseMint: PublicKey;
   usdcSolPool: PublicKey | null;
   feeRecipient: PublicKey;
@@ -103,17 +131,47 @@ export function pythFeedAccount(pythFeedId: number[] | Uint8Array): PublicKey {
   return pda;
 }
 
-export function vaultAssetAta(vaultAuthority: PublicKey, assetMint: PublicKey): PublicKey {
-  return getAssociatedTokenAddressSync(assetMint, vaultAuthority, true, TOKEN_PROGRAM_ID);
+export function tokenProgramForTag(tag: number): PublicKey {
+  return tag === TOKEN_PROGRAM_TAG_TOKEN_2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
 }
 
-interface RawVaultAsset {
+export function vaultAssetAta(
+  vaultAuthority: PublicKey,
+  assetMint: PublicKey,
+  tokenProgramTag: number = TOKEN_PROGRAM_TAG_SPL,
+): PublicKey {
+  return getAssociatedTokenAddressSync(
+    assetMint,
+    vaultAuthority,
+    true,
+    tokenProgramForTag(tokenProgramTag),
+  );
+}
+
+function parseSwapKind(raw: unknown): DexKindLabel {
+  if (raw && typeof raw === 'object' && 'dammV2' in (raw as object)) return 'DammV2';
+  if (typeof raw === 'number' && raw === 1) return 'DammV2';
+  return 'Whirlpool';
+}
+
+/** Raw AssetInfo account as Anchor deserializes it. */
+interface RawAssetInfo {
+  assetId: BN;
   mint: PublicKey;
   poolAddress: PublicKey;
-  pythFeedId: number[];
-  allocationBps: number;
+  pythFeedId: number[] | Uint8Array;
   decimals: number;
   route: { viaSol?: Record<string, never>; directUsdc?: Record<string, never> };
+  priceSourceTag: number;
+  priceDexKind: number;
+  pricePoolAddress: PublicKey;
+  swapKind: unknown;
+  tokenProgramTag: number;
+  active: boolean;
+}
+
+function parseRoute(raw: RawAssetInfo['route']): AssetRoute {
+  return raw.viaSol ? 'ViaSol' : 'DirectUsdc';
 }
 
 export async function fetchVaultCtx(
@@ -121,22 +179,52 @@ export async function fetchVaultCtx(
   vaultId: number,
 ): Promise<VaultChainCtx> {
   const program = createProgram(createDummyWallet(), connection);
-  const { vaultPda, vaultAuthority, sharesMint } = deriveVaultPdas(vaultId);
+  const { vaultPda, vaultAuthority, sharesMint, usdcVault } = deriveVaultPdas(vaultId);
   const vault = await (program.account as any).vault.fetch(vaultPda);
 
-  const baseMint = vault.baseMint as PublicKey;
-  const { usdcVault } = deriveVaultPdas(vaultId, baseMint);
+  // v2: the vault stores only asset ids + allocations; every other asset
+  // attribute lives on the global admin-listed AssetInfo PDAs.
   const numAssets = vault.numAssets as number;
-  const assets: VaultChainAsset[] = (vault.assets as RawVaultAsset[])
+  const assetIds = (vault.assetIds as BN[])
     .slice(0, numAssets)
-    .map((a) => ({
-      mint: a.mint,
-      poolAddress: a.poolAddress,
-      pythFeedId: Array.from(a.pythFeedId),
-      allocationBps: a.allocationBps,
-      decimals: a.decimals,
-      route: a.route.viaSol ? 'ViaSol' : 'DirectUsdc',
-    }));
+    .map((id) => id.toNumber());
+  const allocationBps = (vault.assetAllocationBps as number[]).slice(0, numAssets);
+  const ataAddresses = (vault.assetAtaAddress as PublicKey[]).slice(0, numAssets);
+
+  const assetInfoPdas = assetIds.map((id) => deriveAssetInfoPda(id));
+  const infos: (RawAssetInfo | null)[] = await (program.account as any).assetInfo.fetchMultiple(
+    assetInfoPdas,
+  );
+
+  const assets: VaultChainAsset[] = infos.map((info, i) => {
+    if (!info) {
+      throw new Error(`AssetInfo ${assetIds[i]} not found for vault ${vaultId}.`);
+    }
+    return {
+      assetId: assetIds[i],
+      assetInfoPda: assetInfoPdas[i],
+      mint: info.mint,
+      poolAddress: info.poolAddress,
+      pythFeedId: Array.from(info.pythFeedId),
+      allocationBps: allocationBps[i],
+      decimals: info.decimals,
+      route: parseRoute(info.route),
+      priceSourceTag: info.priceSourceTag,
+      priceDexKind: info.priceDexKind,
+      pricePoolAddress: info.pricePoolAddress,
+      swapKind: parseSwapKind(info.swapKind),
+      tokenProgramTag: info.tokenProgramTag,
+      vaultAssetAtaKey:
+        ataAddresses[i] ?? vaultAssetAta(vaultAuthority, info.mint, info.tokenProgramTag),
+    };
+  });
+
+  const usdcSolEnabled = (vault.usdcSolPoolEnabled as number | boolean) ?? 0;
+  const usdcSolPoolPk = vault.usdcSolPool as PublicKey | undefined;
+  const usdcSolPool =
+    usdcSolEnabled && usdcSolPoolPk && !usdcSolPoolPk.equals(PublicKey.default)
+      ? usdcSolPoolPk
+      : null;
 
   return {
     vaultId,
@@ -144,12 +232,49 @@ export async function fetchVaultCtx(
     vaultAuthority,
     sharesMint,
     usdcVault,
-    baseMint,
-    usdcSolPool: (vault.usdcSolPool as PublicKey | null) ?? null,
+    baseMint: USDC_MINT,
+    usdcSolPool,
     feeRecipient: vault.feeRecipient as PublicKey,
     numAssets,
     assets,
   };
+}
+
+export interface AssetInfoView {
+  assetId: number;
+  mint: string;
+  poolAddress: string;
+  decimals: number;
+  route: AssetRoute;
+  priceSourceTag: number;
+  priceDexKind: number;
+  pricePoolAddress: string;
+  swapKind: DexKindLabel;
+  tokenProgramTag: number;
+  pythFeedId: number[];
+  active: boolean;
+}
+
+/** Every admin-listed AssetInfo PDA — for the create_etf asset picker and ALT building. */
+export async function listAssets(connection: Connection): Promise<AssetInfoView[]> {
+  const program = createProgram(createDummyWallet(), connection);
+  const rows: { account: RawAssetInfo }[] = await (program.account as any).assetInfo.all();
+  return rows
+    .map(({ account }) => ({
+      assetId: account.assetId.toNumber(),
+      mint: account.mint.toBase58(),
+      poolAddress: account.poolAddress.toBase58(),
+      decimals: account.decimals,
+      route: parseRoute(account.route),
+      priceSourceTag: account.priceSourceTag,
+      priceDexKind: account.priceDexKind,
+      pricePoolAddress: account.pricePoolAddress.toBase58(),
+      swapKind: parseSwapKind(account.swapKind),
+      tokenProgramTag: account.tokenProgramTag,
+      pythFeedId: Array.from(account.pythFeedId),
+      active: account.active,
+    }))
+    .sort((a, b) => a.assetId - b.assetId);
 }
 
 type AccountMeta = { pubkey: PublicKey; isSigner: boolean; isWritable: boolean };
@@ -158,19 +283,61 @@ function readonlyMetas(keys: PublicKey[]): AccountMeta[] {
   return keys.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false }));
 }
 
-/** `[asset_ata_0..N, price_feed_0..N]` — deposit / NAV / preview instructions. */
-function navRemainingAccounts(ctx: VaultChainCtx): AccountMeta[] {
-  const atas = ctx.assets.map((a) => vaultAssetAta(ctx.vaultAuthority, a.mint));
-  const feeds = ctx.assets.map((a) => pythFeedAccount(a.pythFeedId));
-  return readonlyMetas([...atas, ...feeds]);
+/** Leading AssetInfo PDA block every v2 vault instruction expects, ordered
+ *  to match `Vault.asset_ids[0..num_assets]`. Deposit needs it writable —
+ *  pricing persists TWAP mutations back onto the global AssetInfo PDAs. */
+function assetInfoMetas(ctx: VaultChainCtx, writable = false): AccountMeta[] {
+  return ctx.assets.map((a) => ({
+    pubkey: a.assetInfoPda,
+    isSigner: false,
+    isWritable: writable,
+  }));
 }
 
-/** `[asset_ata_0..N]` — request_redeem only reads the vault asset balances. */
+/**
+ * Variable-stride remaining_accounts for deposit / NAV / preview:
+ * `[asset_info_0..N, asset_ata_0..N, then per asset:
+ *   pyth feed | (dex pool [+ whirlpool vaults])]`.
+ */
+async function navRemainingAccounts(
+  connection: Connection,
+  ctx: VaultChainCtx,
+  opts: { assetInfoWritable?: boolean } = {},
+): Promise<AccountMeta[]> {
+  const atas = ctx.assets.map((a) => a.vaultAssetAtaKey);
+  const priceKeys: PublicKey[] = [];
+
+  for (const asset of ctx.assets) {
+    if (asset.priceSourceTag === PRICE_SOURCE_DEX) {
+      priceKeys.push(asset.pricePoolAddress);
+      if (asset.priceDexKind === 0) {
+        // Whirlpool pricing needs the two token vaults after the pool.
+        const pool = await fetchPoolCtx(connection, asset.pricePoolAddress);
+        priceKeys.push(pool.info.tokenVaultA, pool.info.tokenVaultB);
+      }
+      // DammV2: pool only
+    } else {
+      priceKeys.push(pythFeedAccount(asset.pythFeedId));
+    }
+  }
+
+  return [
+    ...assetInfoMetas(ctx, opts.assetInfoWritable ?? false),
+    ...readonlyMetas(atas),
+    ...readonlyMetas(priceKeys),
+  ];
+}
+
+/** `[asset_info_0..N, asset_ata_0..N]` — request_redeem reads asset config
+ *  from the AssetInfo block and balances from the ATA block. */
 function assetAtaRemainingAccounts(ctx: VaultChainCtx): AccountMeta[] {
-  return readonlyMetas(ctx.assets.map((a) => vaultAssetAta(ctx.vaultAuthority, a.mint)));
+  return [
+    ...assetInfoMetas(ctx),
+    ...readonlyMetas(ctx.assets.map((a) => a.vaultAssetAtaKey)),
+  ];
 }
 
-function baseAta(owner: PublicKey, baseMint: PublicKey): PublicKey {
+function baseAta(owner: PublicKey, baseMint: PublicKey = USDC_MINT): PublicKey {
   return getAssociatedTokenAddressSync(baseMint, owner, false, TOKEN_PROGRAM_ID);
 }
 
@@ -205,10 +372,10 @@ function globalAdminAccounts(admin: PublicKey) {
   return { globalState: deriveGlobalStatePda(), admin } as Record<string, PublicKey>;
 }
 
+/** v2: no arguments — treasury defaults to the admin signer. */
 export async function initGlobalState(
   connection: Connection,
   wallet: AnchorWallet,
-  platformFeeBps: number,
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
@@ -216,16 +383,16 @@ export async function initGlobalState(
     connection,
     wallet,
     (program.methods as any)
-      .initGlobalState(new BN(platformFeeBps))
+      .initGlobalState()
       .accounts({ authority: wallet.publicKey } as never),
     network,
   );
 }
 
-export async function addEligibleBaseMint(
+export async function setTwapKeeper(
   connection: Connection,
   wallet: AnchorWallet,
-  mint: PublicKey,
+  keeper: PublicKey,
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
@@ -233,16 +400,18 @@ export async function addEligibleBaseMint(
     connection,
     wallet,
     (program.methods as any)
-      .addEligibleBaseMint(mint)
+      .setTwapKeeper(keeper)
       .accounts(globalAdminAccounts(wallet.publicKey) as never),
     network,
   );
 }
 
-export async function removeEligibleBaseMint(
+/** Keeper-only: push a TWAP observation onto one DEX-priced global asset. */
+export async function updateDexTwap(
   connection: Connection,
   wallet: AnchorWallet,
-  mint: PublicKey,
+  assetId: number,
+  twapLiveState: BN,
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
@@ -250,25 +419,13 @@ export async function removeEligibleBaseMint(
     connection,
     wallet,
     (program.methods as any)
-      .removeEligibleBaseMint(mint)
-      .accounts(globalAdminAccounts(wallet.publicKey) as never),
-    network,
-  );
-}
-
-export async function updatePlatformFeeBps(
-  connection: Connection,
-  wallet: AnchorWallet,
-  platformFeeBps: number,
-  network: Network,
-) {
-  const program = createProgram(wallet, connection);
-  return sendMethod(
-    connection,
-    wallet,
-    (program.methods as any)
-      .updatePlatformFeeBps(new BN(platformFeeBps))
-      .accounts(globalAdminAccounts(wallet.publicKey) as never),
+      .updateDexTwap(new BN(assetId), twapLiveState)
+      .accounts({
+        globalState: deriveGlobalStatePda(),
+        assetInfo: deriveAssetInfoPda(assetId),
+        payer: wallet.publicKey,
+        keeper: wallet.publicKey,
+      } as never),
     network,
   );
 }
@@ -307,10 +464,90 @@ export async function setEmergency(
   );
 }
 
-export async function setDepositDisable(
+export interface CreateAssetParams {
+  mint: PublicKey;
+  poolAddress: PublicKey;
+  pythFeedId: number[];
+  route: { directUsdc: Record<string, never> } | { viaSol: Record<string, never> };
+  /** 0 = Pyth, 1 = Dex */
+  priceSourceTag: number;
+  /** DexKind as u8 when priceSourceTag is Dex; ignored for Pyth. */
+  priceDexKind: number;
+  pricePoolAddress: PublicKey;
+  swapKind: { whirlpool: Record<string, never> } | { dammV2: Record<string, never> };
+  /** 0 = SPL Token, 1 = Token-2022 */
+  tokenProgramTag: number;
+}
+
+/**
+ * Admin-only: list a new global asset. `asset_id` is assigned from
+ * `global_state.total_assets`, fetched here so the caller doesn't have to.
+ * DEX-priced assets need the price pool (+ Whirlpool token vaults A/B) as
+ * remaining_accounts, mirroring `create_etf`'s DEX remaining-accounts shape.
+ */
+export async function createAsset(
   connection: Connection,
   wallet: AnchorWallet,
-  disabled: boolean,
+  params: CreateAssetParams,
+  network: Network,
+): Promise<{ tx: string; link: string; assetId: number; decimals: number }> {
+  const program = createProgram(wallet, connection);
+  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
+  const assetId = (gs.totalAssets as BN).toNumber();
+  const assetInfo = deriveAssetInfoPda(assetId);
+  const mintInfo = await getMint(
+    connection,
+    params.mint,
+    undefined,
+    tokenProgramForTag(params.tokenProgramTag),
+  );
+
+  const remaining: AccountMeta[] = [];
+  if (params.priceSourceTag === PRICE_SOURCE_DEX) {
+    remaining.push({ pubkey: params.pricePoolAddress, isSigner: false, isWritable: false });
+    if ('whirlpool' in params.swapKind) {
+      const pool = await fetchPoolCtx(connection, params.pricePoolAddress);
+      remaining.push(
+        { pubkey: pool.info.tokenVaultA, isSigner: false, isWritable: false },
+        { pubkey: pool.info.tokenVaultB, isSigner: false, isWritable: false },
+      );
+    }
+  }
+
+  const r = await sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .createAsset({
+        mint: params.mint,
+        poolAddress: params.poolAddress,
+        pythFeedId: params.pythFeedId,
+        route: params.route,
+        priceSourceTag: params.priceSourceTag,
+        priceDexKind: params.priceDexKind,
+        pricePoolAddress: params.pricePoolAddress,
+        swapKind: params.swapKind,
+        tokenProgramTag: params.tokenProgramTag,
+      })
+      .accounts({
+        globalState: deriveGlobalStatePda(),
+        assetInfo,
+        mint: params.mint,
+        admin: wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      } as never)
+      .remainingAccounts(remaining),
+    network,
+  );
+  return { ...r, assetId, decimals: mintInfo.decimals };
+}
+
+/** Admin-only: flip an asset's `active` flag (blocks new create_etf inclusion only). */
+export async function setAssetActive(
+  connection: Connection,
+  wallet: AnchorWallet,
+  assetId: number,
+  active: boolean,
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
@@ -318,8 +555,34 @@ export async function setDepositDisable(
     connection,
     wallet,
     (program.methods as any)
-      .setDepositDisable(disabled)
-      .accounts(globalAdminAccounts(wallet.publicKey) as never),
+      .setAssetActive(new BN(assetId), active)
+      .accounts({
+        assetInfo: deriveAssetInfoPda(assetId),
+        admin: wallet.publicKey,
+      } as never),
+    network,
+  );
+}
+
+/** Admin-only: lock/unlock deposits for one vault, independent of the vault manager's own pause. */
+export async function setVaultEmergencyLock(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  locked: boolean,
+  network: Network,
+) {
+  const program = createProgram(wallet, connection);
+  const { vaultPda } = deriveVaultPdas(vaultId);
+  return sendMethod(
+    connection,
+    wallet,
+    (program.methods as any)
+      .setVaultEmergencyLock(new BN(vaultId), locked)
+      .accounts({
+        vault: vaultPda,
+        admin: wallet.publicKey,
+      } as never),
     network,
   );
 }
@@ -329,23 +592,6 @@ export async function setDepositDisable(
 function vaultManagerAccounts(vaultId: number, vaultManager: PublicKey) {
   const { vaultPda } = deriveVaultPdas(vaultId);
   return { vault: vaultPda, vaultManager } as Record<string, PublicKey>;
-}
-
-export async function resume(
-  connection: Connection,
-  wallet: AnchorWallet,
-  vaultId: number,
-  network: Network,
-) {
-  const program = createProgram(wallet, connection);
-  return sendMethod(
-    connection,
-    wallet,
-    (program.methods as any)
-      .resume(new BN(vaultId))
-      .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never),
-    network,
-  );
 }
 
 export async function setPaused(
@@ -361,24 +607,6 @@ export async function setPaused(
     wallet,
     (program.methods as any)
       .setPaused(new BN(vaultId), paused)
-      .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never),
-    network,
-  );
-}
-
-export async function setRedeemCooldown(
-  connection: Connection,
-  wallet: AnchorWallet,
-  vaultId: number,
-  cooldownSecs: number,
-  network: Network,
-) {
-  const program = createProgram(wallet, connection);
-  return sendMethod(
-    connection,
-    wallet,
-    (program.methods as any)
-      .setRedeemCooldown(new BN(vaultId), new BN(cooldownSecs))
       .accounts(vaultManagerAccounts(vaultId, wallet.publicKey) as never),
     network,
   );
@@ -404,20 +632,18 @@ export async function setFeeRecipient(
 
 // ─── Create ETF (create_etf.rs — vault + Token-2022 metadata in one tx) ──────
 
-export interface AssetParam {
-  mint: PublicKey;
-  poolAddress: PublicKey;
-  pythFeedId: number[];
+export interface AssetAllocation {
+  /** References an existing, active AssetInfo PDA listed via create_asset. */
+  assetId: number;
   allocationBps: number;
-  decimals: number;
-  route: { directUsdc: Record<string, never> } | { viaSol: Record<string, never> };
 }
 
 export interface CreateEtfParams {
   feeRecipient: PublicKey | null;
-  performanceFeeBps: number;
+  depositFeeBps: number;
+  redeemFeeBps: number;
   usdcSolPool: PublicKey | null;
-  assets: AssetParam[];
+  assets: AssetAllocation[];
   fundType: { fixed: Record<string, never> } | { dynamic: Record<string, never> };
   maxShares: BN | null;
 }
@@ -437,11 +663,15 @@ export interface CreatedVaultInfo {
  * metadata (name/symbol/uri) inside the same instruction — one signature,
  * one transaction. Returns the assigned vault id and PDAs so the caller can
  * record the vault off-chain.
+ *
+ * Quote mint is always mainnet USDC (program constant). remaining_accounts is
+ * one AssetInfo PDA per `params.assets` entry, in order — every other asset
+ * config (mint/pool/pricing/route/swap venue) already lives on that shared,
+ * admin-listed AssetInfo (see `createAsset`).
  */
 export async function createEtf(
   connection: Connection,
   wallet: AnchorWallet,
-  baseMint: PublicKey,
   params: CreateEtfParams,
   name: string,
   symbol: string,
@@ -454,22 +684,42 @@ export async function createEtf(
   const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
   const vaultId = (gs.totalVaults as BN).toNumber();
 
+  const remaining: AccountMeta[] = params.assets.map((a) => ({
+    pubkey: deriveAssetInfoPda(a.assetId),
+    isSigner: false,
+    isWritable: false,
+  }));
+
+  const ixParams = {
+    feeRecipient: params.feeRecipient,
+    depositFeeBps: params.depositFeeBps,
+    redeemFeeBps: params.redeemFeeBps,
+    usdcSolPool: params.usdcSolPool,
+    assets: params.assets.map((a) => ({
+      assetId: new BN(a.assetId),
+      allocationBps: a.allocationBps,
+    })),
+    fundType: params.fundType,
+    maxShares: params.maxShares,
+  };
+
   // Build the instruction and send it through sendV0 rather than Anchor's
   // `.rpc()`: `.rpc()` confirms via the websocket subscription with a hard 30s
   // cap, which the public devnet RPC trips even when the tx lands ("not
   // confirmed / unknown if it succeeded"). sendV0 polls signature status.
   const createIx = await (program.methods as any)
-    .createEtf(params, name, symbol, uri)
+    .createEtf(ixParams, name, symbol, uri)
     .accounts({
       authority: wallet.publicKey,
-      usdcMint: baseMint,
+      usdcMint: USDC_MINT,
       sharesTokenProgram: TOKEN_2022_PROGRAM_ID,
     } as never)
+    .remainingAccounts(remaining)
     .instruction();
 
   const sig = await sendV0(connection, wallet, [createIx]);
 
-  const pdas = deriveVaultPdas(vaultId, baseMint);
+  const pdas = deriveVaultPdas(vaultId, USDC_MINT);
   return {
     tx: sig,
     link: solscanLink(sig, network),
@@ -517,7 +767,7 @@ async function buildDepositIxs(
     .accounts({
       globalState: deriveGlobalStatePda(),
       vault: ctx.vaultPda,
-      baseMint: ctx.baseMint,
+      usdcMint: USDC_MINT,
       vaultAuthority: ctx.vaultAuthority,
       usdcVault: ctx.usdcVault,
       shareMint: ctx.sharesMint,
@@ -529,12 +779,12 @@ async function buildDepositIxs(
       userInfo,
       treasury,
       feeRecipient: ctx.feeRecipient,
-      treasuryUsdcAccount: baseAta(treasury, ctx.baseMint),
-      feeRecipientUsdcAccount: baseAta(ctx.feeRecipient, ctx.baseMint),
+      treasuryUsdcAccount: baseAta(treasury, USDC_MINT),
+      feeRecipientUsdcAccount: baseAta(ctx.feeRecipient, USDC_MINT),
       systemProgram: SystemProgram.programId,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     } as never)
-    .remainingAccounts(navRemainingAccounts(ctx))
+    .remainingAccounts(await navRemainingAccounts(connection, ctx))
     .instruction();
 
   return [...ensureAtaIxs, depositIx];
@@ -588,6 +838,7 @@ async function buildRequestRedeemIxs(
       sharesMint: ctx.sharesMint,
       userShareAccount: userShares,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
+      userInfo: deriveUserInfoPda(ctx.vaultPda, user),
       user,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
@@ -617,25 +868,27 @@ async function buildClaimIxs(
   ctx: VaultChainCtx,
   user: PublicKey,
 ): Promise<TransactionInstruction[]> {
-  const userBase = baseAta(user, ctx.baseMint);
+  const userBase = baseAta(user, USDC_MINT);
   const treasury = await fetchTreasury(connection);
 
   const ensureUserBaseIx = createAssociatedTokenAccountIdempotentInstruction(
-    user, userBase, user, ctx.baseMint, TOKEN_PROGRAM_ID,
+    user, userBase, user, USDC_MINT, TOKEN_PROGRAM_ID,
   );
   const claimIx = await (program.methods as any)
     .claim(new BN(ctx.vaultId))
     .accounts({
       globalState: deriveGlobalStatePda(),
       vault: ctx.vaultPda,
-      baseMint: ctx.baseMint,
+      usdcMint: USDC_MINT,
       vaultAuthority: ctx.vaultAuthority,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       usdcVault: ctx.usdcVault,
       userUsdcAccount: userBase,
       user,
       treasury,
-      treasuryUsdcAccount: baseAta(treasury, ctx.baseMint),
+      treasuryUsdcAccount: baseAta(treasury, USDC_MINT),
+      feeRecipient: ctx.feeRecipient,
+      feeRecipientUsdcAccount: baseAta(ctx.feeRecipient, USDC_MINT),
       tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -659,22 +912,6 @@ export async function claim(
 
 // ─── Swap legs (accounts derived from the vault's asset basket) ──────────────
 
-function whirlpoolCommonAccounts(pool: PoolCtx, owners: { ownerA: PublicKey; ownerB: PublicKey }) {
-  return {
-    tokenProgram: TOKEN_PROGRAM_ID,
-    whirlpoolProgram: WHIRLPOOL_PROGRAM_ID,
-    whirlpool: pool.address,
-    tokenOwnerAccountA: owners.ownerA,
-    tokenVaultA: pool.info.tokenVaultA,
-    tokenOwnerAccountB: owners.ownerB,
-    tokenVaultB: pool.info.tokenVaultB,
-    tickArray0: pool.tickArrays[0],
-    tickArray1: pool.tickArrays[1],
-    tickArray2: pool.tickArrays[2],
-    oracle: pool.oracle,
-  };
-}
-
 function requireUsdcSolPool(ctx: VaultChainCtx): PublicKey {
   if (!ctx.usdcSolPool) {
     throw new Error('This vault has no USDC/wSOL pool configured (all assets are DirectUsdc).');
@@ -688,6 +925,155 @@ function assetAt(ctx: VaultChainCtx, assetIndex: number): VaultChainAsset {
   return asset;
 }
 
+/** Named accounts for USDC↔wSOL Whirlpool swap_v2 legs (swap_usdc_to_sol / swap_sol_to_usdc). */
+function whirlpoolUsdcSolAccounts(
+  pool: PoolCtx,
+  owners: { ownerA: PublicKey; ownerB: PublicKey },
+) {
+  return {
+    tokenProgramA: TOKEN_PROGRAM_ID,
+    tokenProgramB: TOKEN_PROGRAM_ID,
+    memoProgram: MEMO_PROGRAM_ID,
+    whirlpoolProgram: WHIRLPOOL_PROGRAM_ID,
+    whirlpool: pool.address,
+    tokenMintA: pool.info.tokenMintA,
+    tokenMintB: pool.info.tokenMintB,
+    tokenOwnerAccountA: owners.ownerA,
+    tokenVaultA: pool.info.tokenVaultA,
+    tokenOwnerAccountB: owners.ownerB,
+    tokenVaultB: pool.info.tokenVaultB,
+    tickArray0: pool.tickArrays[0],
+    tickArray1: pool.tickArrays[1],
+    tickArray2: pool.tickArrays[2],
+    oracle: pool.oracle,
+  };
+}
+
+/**
+ * Whirlpool asset-swap remaining_accounts (length 15) — see
+ * `dispatch_orca_asset_swap` in the program.
+ */
+function whirlpoolAssetRemaining(
+  pool: PoolCtx,
+  owners: { ownerA: PublicKey; ownerB: PublicKey },
+  tokenProgramA: PublicKey = TOKEN_PROGRAM_ID,
+  tokenProgramB: PublicKey = TOKEN_PROGRAM_ID,
+): AccountMeta[] {
+  const keys: PublicKey[] = [
+    WHIRLPOOL_PROGRAM_ID,
+    tokenProgramA,
+    tokenProgramB,
+    MEMO_PROGRAM_ID,
+    pool.address,
+    pool.info.tokenMintA,
+    pool.info.tokenMintB,
+    owners.ownerA,
+    pool.info.tokenVaultA,
+    owners.ownerB,
+    pool.info.tokenVaultB,
+    pool.tickArrays[0],
+    pool.tickArrays[1],
+    pool.tickArrays[2],
+    pool.oracle,
+  ];
+  // Mix of readonly / writable — mark vaults and owner ATAs writable.
+  const writable = new Set([
+    owners.ownerA.toBase58(),
+    owners.ownerB.toBase58(),
+    pool.info.tokenVaultA.toBase58(),
+    pool.info.tokenVaultB.toBase58(),
+    pool.address.toBase58(),
+    pool.tickArrays[0].toBase58(),
+    pool.tickArrays[1].toBase58(),
+    pool.tickArrays[2].toBase58(),
+  ]);
+  return keys.map((pubkey) => ({
+    pubkey,
+    isSigner: false,
+    isWritable: writable.has(pubkey.toBase58()),
+  }));
+}
+
+/**
+ * DAMM v2 remaining_accounts (length 15):
+ * [program, pool_authority, pool, input, output, vault_a, vault_b, mint_a, mint_b,
+ *  payer, token_a_program, token_b_program, referral, event_authority, program]
+ */
+function dammAssetRemaining(
+  pool: DammPoolCtx,
+  inputAccount: PublicKey,
+  outputAccount: PublicKey,
+  vaultAuthority: PublicKey,
+  tokenProgramA: PublicKey = TOKEN_PROGRAM_ID,
+  tokenProgramB: PublicKey = TOKEN_PROGRAM_ID,
+): AccountMeta[] {
+  const keys: Array<{ pk: PublicKey; w: boolean }> = [
+    { pk: DAMM_V2_PROGRAM_ID, w: false },
+    { pk: DAMM_V2_POOL_AUTHORITY, w: false },
+    { pk: pool.address, w: true },
+    { pk: inputAccount, w: true },
+    { pk: outputAccount, w: true },
+    { pk: pool.info.tokenVaultA, w: true },
+    { pk: pool.info.tokenVaultB, w: true },
+    { pk: pool.info.tokenMintA, w: false },
+    { pk: pool.info.tokenMintB, w: false },
+    { pk: vaultAuthority, w: false }, // payer/signer via seeds
+    { pk: tokenProgramA, w: false },
+    { pk: tokenProgramB, w: false },
+    { pk: DAMM_V2_PROGRAM_ID, w: true }, // no-referral placeholder (mut)
+    { pk: DAMM_V2_EVENT_AUTHORITY, w: false },
+    { pk: DAMM_V2_PROGRAM_ID, w: false },
+  ];
+  return keys.map(({ pk, w }) => ({ pubkey: pk, isSigner: false, isWritable: w }));
+}
+
+async function buildAssetSwapRemaining(
+  connection: Connection,
+  ctx: VaultChainCtx,
+  asset: VaultChainAsset,
+  inputMint: PublicKey,
+  inputAccount: PublicKey,
+  outputAccount: PublicKey,
+): Promise<{ remaining: AccountMeta[]; aToB: boolean }> {
+  if (asset.swapKind === 'DammV2') {
+    const pool = await fetchDammPoolCtx(connection, asset.poolAddress);
+    const aToB = pool.info.tokenMintA.equals(inputMint);
+    const tokenProgramA = pool.info.tokenMintA.equals(asset.mint)
+      ? tokenProgramForTag(asset.tokenProgramTag)
+      : TOKEN_PROGRAM_ID;
+    const tokenProgramB = pool.info.tokenMintB.equals(asset.mint)
+      ? tokenProgramForTag(asset.tokenProgramTag)
+      : TOKEN_PROGRAM_ID;
+    return {
+      remaining: dammAssetRemaining(
+        pool,
+        inputAccount,
+        outputAccount,
+        ctx.vaultAuthority,
+        tokenProgramA,
+        tokenProgramB,
+      ),
+      aToB,
+    };
+  }
+
+  const pool = await fetchPoolCtx(connection, asset.poolAddress);
+  const owners = pool.info.tokenMintA.equals(inputMint)
+    ? { ownerA: inputAccount, ownerB: outputAccount }
+    : { ownerA: outputAccount, ownerB: inputAccount };
+  const aToB = pool.info.tokenMintA.equals(inputMint);
+  const tokenProgramA = pool.info.tokenMintA.equals(asset.mint)
+    ? tokenProgramForTag(asset.tokenProgramTag)
+    : TOKEN_PROGRAM_ID;
+  const tokenProgramB = pool.info.tokenMintB.equals(asset.mint)
+    ? tokenProgramForTag(asset.tokenProgramTag)
+    : TOKEN_PROGRAM_ID;
+  return {
+    remaining: whirlpoolAssetRemaining(pool, owners, tokenProgramA, tokenProgramB),
+    aToB,
+  };
+}
+
 /** Inflow leg builder: pending USDC (ViaSol slice) → wSOL. */
 async function buildSwapUsdcToSolIx(
   connection: Connection,
@@ -698,8 +1084,8 @@ async function buildSwapUsdcToSolIx(
 ): Promise<TransactionInstruction> {
   const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
   const pool = await fetchPoolCtx(connection, requireUsdcSolPool(ctx));
-  const owners = ownerAccountsFor(pool, vaultWsolAta, ctx.baseMint, ctx.usdcVault);
-  const aToB = pool.info.tokenMintA.equals(ctx.baseMint);
+  const owners = ownerAccountsFor(pool, vaultWsolAta, USDC_MINT, ctx.usdcVault);
+  const aToB = pool.info.tokenMintA.equals(USDC_MINT);
 
   return (program.methods as any)
     .swapUsdcToSol(new BN(ctx.vaultId), minWsolOut, aToB)
@@ -707,7 +1093,7 @@ async function buildSwapUsdcToSolIx(
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
       signer,
-      ...whirlpoolCommonAccounts(pool, owners),
+      ...whirlpoolUsdcSolAccounts(pool, owners),
       wsolOwnerAccount: vaultWsolAta,
     } as never)
     .instruction();
@@ -738,12 +1124,15 @@ async function buildSwapUsdcToAssetIx(
   minAssetOut: BN,
 ): Promise<TransactionInstruction> {
   const asset = assetAt(ctx, assetIndex);
-  const assetAta = vaultAssetAta(ctx.vaultAuthority, asset.mint);
-  const pool = await fetchPoolCtx(connection, asset.poolAddress);
-  const owners = pool.info.tokenMintA.equals(ctx.baseMint)
-    ? { ownerA: ctx.usdcVault, ownerB: assetAta }
-    : { ownerA: assetAta, ownerB: ctx.usdcVault };
-  const aToB = pool.info.tokenMintA.equals(ctx.baseMint);
+  const assetAta = asset.vaultAssetAtaKey;
+  const { remaining, aToB } = await buildAssetSwapRemaining(
+    connection,
+    ctx,
+    asset,
+    USDC_MINT,
+    ctx.usdcVault,
+    assetAta,
+  );
 
   return (program.methods as any)
     .swapUsdcToAsset(new BN(ctx.vaultId), assetIndex, minAssetOut, aToB)
@@ -751,8 +1140,8 @@ async function buildSwapUsdcToAssetIx(
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
       signer,
-      ...whirlpoolCommonAccounts(pool, owners),
     } as never)
+    .remainingAccounts(remaining)
     .instruction();
 }
 
@@ -785,10 +1174,15 @@ async function buildSwapSolToAssetIx(
 ): Promise<TransactionInstruction> {
   const asset = assetAt(ctx, assetIndex);
   const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
-  const assetAta = vaultAssetAta(ctx.vaultAuthority, asset.mint);
-  const pool = await fetchPoolCtx(connection, asset.poolAddress);
-  const owners = ownerAccountsFor(pool, vaultWsolAta, asset.mint, assetAta);
-  const aToB = pool.info.tokenMintA.equals(WSOL_MINT);
+  const assetAta = asset.vaultAssetAtaKey;
+  const { remaining, aToB } = await buildAssetSwapRemaining(
+    connection,
+    ctx,
+    asset,
+    WSOL_MINT,
+    vaultWsolAta,
+    assetAta,
+  );
 
   return (program.methods as any)
     .swapSolToAsset(new BN(ctx.vaultId), assetIndex, minAssetOut, aToB)
@@ -796,8 +1190,8 @@ async function buildSwapSolToAssetIx(
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
       signer,
-      ...whirlpoolCommonAccounts(pool, owners),
     } as never)
+    .remainingAccounts(remaining)
     .instruction();
 }
 
@@ -830,10 +1224,15 @@ async function buildSwapAssetToSolIx(
 ): Promise<TransactionInstruction> {
   const asset = assetAt(ctx, assetIndex);
   const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
-  const assetAta = vaultAssetAta(ctx.vaultAuthority, asset.mint);
-  const pool = await fetchPoolCtx(connection, asset.poolAddress);
-  const owners = ownerAccountsFor(pool, vaultWsolAta, asset.mint, assetAta);
-  const aToB = pool.info.tokenMintA.equals(asset.mint);
+  const assetAta = asset.vaultAssetAtaKey;
+  const { remaining, aToB } = await buildAssetSwapRemaining(
+    connection,
+    ctx,
+    asset,
+    asset.mint,
+    assetAta,
+    vaultWsolAta,
+  );
 
   return (program.methods as any)
     .swapAssetToSol(new BN(ctx.vaultId), assetIndex, minWsolOut, aToB)
@@ -842,8 +1241,8 @@ async function buildSwapAssetToSolIx(
       vaultAuthority: ctx.vaultAuthority,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       user,
-      ...whirlpoolCommonAccounts(pool, owners),
     } as never)
+    .remainingAccounts(remaining)
     .instruction();
 }
 
@@ -876,7 +1275,7 @@ async function buildSwapSolToUsdcIx(
 ): Promise<TransactionInstruction> {
   const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
   const pool = await fetchPoolCtx(connection, requireUsdcSolPool(ctx));
-  const owners = ownerAccountsFor(pool, vaultWsolAta, ctx.baseMint, ctx.usdcVault);
+  const owners = ownerAccountsFor(pool, vaultWsolAta, USDC_MINT, ctx.usdcVault);
   const aToB = pool.info.tokenMintA.equals(WSOL_MINT);
 
   return (program.methods as any)
@@ -887,7 +1286,7 @@ async function buildSwapSolToUsdcIx(
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       usdcVault: ctx.usdcVault,
       user,
-      ...whirlpoolCommonAccounts(pool, owners),
+      ...whirlpoolUsdcSolAccounts(pool, owners),
     } as never)
     .instruction();
 }
@@ -922,12 +1321,15 @@ async function buildSwapAssetToUsdcIx(
   minUsdcOut: BN,
 ): Promise<TransactionInstruction> {
   const asset = assetAt(ctx, assetIndex);
-  const assetAta = vaultAssetAta(ctx.vaultAuthority, asset.mint);
-  const pool = await fetchPoolCtx(connection, asset.poolAddress);
-  const owners = pool.info.tokenMintA.equals(asset.mint)
-    ? { ownerA: assetAta, ownerB: ctx.usdcVault }
-    : { ownerA: ctx.usdcVault, ownerB: assetAta };
-  const aToB = pool.info.tokenMintA.equals(asset.mint);
+  const assetAta = asset.vaultAssetAtaKey;
+  const { remaining, aToB } = await buildAssetSwapRemaining(
+    connection,
+    ctx,
+    asset,
+    asset.mint,
+    assetAta,
+    ctx.usdcVault,
+  );
 
   return (program.methods as any)
     .swapAssetToUsdc(new BN(ctx.vaultId), assetIndex, minUsdcOut, aToB)
@@ -937,8 +1339,8 @@ async function buildSwapAssetToUsdcIx(
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       usdcVault: ctx.usdcVault,
       user,
-      ...whirlpoolCommonAccounts(pool, owners),
     } as never)
+    .remainingAccounts(remaining)
     .instruction();
 }
 
@@ -980,15 +1382,30 @@ async function resolveVaultAlt(
 
 /** Idempotent creates for the vault-authority ATAs the swap legs write to. */
 function ensureVaultAssetAtaIxs(payer: PublicKey, ctx: VaultChainCtx): TransactionInstruction[] {
-  const mints = ctx.assets.map((a) => a.mint);
-  if (ctx.assets.some((a) => a.route === 'ViaSol') && !mints.some((m) => m.equals(WSOL_MINT))) {
-    mints.push(WSOL_MINT);
-  }
-  return mints.map((mint) =>
+  const ixs = ctx.assets.map((a) =>
     createAssociatedTokenAccountIdempotentInstruction(
-      payer, vaultAssetAta(ctx.vaultAuthority, mint), ctx.vaultAuthority, mint, TOKEN_PROGRAM_ID,
+      payer,
+      a.vaultAssetAtaKey,
+      ctx.vaultAuthority,
+      a.mint,
+      tokenProgramForTag(a.tokenProgramTag),
     ),
   );
+  if (
+    ctx.assets.some((a) => a.route === 'ViaSol') &&
+    !ctx.assets.some((a) => a.mint.equals(WSOL_MINT))
+  ) {
+    ixs.push(
+      createAssociatedTokenAccountIdempotentInstruction(
+        payer,
+        vaultAssetAta(ctx.vaultAuthority, WSOL_MINT),
+        ctx.vaultAuthority,
+        WSOL_MINT,
+        TOKEN_PROGRAM_ID,
+      ),
+    );
+  }
+  return ixs;
 }
 
 /**
@@ -1231,29 +1648,22 @@ export async function redeemAndClaim(
 
 export interface GlobalStateView {
   isEmergency: boolean;
-  depositDisable: boolean;
   totalVaults: string;
   treasuryAddr: string;
-  platformFeeBps: string;
-  numEligibleBaseMints: number;
-  eligibleBaseMints: string[];
+  twapKeeper: string;
+  totalAssets: string;
 }
 
 export async function getGlobalState(connection: Connection): Promise<GlobalStateView> {
   const program = createProgram(createDummyWallet(), connection);
   const pda = deriveGlobalStatePda();
   const gs = await (program.account as any).globalState.fetch(pda);
-  const eligibleBaseMints = (gs.eligibleBaseMints as PublicKey[])
-    .slice(0, gs.numEligibleBaseMints)
-    .map((m) => m.toBase58());
   return {
     isEmergency: gs.isEmergency,
-    depositDisable: gs.depositDisable,
     totalVaults: gs.totalVaults.toString(),
     treasuryAddr: (gs.treasuryAddr as PublicKey).toBase58(),
-    platformFeeBps: gs.platformFeeBps.toString(),
-    numEligibleBaseMints: gs.numEligibleBaseMints,
-    eligibleBaseMints,
+    twapKeeper: (gs.twapKeeper as PublicKey).toBase58(),
+    totalAssets: gs.totalAssets.toString(),
   };
 }
 
@@ -1266,35 +1676,41 @@ export interface VaultStateView {
   totalUsdcValue: string;
   totalPendingUsdc: string;
   totalPendingSol: string;
-  performanceFeeBps: number;
-  redeemCooldownSecs: string;
+  depositFeeBps: number;
+  redeemFeeBps: number;
   athSharePrice: string;
   numAssets: number;
   paused: boolean;
+  adminLocked: boolean;
+  usdcSolPool: string | null;
 }
 
 export async function getVaultState(
   connection: Connection,
   vaultId: number = DEFAULT_VAULT_ID,
 ): Promise<VaultStateView> {
+  const ctx = await fetchVaultCtx(connection, vaultId);
   const program = createProgram(createDummyWallet(), connection);
-  const { vaultPda } = deriveVaultPdas(vaultId);
-  const vault = await (program.account as any).vault.fetch(vaultPda);
+  const vault = await (program.account as any).vault.fetch(ctx.vaultPda);
+  const pausedRaw = vault.paused as number | boolean;
+  const adminLockedRaw = vault.adminLocked as number | boolean;
 
   return {
-    address: vaultPda.toBase58(),
+    address: ctx.vaultPda.toBase58(),
     vaultId: vault.vaultId.toString(),
-    baseMint: (vault.baseMint as PublicKey).toBase58(),
+    baseMint: USDC_MINT.toBase58(),
     feeRecipient: vault.feeRecipient.toBase58(),
     totalShares: vault.totalShares.toString(),
     totalUsdcValue: vault.totalUsdcValue.toString(),
     totalPendingUsdc: vault.totalPendingUsdc.toString(),
     totalPendingSol: vault.totalPendingSol.toString(),
-    performanceFeeBps: vault.performanceFeeBps,
-    redeemCooldownSecs: vault.redeemCooldownSecs.toString(),
+    depositFeeBps: vault.depositFeeBps,
+    redeemFeeBps: vault.redeemFeeBps,
     athSharePrice: vault.athSharePrice.toString(),
     numAssets: vault.numAssets,
-    paused: vault.paused,
+    paused: typeof pausedRaw === 'boolean' ? pausedRaw : pausedRaw !== 0,
+    adminLocked: typeof adminLockedRaw === 'boolean' ? adminLockedRaw : adminLockedRaw !== 0,
+    usdcSolPool: ctx.usdcSolPool?.toBase58() ?? null,
   };
 }
 
@@ -1314,7 +1730,7 @@ export async function getTotalNavView(
   const result = await (program.methods as any)
     .getTotalNavView(new BN(vaultId))
     .accounts({ vault: ctx.vaultPda } as never)
-    .remainingAccounts(navRemainingAccounts(ctx))
+    .remainingAccounts(await navRemainingAccounts(connection, ctx))
     .view();
 
   return {
@@ -1342,7 +1758,7 @@ export async function previewDeposit(
   const result = await (program.methods as any)
     .previewDeposit(new BN(vaultId), usdcAmount)
     .accounts({ globalState: deriveGlobalStatePda(), vault: ctx.vaultPda } as never)
-    .remainingAccounts(navRemainingAccounts(ctx))
+    .remainingAccounts(await navRemainingAccounts(connection, ctx))
     .view();
 
   return {
@@ -1371,7 +1787,7 @@ export async function previewRedeem(
   const result = await (program.methods as any)
     .previewRedeem(new BN(vaultId), shares)
     .accounts({ globalState: deriveGlobalStatePda(), vault: ctx.vaultPda } as never)
-    .remainingAccounts(navRemainingAccounts(ctx))
+    .remainingAccounts(await navRemainingAccounts(connection, ctx))
     .view();
 
   return {
@@ -1558,7 +1974,7 @@ export async function getVaultAssetBalances(
   vaultId: number = DEFAULT_VAULT_ID,
 ): Promise<VaultAssetBalance[]> {
   const ctx = await fetchVaultCtx(connection, vaultId);
-  const atas = ctx.assets.map((a) => vaultAssetAta(ctx.vaultAuthority, a.mint));
+  const atas = ctx.assets.map((a) => a.vaultAssetAtaKey);
   const infos = await connection.getMultipleAccountsInfo(atas);
 
   return ctx.assets.map((asset, i) => {
@@ -1566,7 +1982,7 @@ export async function getVaultAssetBalances(
     const info = infos[i];
     if (info) {
       try {
-        raw = unpackAccount(atas[i], info, TOKEN_PROGRAM_ID).amount;
+        raw = unpackAccount(atas[i], info, tokenProgramForTag(asset.tokenProgramTag)).amount;
       } catch {
         raw = 0n;
       }

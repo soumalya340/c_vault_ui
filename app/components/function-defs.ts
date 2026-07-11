@@ -1,4 +1,4 @@
-import { ADMIN_PUBKEY, USDC_MINT } from '@/lib/cvault';
+import { ADMIN_PUBKEY } from '@/lib/cvault';
 
 export type SectionId = 'view' | 'vaults' | 'vault-ops' | 'admin';
 
@@ -33,7 +33,8 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     id: 'view_global_state',
     number: '01',
     title: 'Global state',
-    description: 'Read program-wide flags: emergency, deposit disable, treasury, platform fee, vault count.',
+    description:
+      'Read program-wide flags: emergency, treasury, TWAP keeper, total vaults, total listed assets.',
     fields: [],
     submitLabel: 'Fetch global state',
   },
@@ -41,7 +42,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     id: 'view_vault_state',
     number: '02',
     title: 'Vault state',
-    description: 'Read a vault account: shares, TVL, pending balances, fees, cooldown, asset count.',
+    description: 'Read a vault account: shares, TVL, pending balances, deposit/redeem fees, asset count.',
     fields: [VAULT_ID_FIELD],
     submitLabel: 'Fetch vault',
   },
@@ -49,7 +50,8 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     id: 'view_nav',
     number: '03',
     title: 'Live NAV and share price',
-    description: 'Calls get_total_nav_view. Asset accounts and price feeds are derived from the vault on-chain.',
+    description:
+      'Calls get_total_nav_view. Asset ATAs and price sources (Pyth or DEX pool) are derived from the vault on-chain.',
     fields: [VAULT_ID_FIELD],
     submitLabel: 'Get live NAV',
   },
@@ -57,10 +59,10 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     id: 'preview_deposit',
     number: '04',
     title: 'Preview deposit',
-    description: 'Estimate shares minted for a base-token amount at current NAV.',
+    description: 'Estimate shares minted for a USDC amount at current NAV.',
     fields: [
       VAULT_ID_FIELD,
-      { name: 'usdc_amount', label: 'Amount (raw base units)', type: 'number', placeholder: '1000000000' },
+      { name: 'usdc_amount', label: 'Amount (raw USDC units)', type: 'number', placeholder: '1000000' },
     ],
     submitLabel: 'Preview deposit',
   },
@@ -68,7 +70,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     id: 'preview_redeem',
     number: '05',
     title: 'Preview redeem',
-    description: 'Estimate per-asset amounts and base-token value for burning shares now.',
+    description: 'Estimate per-asset amounts and USDC value for burning shares now.',
     fields: [
       VAULT_ID_FIELD,
       { name: 'shares', label: 'Shares to burn', type: 'number', placeholder: '1000' },
@@ -100,7 +102,8 @@ export const VAULT_OPS_FUNCTIONS: FunctionDef[] = [
     id: 'set_paused',
     number: '02',
     title: 'Set vault paused',
-    description: 'Pause or unpause deposits for a vault. Withdrawals always remain open.',
+    description:
+      'Vault-manager-only: pause or unpause deposits for a vault. Withdrawals always remain open.',
     fields: [
       VAULT_ID_FIELD,
       {
@@ -116,34 +119,35 @@ export const VAULT_OPS_FUNCTIONS: FunctionDef[] = [
     submitLabel: 'Update pause',
   },
   {
-    id: 'resume',
-    number: '03',
-    title: 'Resume vault',
-    description: 'Clear vault-level pause and reset the rolling high-price window.',
-    fields: [VAULT_ID_FIELD],
-    submitLabel: 'Resume vault',
-  },
-  {
-    id: 'set_redeem_cooldown',
-    number: '04',
-    title: 'Set redeem cooldown',
-    description: 'Change redeem cooldown in seconds (0–604800). Applies to future redeems only.',
-    fields: [
-      VAULT_ID_FIELD,
-      { name: 'cooldown_secs', label: 'Cooldown seconds', type: 'number', placeholder: '86400' },
-    ],
-    submitLabel: 'Update cooldown',
-  },
-  {
     id: 'set_fee_recipient',
-    number: '05',
+    number: '03',
     title: 'Set fee recipient',
-    description: 'Update the performance fee recipient for a vault.',
+    description: 'Vault-manager-only: update the fee recipient for a vault.',
     fields: [
       VAULT_ID_FIELD,
       { name: 'fee_recipient', label: 'Fee recipient', placeholder: ADMIN_PUBKEY.toBase58() },
     ],
     submitLabel: 'Update recipient',
+  },
+  {
+    id: 'set_vault_emergency_lock',
+    number: '04',
+    title: 'Set vault emergency lock',
+    description:
+      'Admin-only: lock or unlock deposits for one specific vault, independent of the vault manager’s own pause. Redemptions always remain open.',
+    fields: [
+      VAULT_ID_FIELD,
+      {
+        name: 'locked',
+        label: 'Locked',
+        type: 'select',
+        options: [
+          { label: 'true', value: 'true' },
+          { label: 'false', value: 'false' },
+        ],
+      },
+    ],
+    submitLabel: 'Update lock',
   },
 ];
 
@@ -152,29 +156,14 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
     id: 'init_global_state',
     number: '01',
     title: 'Initialize global state',
-    description: 'One-time program setup. Requires admin authority.',
-    fields: [{ name: 'platform_fee_bps', label: 'Platform fee (BPS)', type: 'number', placeholder: '500' }],
+    description:
+      'One-time program setup. Quote mint is fixed to mainnet USDC. Arg-less — treasury defaults to the admin signer.',
+    fields: [],
     submitLabel: 'Initialize',
   },
   {
-    id: 'add_eligible_base_mint',
-    number: '02',
-    title: 'Add eligible base mint',
-    description: 'Allow a stable mint for vault base deposits.',
-    fields: [{ name: 'mint', label: 'Mint address', placeholder: USDC_MINT.toBase58() }],
-    submitLabel: 'Add mint',
-  },
-  {
-    id: 'remove_eligible_base_mint',
-    number: '03',
-    title: 'Remove eligible base mint',
-    description: 'Remove a mint from the eligible base allowlist.',
-    fields: [{ name: 'mint', label: 'Mint address', placeholder: USDC_MINT.toBase58() }],
-    submitLabel: 'Remove mint',
-  },
-  {
     id: 'set_emergency',
-    number: '04',
+    number: '02',
     title: 'Set emergency',
     description: 'Program-wide hard stop. Blocks new deposits until cleared.',
     fields: [
@@ -191,14 +180,96 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
     submitLabel: 'Update emergency',
   },
   {
-    id: 'set_deposit_disable',
+    id: 'update_treasury_addr',
+    number: '03',
+    title: 'Update treasury',
+    description: 'Change the treasury address that receives platform fees.',
+    fields: [{ name: 'treasury', label: 'Treasury address', placeholder: ADMIN_PUBKEY.toBase58() }],
+    submitLabel: 'Update treasury',
+  },
+  {
+    id: 'set_twap_keeper',
+    number: '04',
+    title: 'Set TWAP keeper',
+    description: 'Wallet allowed to call update_dex_twap (Pubkey::default clears).',
+    fields: [{ name: 'keeper', label: 'Keeper address', placeholder: ADMIN_PUBKEY.toBase58() }],
+    submitLabel: 'Set keeper',
+  },
+  {
+    id: 'create_asset',
     number: '05',
-    title: 'Set deposit disable',
-    description: 'Disable or re-enable deposits program-wide.',
+    title: 'Create asset',
+    description:
+      'List a new global asset. Runs pool/TVL/ownership validation once at listing time; vaults reference it by id afterward.',
     fields: [
+      { name: 'mint', label: 'Mint', wide: true },
+      { name: 'pool_address', label: 'Swap pool address', wide: true },
       {
-        name: 'disabled',
-        label: 'Deposits disabled',
+        name: 'pyth_feed_id',
+        label: 'Pyth feed ID (64-char hex, blank = zero feed)',
+        placeholder: 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43',
+        wide: true,
+      },
+      {
+        name: 'route',
+        label: 'Route',
+        type: 'select',
+        options: [
+          { label: 'ViaSol', value: 'viaSol' },
+          { label: 'DirectUsdc', value: 'directUsdc' },
+        ],
+      },
+      {
+        name: 'price_source_tag',
+        label: 'Price source',
+        type: 'select',
+        options: [
+          { label: 'Pyth', value: '0' },
+          { label: 'Dex', value: '1' },
+        ],
+      },
+      {
+        name: 'price_dex_kind',
+        label: 'Price DEX kind (ignored for Pyth)',
+        type: 'select',
+        options: [
+          { label: 'Whirlpool', value: '0' },
+          { label: 'DammV2', value: '1' },
+        ],
+      },
+      { name: 'price_pool_address', label: 'Price pool address (DEX only)', wide: true },
+      {
+        name: 'swap_kind',
+        label: 'Swap venue',
+        type: 'select',
+        options: [
+          { label: 'Whirlpool', value: 'whirlpool' },
+          { label: 'DammV2', value: 'dammV2' },
+        ],
+      },
+      {
+        name: 'token_program_tag',
+        label: 'Token program',
+        type: 'select',
+        options: [
+          { label: 'SPL Token', value: '0' },
+          { label: 'Token-2022', value: '1' },
+        ],
+      },
+    ],
+    submitLabel: 'Create asset',
+  },
+  {
+    id: 'set_asset_active',
+    number: '06',
+    title: 'Set asset active',
+    description:
+      'Flip an asset’s active flag. Inactive assets are rejected by new create_etf calls only — vaults already referencing the asset are unaffected.',
+    fields: [
+      { name: 'asset_id', label: 'Asset ID', type: 'number', placeholder: '0' },
+      {
+        name: 'active',
+        label: 'Active',
         type: 'select',
         options: [
           { label: 'true', value: 'true' },
@@ -206,30 +277,20 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
         ],
       },
     ],
-    submitLabel: 'Update deposit flag',
-  },
-  {
-    id: 'update_platform_fee_bps',
-    number: '06',
-    title: 'Update platform fee',
-    description: 'Change the program-wide platform fee in basis points.',
-    fields: [{ name: 'platform_fee_bps', label: 'Platform fee (BPS)', type: 'number', placeholder: '500' }],
-    submitLabel: 'Update platform fee',
-  },
-  {
-    id: 'update_treasury_addr',
-    number: '07',
-    title: 'Update treasury',
-    description: 'Change the treasury address that receives platform fees.',
-    fields: [{ name: 'treasury', label: 'Treasury address', placeholder: ADMIN_PUBKEY.toBase58() }],
-    submitLabel: 'Update treasury',
+    submitLabel: 'Update asset flag',
   },
 ];
 
 export const REQUIRES_WALLET = new Set([
-  'set_paused', 'resume', 'set_redeem_cooldown', 'set_fee_recipient',
-  'init_global_state', 'add_eligible_base_mint', 'remove_eligible_base_mint',
-  'set_emergency', 'set_deposit_disable', 'update_platform_fee_bps', 'update_treasury_addr',
+  'set_paused',
+  'set_fee_recipient',
+  'set_vault_emergency_lock',
+  'init_global_state',
+  'set_emergency',
+  'update_treasury_addr',
+  'set_twap_keeper',
+  'create_asset',
+  'set_asset_active',
 ]);
 
 export const SECTION_STYLE: Record<SectionId, { accent: string; glow: string }> = {
