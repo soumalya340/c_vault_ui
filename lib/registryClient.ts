@@ -14,7 +14,7 @@ export interface TokenOption {
   uri: string;
 }
 
-/** One row from `PreApprovedTokenRegistryDevnet` — mirrors the on-chain AssetInfo shape. */
+/** One row from `pre_approved_token_registry` — mirrors the on-chain AssetInfo shape. */
 export interface AssetRegistryEntry {
   asset_id: string;
   mint: string;
@@ -30,15 +30,7 @@ export interface AssetRegistryEntry {
   active: boolean;
 }
 
-export interface VaultAssetRecord {
-  mint: string;
-  pool_address: string;
-  allocation_bps: number;
-  decimals: number;
-  route: 'ViaSol' | 'DirectUsdc';
-  pyth_feed_id: string;
-}
-
+/** Off-chain vault row — matches live Supabase `vaults` (docs/Supabase_Info.md). */
 export interface VaultRecord {
   vault_address: string;
   vault_id: number;
@@ -46,20 +38,25 @@ export interface VaultRecord {
   vault_authority: string;
   shares_mint: string;
   usdc_vault: string;
-  base_mint: string;
   name: string;
   symbol: string;
   uri: string;
   fee_recipient: string;
-  performance_fee_bps: number;
   fund_type: 'dynamic' | 'fixed';
   max_shares: string | null;
-  usdc_sol_pool: string | null;
-  assets: VaultAssetRecord[];
   creator: string;
   tx_signature: string;
   /** ALT created alongside the vault; bundles deposit/redeem swap accounts. */
   alt_address: string | null;
+  paused: number;
+  admin_locked: number;
+  vault_manager: string;
+  deposit_fee_bps: number;
+  redeem_fee_bps: number;
+  total_usdc_value: string;
+  asset_ids: number[];
+  asset_allocation_bps: number[];
+  num_assets: number;
   created_at?: string;
 }
 
@@ -117,18 +114,20 @@ export async function fetchTokens(): Promise<TokenOption[]> {
   return tokens;
 }
 
-/** Pre-approved assets for the Create ETF token picker (devnet only). */
-export async function fetchAssetRegistry(): Promise<AssetRegistryEntry[]> {
-  const res = await fetch('/api/asset-registry');
+/** Pre-approved assets for the Create ETF token picker, scoped to `network`. */
+export async function fetchAssetRegistry(network: string): Promise<AssetRegistryEntry[]> {
+  const res = await fetch(`/api/asset-registry?network=${encodeURIComponent(network)}`);
   const { assets } = await jsonOrThrow<{ assets: AssetRegistryEntry[] }>(res);
   return assets;
 }
 
 /**
- * Mirror a just-listed `create_asset` call into `PreApprovedTokenRegistryDevnet`.
- * Throws `FieldError` on `mint` when that mint is already listed.
+ * Mirror a just-listed `create_asset` call into `pre_approved_token_registry`.
+ * Throws `FieldError` on `mint` when that mint is already listed on this network.
  */
-export async function saveAssetRegistryEntry(row: AssetRegistryEntry): Promise<void> {
+export async function saveAssetRegistryEntry(
+  row: AssetRegistryEntry & { network: string },
+): Promise<void> {
   const res = await fetch('/api/asset-registry', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

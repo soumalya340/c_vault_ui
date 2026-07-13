@@ -35,6 +35,7 @@ import {
   deriveUserInfoPda,
   deriveRedeemStatePda,
 } from './pda';
+import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
 import { fetchPoolCtx, ownerAccountsFor, type PoolCtx } from './whirlpool';
 import { fetchDammPoolCtx, type DammPoolCtx } from './damm';
 import {
@@ -43,6 +44,9 @@ import {
   DEFAULT_VAULT_ID,
   USDC_MINT,
   WSOL_MINT,
+  WSOL_ASSET_ID,
+  SOL_USD_PYTH_FEED_ID,
+  SOL_USD_PYTH_FEED_ID_HEX,
   WHIRLPOOL_PROGRAM_ID,
   PYTH_PUSH_ORACLE_PROGRAM_ID,
   MEMO_PROGRAM_ID,
@@ -62,6 +66,9 @@ export {
   DEFAULT_VAULT_ID,
   USDC_MINT,
   WSOL_MINT,
+  WSOL_ASSET_ID,
+  SOL_USD_PYTH_FEED_ID,
+  SOL_USD_PYTH_FEED_ID_HEX,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
   TOKEN_PROGRAM_TAG_SPL,
@@ -176,6 +183,67 @@ function parseRoute(raw: RawAssetInfo['route']): AssetRoute {
   return raw.viaSol ? 'ViaSol' : 'DirectUsdc';
 }
 
+/** Anchor/RPC "account missing" — wording varies by path and Anchor version. */
+function isAccountMissingError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return (
+    /Account does not exist/i.test(msg) ||
+    /has no data/i.test(msg) ||
+    /AccountNotFound/i.test(msg) ||
+    /could not find account/i.test(msg) ||
+    /AccountNotInitialized/i.test(msg)
+  );
+}
+
+/** Valid vault ids are `0 .. totalVaults-1` (0-based, sequential). */
+async function formatVaultMissingError(
+  connection: Connection,
+  vaultId: number,
+  vaultPda: PublicKey,
+): Promise<Error> {
+  let rangeHint = 'Vault ids are 0-based (first vault is 0). Check Global state → totalVaults.';
+  try {
+    const gs = await getGlobalState(connection);
+    const total = Number(gs.totalVaults);
+    if (!Number.isFinite(total) || total <= 0) {
+      rangeHint = 'No vaults exist yet (totalVaults = 0). Create one from Vault Ops.';
+    } else if (vaultId >= total) {
+      rangeHint = `Only vault ids 0–${total - 1} exist (totalVaults = ${total}). You entered ${vaultId}.`;
+    } else {
+      rangeHint = `totalVaults = ${total}, so valid ids are 0–${total - 1}. PDA ${vaultPda.toBase58()} is empty.`;
+    }
+  } catch {
+    // Global state unread — keep generic hint.
+  }
+  return new Error(`Vault ${vaultId} does not exist on-chain. ${rangeHint}`);
+}
+
+/** Valid asset ids are `0 .. totalAssets-1` (0-based; id 0 is genesis wSOL). */
+async function formatAssetMissingError(connection: Connection, assetId: number): Promise<Error> {
+  let rangeHint = 'Asset ids are 0-based (genesis wSOL is 0). Check Global state → totalAssets.';
+  try {
+    const gs = await getGlobalState(connection);
+    const total = Number(gs.totalAssets);
+    if (!Number.isFinite(total) || total <= 0) {
+      rangeHint = 'No assets listed yet (totalAssets = 0). Run Initialize global state / Create asset.';
+    } else if (assetId >= total) {
+      rangeHint = `Only asset ids 0–${total - 1} are listed (totalAssets = ${total}). You entered ${assetId}.`;
+    } else {
+      rangeHint = `totalAssets = ${total}, so valid ids are 0–${total - 1}, but AssetInfo ${assetId} has no data.`;
+    }
+  } catch {
+    // Global state unread — keep generic hint.
+  }
+  return new Error(`AssetInfo ${assetId} does not exist on-chain. ${rangeHint}`);
+}
+
+/**
+ * Load vault PDAs + asset basket.
+ *
+ * Vault account bytes are decoded with a hand-rolled `repr(C)` reader
+ * (`lib/vaultAccount.ts`) — Anchor's zero-copy coder mis-aligns this layout
+ * and invents wrong `asset_ids` (e.g. id 1 when only id 0 is stored).
+ */
 export async function fetchVaultCtx(
   connection: Connection,
   vaultId: number,
@@ -183,27 +251,51 @@ export async function fetchVaultCtx(
 ): Promise<VaultChainCtx> {
   const program = createProgram(createDummyWallet(), connection);
   const { vaultPda, vaultAuthority, sharesMint, usdcVault } = deriveVaultPdas(vaultId, network);
-  const vault = await (program.account as any).vault.fetch(vaultPda);
+
+  let vault: DecodedVault;
+  try {
+    const decoded = await fetchDecodedVault(connection, vaultPda);
+    if (!decoded) {
+      throw await formatVaultMissingError(connection, vaultId, vaultPda);
+    }
+    vault = decoded;
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Vault ')) throw err;
+    if (isAccountMissingError(err)) {
+      throw await formatVaultMissingError(connection, vaultId, vaultPda);
+    }
+    throw err;
+  }
 
   // v2: the vault stores only asset ids + allocations; every other asset
   // attribute lives on the global admin-listed AssetInfo PDAs.
-  const numAssets = vault.numAssets as number;
-  const assetIds = (vault.assetIds as BN[])
-    .slice(0, numAssets)
-    .map((id) => id.toNumber());
-  const allocationBps = (vault.assetAllocationBps as number[]).slice(0, numAssets);
-  const ataAddresses = (vault.assetAtaAddress as PublicKey[]).slice(0, numAssets);
+  const numAssets = vault.numAssets;
+  const assetIds = vault.assetIds.slice(0, numAssets).map((id) => id.toNumber());
+  const allocationBps = vault.assetAllocationBps.slice(0, numAssets);
+  const ataAddresses = vault.assetAtaAddress.slice(0, numAssets);
 
   const assetInfoPdas = assetIds.map((id) => deriveAssetInfoPda(id));
   const infos: (RawAssetInfo | null)[] = await (program.account as any).assetInfo.fetchMultiple(
     assetInfoPdas,
   );
 
-  const assets: VaultChainAsset[] = infos.map((info, i) => {
+  const assets: VaultChainAsset[] = [];
+  for (let i = 0; i < infos.length; i++) {
+    const info = infos[i];
     if (!info) {
-      throw new Error(`AssetInfo ${assetIds[i]} not found for vault ${vaultId}.`);
+      let totalHint = '';
+      try {
+        const gs = await getGlobalState(connection);
+        totalHint = ` Global totalAssets = ${gs.totalAssets} (valid ids 0–${Math.max(0, Number(gs.totalAssets) - 1)}).`;
+      } catch {
+        // ignore
+      }
+      throw new Error(
+        `Vault ${vaultId} references asset id ${assetIds[i]}, but that AssetInfo PDA is missing on-chain.${totalHint} ` +
+          `List the asset (Admin → Create asset) or create a vault that only uses listed asset ids.`,
+      );
     }
-    return {
+    assets.push({
       assetId: assetIds[i],
       assetInfoPda: assetInfoPdas[i],
       mint: info.mint,
@@ -218,16 +310,16 @@ export async function fetchVaultCtx(
       swapKind: parseSwapKind(info.swapKind),
       tokenProgramTag: info.tokenProgramTag,
       vaultAssetAtaKey:
-        ataAddresses[i] ?? vaultAssetAta(vaultAuthority, info.mint, info.tokenProgramTag),
-    };
-  });
+        ataAddresses[i] && !ataAddresses[i].equals(PublicKey.default)
+          ? ataAddresses[i]
+          : vaultAssetAta(vaultAuthority, info.mint, info.tokenProgramTag),
+    });
+  }
 
-  const usdcSolEnabled = (vault.usdcSolPoolEnabled as number | boolean) ?? 0;
-  const usdcSolPoolPk = vault.usdcSolPool as PublicKey | undefined;
-  const usdcSolPool =
-    usdcSolEnabled && usdcSolPoolPk && !usdcSolPoolPk.equals(PublicKey.default)
-      ? usdcSolPoolPk
-      : null;
+  // USDC↔wSOL pool is no longer stored on the Vault account — use the
+  // canonical Orca pool for this cluster when any basket asset routes ViaSol.
+  const needsUsdcSol = assets.some((a) => a.route === 'ViaSol');
+  const usdcSolPool = needsUsdcSol ? NETWORK_CONSTANTS[network].wsolUsdcPool : null;
 
   return {
     vaultId,
@@ -237,7 +329,7 @@ export async function fetchVaultCtx(
     usdcVault,
     baseMint: NETWORK_CONSTANTS[network].usdcMint,
     usdcSolPool,
-    feeRecipient: vault.feeRecipient as PublicKey,
+    feeRecipient: vault.feeRecipient,
     numAssets,
     assets,
   };
@@ -287,7 +379,15 @@ export async function getAssetState(
 ): Promise<AssetInfoView> {
   const program = createProgram(createDummyWallet(), connection);
   const assetInfoPda = deriveAssetInfoPda(assetId);
-  const account: RawAssetInfo = await (program.account as any).assetInfo.fetch(assetInfoPda);
+  let account: RawAssetInfo;
+  try {
+    account = await (program.account as any).assetInfo.fetch(assetInfoPda);
+  } catch (err) {
+    if (isAccountMissingError(err)) {
+      throw await formatAssetMissingError(connection, assetId);
+    }
+    throw err;
+  }
   return {
     assetId: account.assetId.toNumber(),
     mint: account.mint.toBase58(),
@@ -322,9 +422,12 @@ function assetInfoMetas(ctx: VaultChainCtx, writable = false): AccountMeta[] {
 }
 
 /**
- * Variable-stride remaining_accounts for deposit / NAV / preview:
+ * Variable-stride remaining_accounts for deposit / NAV / preview (matches
+ * `sum_nav` / `dex_price_account_stride` on-chain):
  * `[asset_info_0..N, asset_ata_0..N, then per asset:
- *   pyth feed | (dex pool [+ whirlpool vaults])]`.
+ *   Pyth: feed |
+ *   DEX DirectUsdc: pool [+ whirlpool vault_a, vault_b] |
+ *   DEX ViaSol:     pool [+ whirlpool vaults] + SOL/USD Pyth feed]`.
  */
 async function navRemainingAccounts(
   connection: Connection,
@@ -342,7 +445,11 @@ async function navRemainingAccounts(
         const pool = await fetchPoolCtx(connection, asset.pricePoolAddress);
         priceKeys.push(pool.info.tokenVaultA, pool.info.tokenVaultB);
       }
-      // DammV2: pool only
+      // DammV2: pool only — then ViaSol still needs SOL/USD for token×SOL→USD.
+      // Program: `token_usd = dex(token/SOL) × pyth(SOL/USD)` (calculate_nav.rs).
+      if (asset.route === 'ViaSol') {
+        priceKeys.push(pythFeedAccount(SOL_USD_PYTH_FEED_ID));
+      }
     } else {
       priceKeys.push(pythFeedAccount(asset.pythFeedId));
     }
@@ -399,19 +506,44 @@ function globalAdminAccounts(admin: PublicKey) {
   return { globalState: deriveGlobalStatePda(), admin } as Record<string, PublicKey>;
 }
 
-/** v2: no arguments — treasury defaults to the admin signer. */
+/**
+ * One-time bootstrap: creates `GlobalState` *and* the genesis wSOL AssetInfo
+ * (id `WSOL_ASSET_ID` == 0, permanently reserved) in a single instruction.
+ * Treasury defaults to the admin signer. Takes the same `CreateAssetParams`
+ * shape as `createAsset` — the program runs the identical listing validation
+ * on the genesis asset (see admin/init_global_state.rs).
+ */
 export async function initGlobalState(
   connection: Connection,
   wallet: AnchorWallet,
+  solAssetParams: CreateAssetParams,
   network: Network,
 ) {
   const program = createProgram(wallet, connection);
+  const remaining = await assetListingRemainingAccounts(connection, solAssetParams);
   return sendMethod(
     connection,
     wallet,
     (program.methods as any)
-      .initGlobalState()
-      .accounts({ authority: wallet.publicKey } as never),
+      .initGlobalState({
+        mint: solAssetParams.mint,
+        poolAddress: solAssetParams.poolAddress,
+        pythFeedId: solAssetParams.pythFeedId,
+        route: solAssetParams.route,
+        priceSourceTag: solAssetParams.priceSourceTag,
+        priceDexKind: solAssetParams.priceDexKind,
+        pricePoolAddress: solAssetParams.pricePoolAddress,
+        swapKind: solAssetParams.swapKind,
+        tokenProgramTag: solAssetParams.tokenProgramTag,
+      })
+      .accounts({
+        globalState: deriveGlobalStatePda(),
+        assetInfo: deriveAssetInfoPda(WSOL_ASSET_ID),
+        mint: solAssetParams.mint,
+        authority: wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      } as never)
+      .remainingAccounts(remaining),
     network,
   );
 }
@@ -507,10 +639,44 @@ export interface CreateAssetParams {
 }
 
 /**
+ * remaining_accounts for the shared asset-listing validation the program runs
+ * in `init_asset_info_fields` (asset_ops.rs) — used by both `create_asset`
+ * and `init_global_state`. DEX-priced assets pass the price pool, plus the
+ * Whirlpool token vaults A/B when the price venue is a Whirlpool, plus the
+ * SOL/USD Pyth feed when the route is ViaSol (the token/SOL DEX price is
+ * converted to USD via Pyth). Pyth-priced assets pass nothing.
+ */
+async function assetListingRemainingAccounts(
+  connection: Connection,
+  params: CreateAssetParams,
+): Promise<AccountMeta[]> {
+  if (params.priceSourceTag !== PRICE_SOURCE_DEX) return [];
+  const remaining: AccountMeta[] = [
+    { pubkey: params.pricePoolAddress, isSigner: false, isWritable: false },
+  ];
+  if (params.priceDexKind !== 1) {
+    // DexKind::Whirlpool — vaults A/B follow the pool.
+    const pool = await fetchPoolCtx(connection, params.pricePoolAddress);
+    remaining.push(
+      { pubkey: pool.info.tokenVaultA, isSigner: false, isWritable: false },
+      { pubkey: pool.info.tokenVaultB, isSigner: false, isWritable: false },
+    );
+  }
+  if ('viaSol' in params.route) {
+    remaining.push({
+      pubkey: pythFeedAccount(SOL_USD_PYTH_FEED_ID),
+      isSigner: false,
+      isWritable: false,
+    });
+  }
+  return remaining;
+}
+
+/**
  * Admin-only: list a new global asset. `asset_id` is assigned from
  * `global_state.total_assets`, fetched here so the caller doesn't have to.
- * DEX-priced assets need the price pool (+ Whirlpool token vaults A/B) as
- * remaining_accounts, mirroring `create_etf`'s DEX remaining-accounts shape.
+ * DEX-priced assets need the price pool (+ Whirlpool token vaults A/B, + the
+ * SOL/USD Pyth feed on ViaSol routes) as remaining_accounts.
  */
 export async function createAsset(
   connection: Connection,
@@ -529,17 +695,7 @@ export async function createAsset(
     tokenProgramForTag(params.tokenProgramTag),
   );
 
-  const remaining: AccountMeta[] = [];
-  if (params.priceSourceTag === PRICE_SOURCE_DEX) {
-    remaining.push({ pubkey: params.pricePoolAddress, isSigner: false, isWritable: false });
-    if ('whirlpool' in params.swapKind) {
-      const pool = await fetchPoolCtx(connection, params.pricePoolAddress);
-      remaining.push(
-        { pubkey: pool.info.tokenVaultA, isSigner: false, isWritable: false },
-        { pubkey: pool.info.tokenVaultB, isSigner: false, isWritable: false },
-      );
-    }
-  }
+  const remaining = await assetListingRemainingAccounts(connection, params);
 
   const r = await sendMethod(
     connection,
@@ -669,7 +825,6 @@ export interface CreateEtfParams {
   feeRecipient: PublicKey | null;
   depositFeeBps: number;
   redeemFeeBps: number;
-  usdcSolPool: PublicKey | null;
   assets: AssetAllocation[];
   fundType: { fixed: Record<string, never> } | { dynamic: Record<string, never> };
   maxShares: BN | null;
@@ -717,11 +872,12 @@ export async function createEtf(
     isWritable: false,
   }));
 
+  // Matches on-chain InitializeParams — no usdc_sol_pool; ViaSol uses the
+  // cluster canonical USDC↔wSOL Whirlpool from NETWORK_CONSTANTS at swap time.
   const ixParams = {
     feeRecipient: params.feeRecipient,
     depositFeeBps: params.depositFeeBps,
     redeemFeeBps: params.redeemFeeBps,
-    usdcSolPool: params.usdcSolPool,
     assets: params.assets.map((a) => ({
       assetId: new BN(a.assetId),
       allocationBps: a.allocationBps,
@@ -811,7 +967,7 @@ async function buildDepositIxs(
       systemProgram: SystemProgram.programId,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     } as never)
-    .remainingAccounts(await navRemainingAccounts(connection, ctx))
+    .remainingAccounts(await navRemainingAccounts(connection, ctx, { assetInfoWritable: true }))
     .instruction();
 
   return [...ensureAtaIxs, depositIx];
@@ -1003,7 +1159,8 @@ function whirlpoolAssetRemaining(
     pool.tickArrays[2],
     pool.oracle,
   ];
-  // Mix of readonly / writable — mark vaults and owner ATAs writable.
+  // Mix of readonly / writable — mark vaults, owner ATAs, and oracle writable
+  // (matches `anchor_orca_swap_v2`'s CPI AccountMetas in whirlpool_cpi.rs).
   const writable = new Set([
     owners.ownerA.toBase58(),
     owners.ownerB.toBase58(),
@@ -1013,6 +1170,7 @@ function whirlpoolAssetRemaining(
     pool.tickArrays[0].toBase58(),
     pool.tickArrays[1].toBase58(),
     pool.tickArrays[2].toBase58(),
+    pool.oracle.toBase58(),
   ]);
   return keys.map((pubkey) => ({
     pubkey,
@@ -1114,15 +1272,20 @@ async function buildSwapUsdcToSolIx(
   const owners = ownerAccountsFor(pool, vaultWsolAta, ctx.baseMint, ctx.usdcVault);
   const aToB = pool.info.tokenMintA.equals(ctx.baseMint);
 
+  // Program requires remaining_accounts = [asset_info_0..N] ordered like
+  // Vault.asset_ids (route / ViaSol-slice math). sol_asset_info is a separate
+  // typed account (genesis wSOL) resolved by Anchor PDA seeds — not these.
   return (program.methods as any)
     .swapUsdcToSol(new BN(ctx.vaultId), minWsolOut, aToB)
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
+      solAssetInfo: deriveAssetInfoPda(WSOL_ASSET_ID),
       signer,
       ...whirlpoolUsdcSolAccounts(pool, owners),
       wsolOwnerAccount: vaultWsolAta,
     } as never)
+    .remainingAccounts(assetInfoMetas(ctx))
     .instruction();
 }
 
@@ -1166,6 +1329,7 @@ async function buildSwapUsdcToAssetIx(
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
+      assetInfo: asset.assetInfoPda,
       signer,
     } as never)
     .remainingAccounts(remaining)
@@ -1216,6 +1380,7 @@ async function buildSwapSolToAssetIx(
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
+      assetInfo: asset.assetInfoPda,
       signer,
     } as never)
     .remainingAccounts(remaining)
@@ -1266,6 +1431,7 @@ async function buildSwapAssetToSolIx(
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
+      assetInfo: asset.assetInfoPda,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       user,
     } as never)
@@ -1363,6 +1529,7 @@ async function buildSwapAssetToUsdcIx(
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
+      assetInfo: asset.assetInfoPda,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       usdcVault: ctx.usdcVault,
       user,
@@ -1505,7 +1672,10 @@ export async function deployPendingSwaps(
 ) {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const vault = await (program.account as any).vault.fetch(ctx.vaultPda);
+  const vault = await fetchDecodedVault(connection, ctx.vaultPda);
+  if (!vault) {
+    throw await formatVaultMissingError(connection, vaultId, ctx.vaultPda);
+  }
   const pendingUsdc = BigInt(vault.totalPendingUsdc.toString());
   const pendingSol = BigInt(vault.totalPendingSol.toString());
   if (pendingUsdc === 0n && pendingSol === 0n) {
@@ -1556,18 +1726,28 @@ export interface RedeemClaimResult {
   link: string;
 }
 
+export interface RedeemSwapResult {
+  /** 'requested' — shares just burned, cooldown running, no swaps run yet.
+   *  'swapped' — outflow legs ran; call `claim` next. */
+  phase: 'requested' | 'swapped';
+  unlockTime?: number;
+  signatures: string[];
+  link: string;
+}
+
 /**
- * The single "Redeem & Claim" action (Plan.md §8-9). Everything is checked
- * on-chain — no user rows exist anywhere off-chain:
+ * Phases 1-2 of redeem (Plan.md §8-9), without claim — pairs with the
+ * standalone `claim()` export so the UI can show "Redeem (swap)" and "Claim"
+ * as two separate actions instead of one combined button:
  *
  *  1. No RedeemState → verify the share balance, then `[approve, request_redeem]`.
  *  2. Cooldown still running → stop and report the unlock time.
  *  3. Unlocked → run the outflow legs (each ViaSol asset→wSOL leg is its own
  *     transaction so the received wSOL can be measured; the wSOL-native slot's
  *     amount is already known from RedeemState), then all →USDC legs in one
- *     ALT-compressed transaction, then `claim`.
+ *     ALT-compressed transaction. Does not call `claim`.
  */
-export async function redeemAndClaim(
+export async function redeemSwap(
   connection: Connection,
   wallet: AnchorWallet,
   vaultId: number,
@@ -1575,7 +1755,7 @@ export async function redeemAndClaim(
   altAddress: string | null | undefined,
   network: Network,
   onProgress?: ProgressFn,
-): Promise<RedeemClaimResult> {
+): Promise<RedeemSwapResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const lut = await resolveVaultAlt(connection, altAddress);
@@ -1630,7 +1810,7 @@ export async function redeemAndClaim(
     if (amountIn.isZero()) continue;
     const asset = assetAt(ctx, i);
 
-    if (asset.mint.equals(WSOL_MINT)) {
+    if (asset.mint.equals(WSOL_MINT) && asset.route === 'ViaSol') {
       usdcLegIxs.push(
         await buildSwapSolToUsdcIx(connection, program, ctx, i, amountIn, new BN(0), user),
       );
@@ -1659,15 +1839,39 @@ export async function redeemAndClaim(
     signatures.push(await sendV0(connection, wallet, usdcLegIxs, lut));
   }
 
-  // Phase 3 — claim (program re-checks unlock_time and pending_usdc > 0).
-  onProgress?.('Claiming payout…');
-  const claimIxs = await buildClaimIxs(connection, program, ctx, user);
-  signatures.push(await sendV0(connection, wallet, claimIxs, lut));
-
   return {
-    phase: 'claimed',
+    phase: 'swapped',
     signatures,
     link: solscanLink(signatures[signatures.length - 1], network),
+  };
+}
+
+/**
+ * The combined "Redeem & Claim" action (Plan.md §8-9) — kept for callers that
+ * still want one button. Runs `redeemSwap`'s phases 1-2, then `claim`, in a
+ * single call. Everything is checked on-chain — no user rows exist anywhere
+ * off-chain.
+ */
+export async function redeemAndClaim(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  shares: BN | null,
+  altAddress: string | null | undefined,
+  network: Network,
+  onProgress?: ProgressFn,
+): Promise<RedeemClaimResult> {
+  const swapResult = await redeemSwap(connection, wallet, vaultId, shares, altAddress, network, onProgress);
+  if (swapResult.phase === 'requested') {
+    return { phase: 'requested', unlockTime: swapResult.unlockTime, signatures: swapResult.signatures, link: swapResult.link };
+  }
+
+  onProgress?.('Claiming payout…');
+  const claimResult = await claim(connection, wallet, vaultId, network);
+  return {
+    phase: 'claimed',
+    signatures: [...swapResult.signatures, claimResult.tx],
+    link: claimResult.link,
   };
 }
 
@@ -1707,26 +1911,50 @@ export interface VaultStateView {
   redeemFeeBps: number;
   athSharePrice: string;
   numAssets: number;
+  /** Global asset ids in this vault's basket (may include ids whose AssetInfo is missing). */
+  assetIds: number[];
+  assetAllocationBps: number[];
   paused: boolean;
   adminLocked: boolean;
   usdcSolPool: string | null;
 }
 
+/**
+ * Read vault account fields only — does **not** require AssetInfo PDAs.
+ * Use this for the View → Vault state panel so a broken basket still surfaces.
+ *
+ * Uses the hand-rolled zero-copy decoder (same as `fetchVaultCtx`).
+ */
 export async function getVaultState(
   connection: Connection,
   vaultId: number = DEFAULT_VAULT_ID,
   network: Network = 'mainnet',
 ): Promise<VaultStateView> {
-  const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const program = createProgram(createDummyWallet(), connection);
-  const vault = await (program.account as any).vault.fetch(ctx.vaultPda);
-  const pausedRaw = vault.paused as number | boolean;
-  const adminLockedRaw = vault.adminLocked as number | boolean;
+  const { vaultPda } = deriveVaultPdas(vaultId, network);
+
+  let vault: DecodedVault;
+  try {
+    const decoded = await fetchDecodedVault(connection, vaultPda);
+    if (!decoded) {
+      throw await formatVaultMissingError(connection, vaultId, vaultPda);
+    }
+    vault = decoded;
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Vault ')) throw err;
+    if (isAccountMissingError(err)) {
+      throw await formatVaultMissingError(connection, vaultId, vaultPda);
+    }
+    throw err;
+  }
+
+  const numAssets = vault.numAssets;
+  const assetIds = vault.assetIds.slice(0, numAssets).map((id) => id.toNumber());
+  const assetAllocationBps = vault.assetAllocationBps.slice(0, numAssets);
 
   return {
-    address: ctx.vaultPda.toBase58(),
+    address: vaultPda.toBase58(),
     vaultId: vault.vaultId.toString(),
-    baseMint: ctx.baseMint.toBase58(),
+    baseMint: NETWORK_CONSTANTS[network].usdcMint.toBase58(),
     feeRecipient: vault.feeRecipient.toBase58(),
     totalShares: vault.totalShares.toString(),
     totalUsdcValue: vault.totalUsdcValue.toString(),
@@ -1735,10 +1963,13 @@ export async function getVaultState(
     depositFeeBps: vault.depositFeeBps,
     redeemFeeBps: vault.redeemFeeBps,
     athSharePrice: vault.athSharePrice.toString(),
-    numAssets: vault.numAssets,
-    paused: typeof pausedRaw === 'boolean' ? pausedRaw : pausedRaw !== 0,
-    adminLocked: typeof adminLockedRaw === 'boolean' ? adminLockedRaw : adminLockedRaw !== 0,
-    usdcSolPool: ctx.usdcSolPool?.toBase58() ?? null,
+    numAssets,
+    assetIds,
+    assetAllocationBps,
+    paused: vault.paused !== 0,
+    adminLocked: vault.adminLocked !== 0,
+    // Not stored on Vault anymore; ViaSol legs use the cluster canonical pool.
+    usdcSolPool: null,
   };
 }
 

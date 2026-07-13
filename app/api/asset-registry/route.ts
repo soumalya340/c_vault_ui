@@ -3,9 +3,10 @@ import { createServiceClient } from "@/lib/supabase/server";
 
 /**
  * Pre-approved asset catalog for the Create ETF token picker — read straight
- * from `PreApprovedTokenRegistryDevnet` (devnet-only; no network column,
- * no mainnet counterpart yet). Mirrors the on-chain `AssetInfo` shape so an
- * asset_id picked here maps 1:1 to the admin-listed `AssetInfo` PDA.
+ * from `pre_approved_token_registry` (supabase/migration/0002_pre_approved_token_registry.sql),
+ * scoped by the `network` column (`devnet` | `mainnet`). Mirrors the on-chain
+ * `AssetInfo` shape so an asset_id picked here maps 1:1 to the admin-listed
+ * `AssetInfo` PDA.
  */
 export type AssetRegistryRow = {
   asset_id: string;
@@ -30,16 +31,18 @@ function errorMessage(err: unknown): string {
       : String(err);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const network = new URL(request.url).searchParams.get("network") ?? "devnet";
     const supabase = createServiceClient();
     // asset_id cast to text: PostgREST returns bigint as a JS number, which
     // loses precision above Number.MAX_SAFE_INTEGER.
     const { data, error } = await supabase
-      .from("PreApprovedTokenRegistryDevnet")
+      .from("pre_approved_token_registry")
       .select(
         "asset_id::text, mint, pool_address, pyth_feed_id, decimals, route, price_source_tag, price_dex_kind, price_pool_address, swap_kind, token_program_tag, active",
       )
+      .eq("network", network)
       .order("asset_id", { ascending: true });
 
     if (error) throw error;
@@ -57,7 +60,7 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as Partial<AssetRegistryRow>;
+    const body = (await request.json()) as Partial<AssetRegistryRow> & { network?: string };
 
     const required: (keyof AssetRegistryRow)[] = [
       "asset_id",
@@ -80,11 +83,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const network = body.network ?? "devnet";
     const supabase = createServiceClient();
 
     const { data: existing, error: existingErr } = await supabase
-      .from("PreApprovedTokenRegistryDevnet")
+      .from("pre_approved_token_registry")
       .select("asset_id::text, mint")
+      .eq("network", network)
       .eq("mint", body.mint)
       .maybeSingle();
     if (existingErr) throw existingErr;
@@ -96,6 +101,7 @@ export async function POST(request: Request) {
     }
 
     const row = {
+      network,
       asset_id: body.asset_id,
       mint: body.mint,
       pool_address: body.pool_address,
@@ -111,7 +117,7 @@ export async function POST(request: Request) {
     };
 
     const { error: insertErr } = await supabase
-      .from("PreApprovedTokenRegistryDevnet")
+      .from("pre_approved_token_registry")
       .insert(row);
     if (insertErr) throw insertErr;
 

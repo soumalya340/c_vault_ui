@@ -750,7 +750,8 @@
     {
       "name": "init_global_state",
       "docs": [
-        "Create the GlobalState singleton. Must be called once before any vault is created."
+        "Create the GlobalState singleton and the wSOL genesis asset (id 0) in",
+        "one transaction. Must be called once before any vault is created."
       ],
       "discriminator": [225, 88, 176, 139, 158, 113, 203, 37],
       "accounts": [
@@ -769,6 +770,25 @@
           }
         },
         {
+          "name": "asset_info",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "const",
+                "value": [0, 0, 0, 0, 0, 0, 0, 0]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
           "name": "authority",
           "writable": true,
           "signer": true,
@@ -779,7 +799,16 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "sol_asset_params",
+          "type": {
+            "defined": {
+              "name": "CreateAssetParams"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "preview_deposit",
@@ -1686,6 +1715,26 @@
           }
         },
         {
+          "name": "sol_asset_info",
+          "docs": [
+            "The genesis wSOL AssetInfo (id `WSOL_ASSET_ID`) — its `pool_address`",
+            "is checked against `whirlpool` below so this instruction can't be",
+            "called with an arbitrary/wrong USDC/wSOL pool."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "const",
+                "value": [0, 0, 0, 0, 0, 0, 0, 0]
+              }
+            ]
+          }
+        },
+        {
           "name": "redeem_state",
           "writable": true,
           "pda": {
@@ -1943,6 +1992,26 @@
           }
         },
         {
+          "name": "sol_asset_info",
+          "docs": [
+            "The genesis wSOL AssetInfo (id `WSOL_ASSET_ID`) — its `pool_address`",
+            "is checked against `whirlpool` below so this instruction can't be",
+            "called with an arbitrary/wrong USDC/wSOL pool."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "const",
+                "value": [0, 0, 0, 0, 0, 0, 0, 0]
+              }
+            ]
+          }
+        },
+        {
           "name": "signer",
           "docs": [
             "Permissionless caller — any signer may run the conversion."
@@ -2029,6 +2098,84 @@
         {
           "name": "a_to_b",
           "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "update_asset_info",
+      "docs": [
+        "Admin-only: selectively update an asset's swap pool, swap venue, Pyth",
+        "feed, and/or route. Pass `Some` for fields to change; `None` leaves",
+        "them as-is. At least one field must be `Some`.",
+        "",
+        "If `swap_kind` or `route` is set, `pool_address` must also be set.",
+        "When `pool_address`, `swap_kind`, or `route` is set, pass the",
+        "post-update swap pool as `remaining_accounts[0]`. `DirectUsdc`",
+        "requires a USDC leg; `ViaSol` requires a wSOL leg. Pyth-only updates",
+        "skip pool accounts."
+      ],
+      "discriminator": [225, 232, 152, 30, 171, 192, 32, 56],
+      "accounts": [
+        {
+          "name": "asset_info",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [97, 115, 115, 101, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "asset_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
+      ],
+      "args": [
+        {
+          "name": "asset_id",
+          "type": "u64"
+        },
+        {
+          "name": "pool_address",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "swap_kind",
+          "type": {
+            "option": {
+              "defined": {
+                "name": "DexKind"
+              }
+            }
+          }
+        },
+        {
+          "name": "pyth_feed_id",
+          "type": {
+            "option": {
+              "array": ["u8", 32]
+            }
+          }
+        },
+        {
+          "name": "route",
+          "type": {
+            "option": {
+              "defined": {
+                "name": "PoolRoute"
+              }
+            }
+          }
         }
       ]
     },
@@ -2215,6 +2362,10 @@
     {
       "name": "SwapUsdcToSolEvent",
       "discriminator": [120, 133, 126, 74, 60, 235, 78, 103]
+    },
+    {
+      "name": "TokenInfoUpdatedEvent",
+      "discriminator": [86, 128, 39, 4, 66, 250, 25, 174]
     },
     {
       "name": "TreasuryAddrUpdatedEvent",
@@ -2406,101 +2557,111 @@
     },
     {
       "code": 6034,
+      "name": "NoTokenInfoUpdate",
+      "msg": "update_token_info requires at least one of pool_address, swap_kind, pyth_feed_id, or route"
+    },
+    {
+      "code": 6035,
+      "name": "TokenInfoPoolRequired",
+      "msg": "update_token_info: changing swap_kind or route requires pool_address (cannot be None)"
+    },
+    {
+      "code": 6036,
       "name": "AssetIdMismatch",
       "msg": "A remaining_accounts entry's derived PDA does not match the claimed asset_id"
     },
     {
-      "code": 6035,
+      "code": 6037,
       "name": "AssetInfoNotWritable",
       "msg": "AssetInfo account must be writable to persist TWAP updates"
     },
     {
-      "code": 6036,
+      "code": 6038,
       "name": "MissingMaxShares",
       "msg": "A Fixed vault must declare a max_shares supply cap"
     },
     {
-      "code": 6037,
+      "code": 6039,
       "name": "InvalidMaxShares",
       "msg": "max_shares must be greater than zero"
     },
     {
-      "code": 6038,
+      "code": 6040,
       "name": "ShareCapExceeded",
       "msg": "Deposit would exceed the Fixed vault's max_shares supply cap"
     },
     {
-      "code": 6039,
+      "code": 6041,
       "name": "QuoteMintNotEligible",
       "msg": "usdc_mint must be the canonical USDC mint"
     },
     {
-      "code": 6040,
+      "code": 6042,
       "name": "EligibleMintListFull",
       "msg": "Eligible base mint list is full"
     },
     {
-      "code": 6041,
+      "code": 6043,
       "name": "EligibleMintAlreadyListed",
       "msg": "Mint is already on the eligible base mint list"
     },
     {
-      "code": 6042,
+      "code": 6044,
       "name": "EligibleMintNotFound",
       "msg": "Mint is not on the eligible base mint list"
     },
     {
-      "code": 6043,
+      "code": 6045,
       "name": "InvalidPendingAssetSlot",
       "msg": "asset_index refers to a USDC-native or wSOL-native slot, which never enters the pending pool"
     },
     {
-      "code": 6044,
+      "code": 6046,
       "name": "TwapWindowTooShort",
       "msg": "Insufficient TWAP history to mint/redeem against this asset yet"
     },
     {
-      "code": 6045,
+      "code": 6047,
       "name": "UnsupportedDexKind",
       "msg": "Pool account owner does not match the asset's declared DexKind"
     },
     {
-      "code": 6046,
+      "code": 6048,
       "name": "TwapKeeperNotSet",
       "msg": "No TWAP keeper has been assigned yet"
     },
     {
-      "code": 6047,
+      "code": 6049,
       "name": "UnauthorizedTwapKeeper",
       "msg": "Signer is not the assigned TWAP keeper"
     },
     {
-      "code": 6048,
+      "code": 6050,
       "name": "LivePriceDiscrepancy",
       "msg": "Live price discrepancy — source not reliable (TWAP observation and keeper stamp both stale)"
     },
     {
-      "code": 6049,
+      "code": 6051,
       "name": "NotDexPricedAsset",
       "msg": "asset_index does not refer to a Dex-priced asset"
     },
     {
-      "code": 6050,
+      "code": 6052,
       "name": "InvalidPoolPair",
       "msg": "Pool must include USDC or wSOL as one side of the pair"
     },
     {
-      "code": 6051,
+      "code": 6053,
       "name": "InvalidTokenProgram",
       "msg": "token_program_tag must be 0 (SPL Token) or 1 (Token-2022)"
     },
     {
-      "code": 6052,
+      "code": 6054,
       "name": "UnsupportedSwapKind",
       "msg": "remaining_accounts don't match this asset's configured swap_kind"
     },
     {
-      "code": 6053,
+      "code": 6055,
       "name": "InsufficientTrackedBasis",
       "msg": "Redeeming more shares than this program has tracked cost basis for — shares acquired by transfer are not redeemable through this program"
     }
@@ -2610,7 +2771,8 @@
             "docs": [
               "Orca Whirlpool or DAMM v2 pool used to SWAP this asset (see `swap_kind`).",
               "- `DirectUsdc`: this pool is USDC ↔ Asset",
-              "- `ViaSol`:     this pool is wSOL ↔ Asset  (USDC→wSOL uses `Vault.usdc_sol_pool`)"
+              "- `ViaSol`:     this pool is wSOL ↔ Asset  (USDC→wSOL uses the genesis",
+              "wSOL `AssetInfo`'s own `pool_address`, id `WSOL_ASSET_ID`)"
             ],
             "type": "pubkey"
           },
@@ -3042,15 +3204,6 @@
             "type": "u16"
           },
           {
-            "name": "usdc_sol_pool",
-            "docs": [
-              "Orca Whirlpool USDC↔wSOL first hop; None when all assets use DirectUsdc."
-            ],
-            "type": {
-              "option": "pubkey"
-            }
-          },
-          {
             "name": "assets",
             "docs": [
               "1–MAX_ASSETS entries, each referencing an existing admin-approved",
@@ -3112,13 +3265,6 @@
     },
     {
       "name": "PoolRoute",
-      "docs": [
-        "How USDC reaches a particular asset inside the vault.",
-        "",
-        "- `DirectUsdc` — single Whirlpool hop: USDC ↔ Asset",
-        "- `ViaSol`     — two-hop: USDC → wSOL (via `Vault.usdc_sol_pool`),",
-        "then wSOL → Asset (via `AssetInfo.pool_address`)"
-      ],
       "repr": {
         "kind": "rust"
       },
@@ -3571,6 +3717,78 @@
       }
     },
     {
+      "name": "TokenInfoUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_id",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_pool_address",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_pool_address",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_swap_kind",
+            "type": {
+              "defined": {
+                "name": "DexKind"
+              }
+            }
+          },
+          {
+            "name": "new_swap_kind",
+            "type": {
+              "defined": {
+                "name": "DexKind"
+              }
+            }
+          },
+          {
+            "name": "old_pyth_feed_id",
+            "type": {
+              "array": ["u8", 32]
+            }
+          },
+          {
+            "name": "new_pyth_feed_id",
+            "type": {
+              "array": ["u8", 32]
+            }
+          },
+          {
+            "name": "old_route",
+            "type": {
+              "defined": {
+                "name": "PoolRoute"
+              }
+            }
+          },
+          {
+            "name": "new_route",
+            "type": {
+              "defined": {
+                "name": "PoolRoute"
+              }
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "TreasuryAddrUpdatedEvent",
       "type": {
         "kind": "struct",
@@ -3898,21 +4116,6 @@
               "Share supply cap. `0` = uncapped (Dynamic); `> 0` = Fixed cap."
             ],
             "type": "u64"
-          },
-          {
-            "name": "usdc_sol_pool_enabled",
-            "docs": [
-              "`1` when `usdc_sol_pool` is set; `0` for USDC-only vaults."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "usdc_sol_pool",
-            "docs": [
-              "Orca Whirlpool pool for USDC ↔ wSOL. Meaningful when `usdc_sol_pool_enabled != 0`.",
-              "Required when any asset uses `route == ViaSol`."
-            ],
-            "type": "pubkey"
           },
           {
             "name": "num_assets",

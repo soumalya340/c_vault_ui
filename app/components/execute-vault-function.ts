@@ -22,10 +22,16 @@ import {
   getVaultAssetBalances,
   getAssetState,
   describePreviewError,
+  PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
   DEFAULT_VAULT_ID,
+  WSOL_MINT,
+  WSOL_ASSET_ID,
+  SOL_USD_PYTH_FEED_ID,
+  NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
+import { WSOL_DECIMALS } from '@/lib/constants';
 import { fetchTokens, fetchAssetRegistry, saveAssetRegistryEntry, FieldError } from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
 
@@ -38,8 +44,34 @@ function pk(v: string | undefined): PublicKey {
   return new PublicKey(v.trim());
 }
 
+/** Parse a 0-based on-chain id field. Empty → fallback (vault defaults to 0). */
+function parseId(
+  raw: string | undefined,
+  label: string,
+  fallback?: number,
+): number {
+  const trimmed = raw?.trim() ?? '';
+  const field = label === 'Vault ID' ? 'vault_id' : 'asset_id';
+  if (!trimmed) {
+    if (fallback !== undefined) return fallback;
+    throw new FieldError(`${label} is required.`, field);
+  }
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new FieldError(
+      `${label} must be a non-negative integer (0-based). You entered “${trimmed}”.`,
+      field,
+    );
+  }
+  return n;
+}
+
 function vaultId(v: Record<string, string>): number {
-  return v.vault_id?.trim() ? Number(v.vault_id) : DEFAULT_VAULT_ID;
+  return parseId(v.vault_id, 'Vault ID', DEFAULT_VAULT_ID);
+}
+
+function assetId(v: Record<string, string>): number {
+  return parseId(v.asset_id, 'Asset ID', 0);
 }
 
 /** 32-byte Pyth feed id as hex (with or without 0x); blank => zero feed. */
@@ -109,11 +141,72 @@ export async function executeVaultFunction(
       if (!publicKey) throw new Error('Connect wallet');
       return getUserPosition(connection, id, publicKey, net);
     case 'view_asset_state':
-      return getAssetState(connection, Number(v.asset_id || 0));
+      return getAssetState(connection, assetId(v));
     case 'init_global_state': {
       if (!anchorWallet) throw new Error('Wallet required');
-      const r = await initGlobalState(connection, anchorWallet, net);
-      return { tx: r.tx, solscan: r.link };
+      // Nothing is read from the form — the genesis wSOL asset is fully
+      // fixed: per-network USDC/wSOL Whirlpool, Pyth SOL/USD pricing. The
+      // Admin №01 fields only display these same constants to the admin.
+      const poolAddress = NETWORK_CONSTANTS[net].wsolUsdcPool;
+      const pythFeedId = [...SOL_USD_PYTH_FEED_ID];
+
+      // Guard before signing: this pool becomes the canonical USDC↔wSOL
+      // Whirlpool that swap_usdc_to_sol / swap_sol_to_usdc validate against,
+      // so it must decode as a Whirlpool and carry both legs (USDC and wSOL).
+      try {
+        await assertPoolExists(connection, poolAddress, 'whirlpool', 'DirectUsdc', net);
+        await assertPoolExists(connection, poolAddress, 'whirlpool', 'ViaSol', net);
+      } catch (err) {
+        throw new FieldError(err instanceof Error ? err.message : String(err), 'pool_address');
+      }
+
+      const r = await initGlobalState(
+        connection,
+        anchorWallet,
+        {
+          mint: WSOL_MINT,
+          poolAddress,
+          pythFeedId,
+          route: { directUsdc: {} },
+          priceSourceTag: PRICE_SOURCE_PYTH,
+          priceDexKind: 0,
+          pricePoolAddress: PublicKey.default,
+          swapKind: { whirlpool: {} },
+          tokenProgramTag: 0,
+        },
+        net,
+      );
+
+      // Record the genesis wSOL asset (id 0) in the registry like create_asset
+      // does, so it shows up in asset lists and the duplicate-mint guard.
+      try {
+        await saveAssetRegistryEntry({
+          network: net,
+          asset_id: String(WSOL_ASSET_ID),
+          mint: WSOL_MINT.toBase58(),
+          pool_address: poolAddress.toBase58(),
+          pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
+          decimals: WSOL_DECIMALS,
+          route: 'DirectUsdc',
+          price_source_tag: PRICE_SOURCE_PYTH,
+          price_dex_kind: 0,
+          price_pool_address: PublicKey.default.toBase58(),
+          swap_kind: 'Whirlpool',
+          token_program_tag: 0,
+          active: true,
+        });
+      } catch (err) {
+        return {
+          tx: r.tx,
+          solscan: r.link,
+          wsolAssetId: WSOL_ASSET_ID,
+          registryWarning: `Global state initialized on-chain but recording the genesis wSOL asset in the registry failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        };
+      }
+
+      return { tx: r.tx, solscan: r.link, wsolAssetId: WSOL_ASSET_ID };
     }
     case 'set_emergency': {
       if (!anchorWallet) throw new Error('Wallet required');
@@ -142,7 +235,7 @@ export async function executeVaultFunction(
       // Guard before signing: the program itself has no duplicate-mint check
       // (each create_asset call gets a fresh asset_id regardless), so a
       // second listing of the same mint would just create a shadow entry.
-      const existingAssets = await fetchAssetRegistry().catch(() => []);
+      const existingAssets = await fetchAssetRegistry(net).catch(() => []);
       const dupe = existingAssets.find((a) => a.mint === mint.toBase58());
       if (dupe) {
         throw new FieldError(`Mint already listed as asset #${dupe.asset_id}.`, 'mint');
@@ -199,6 +292,7 @@ export async function executeVaultFunction(
 
       try {
         await saveAssetRegistryEntry({
+          network: net,
           asset_id: String(r.assetId),
           mint: mint.toBase58(),
           pool_address: poolAddress.toBase58(),
@@ -230,7 +324,7 @@ export async function executeVaultFunction(
       const r = await setAssetActive(
         connection,
         anchorWallet,
-        Number(v.asset_id || 0),
+        assetId(v),
         v.active === 'true',
         net,
       );
@@ -252,7 +346,7 @@ export async function executeVaultFunction(
       const r = await updateDexTwap(
         connection,
         anchorWallet,
-        Number(v.asset_id || 0),
+        assetId(v),
         bn(v.twap_live_state),
         net,
       );

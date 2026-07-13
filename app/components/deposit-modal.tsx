@@ -9,6 +9,7 @@ import {
   parseUnits,
   fetchMintDecimals,
   describePreviewError,
+  NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
 import { useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
@@ -50,12 +51,16 @@ export function DepositModal({
   const [baseDecimals, setBaseDecimals] = useState<number | null>(null);
   const [baseSymbol, setBaseSymbol] = useState('base');
 
+  // Quote mint is always network USDC (program constant) — not stored on the
+  // vaults row.
+  const baseMint = NETWORK_CONSTANTS[network].usdcMint.toBase58();
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const tokens = await fetchTokens();
-        const match = tokens.find((t) => t.mint === vault.base_mint);
+        const match = tokens.find((t) => t.mint === baseMint);
         if (match) {
           if (!cancelled) {
             setBaseDecimals(match.decimals);
@@ -67,7 +72,7 @@ export function DepositModal({
         // Registry unavailable — fall through to the on-chain mint read.
       }
       try {
-        const decimals = await fetchMintDecimals(connection, new PublicKey(vault.base_mint));
+        const decimals = await fetchMintDecimals(connection, new PublicKey(baseMint));
         if (!cancelled) setBaseDecimals(decimals);
       } catch {
         // Leave decimals null — the amount field stays disabled until known.
@@ -76,7 +81,7 @@ export function DepositModal({
     return () => {
       cancelled = true;
     };
-  }, [connection, vault.base_mint]);
+  }, [connection, baseMint]);
 
   // Live raw-unit echo shown under the amount field, so the raw value the
   // program receives is always visible.

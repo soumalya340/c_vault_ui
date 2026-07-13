@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { BN } from '@coral-xyz/anchor';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
-import { getUserPosition, previewRedeem, redeemAndClaim, type Network } from '@/lib/cvault';
+import { getUserPosition, previewRedeem, redeemSwap, claim, type Network } from '@/lib/cvault';
 import type { VaultRecord } from '@/lib/registryClient';
 import {
   btnGhostClass,
@@ -14,10 +14,14 @@ import {
   outputPanelClass,
 } from './ui-classes';
 
-// One "Redeem & Claim" action (Plan.md §8-9). Nothing is stored off-chain per
-// user — the flow checks on-chain state and either burns shares
-// (request_redeem) or, when a claimable RedeemState exists, runs the outflow
-// swap legs and claims the payout. The vault's ALT compresses every swap
+// Two separate actions so a failure in one phase (e.g. an outflow swap leg)
+// doesn't get hidden behind a single "Redeem & Claim" button:
+//  - "Redeem (swap)" — burns shares (request_redeem) if no RedeemState yet,
+//    otherwise (once unlocked) runs the outflow swap legs.
+//  - "Claim" — only enabled once the outflow legs are done (pendingUsdc > 0);
+//    sends the final `claim` instruction.
+// Nothing is stored off-chain per user — both actions check on-chain state.
+// The vault's ALT compresses every swap
 // transaction.
 
 export function RedeemModal({
@@ -95,14 +99,17 @@ export function RedeemModal({
     }
   };
 
-  const handleRedeemAndClaim = async (e: React.FormEvent) => {
+  const pendingUsdc = pending ? BigInt(pending.pendingUsdc) : 0n;
+  const readyToClaim = unlocked && pendingUsdc > 0n;
+
+  const handleRedeemSwap = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!anchorWallet) return;
     setLoading(true);
     setResult(null);
     setSteps([]);
     try {
-      const r = await redeemAndClaim(
+      const r = await redeemSwap(
         connection,
         anchorWallet,
         vault.vault_id,
@@ -117,17 +124,41 @@ export function RedeemModal({
           type: 'success',
           text:
             `Shares burned for vault №${vault.vault_id}. Cooldown active — ` +
-            `press Redeem & Claim again after ${unlock} to swap and claim.`,
+            `press Redeem (swap) again after ${unlock} to run the outflow swap.`,
           solscan: r.link || undefined,
         });
       } else {
         setResult({
           type: 'success',
-          text: `Redeemed and claimed payout from vault №${vault.vault_id} (${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}).`,
+          text: `Outflow swap complete for vault №${vault.vault_id} (${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}). Press Claim to receive the payout.`,
           solscan: r.link,
         });
       }
       setShares('');
+      await refreshPosition();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isRejection =
+        msg.toLowerCase().includes('user rejected') || msg.toLowerCase().includes('rejected the request');
+      setResult({ type: isRejection ? 'info' : 'error', text: isRejection ? 'Transaction cancelled.' : msg });
+      await refreshPosition();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClaim = async () => {
+    if (!anchorWallet) return;
+    setLoading(true);
+    setResult(null);
+    setSteps([]);
+    try {
+      const r = await claim(connection, anchorWallet, vault.vault_id, network);
+      setResult({
+        type: 'success',
+        text: `Claimed payout from vault №${vault.vault_id}.`,
+        solscan: r.link,
+      });
       await refreshPosition();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -182,14 +213,16 @@ export function RedeemModal({
               <p className="mt-1.5 font-mono text-xs leading-relaxed text-foreground">
                 {pending.redeemableShares} shares burned · unlocks{' '}
                 {unlockDate?.toLocaleString() ?? '—'}
-                {unlocked
-                  ? ' — ready: Redeem & Claim will swap and pay out'
-                  : ' — cooldown active'}
+                {readyToClaim
+                  ? ' — swapped: ready to Claim'
+                  : unlocked
+                    ? ' — ready: press Redeem (swap) to run the outflow swap'
+                    : ' — cooldown active'}
               </p>
             </div>
           )}
 
-          <form onSubmit={handleRedeemAndClaim} className="space-y-4">
+          <form onSubmit={handleRedeemSwap} className="space-y-4">
             {!pending && (
               <>
                 <div>
@@ -220,9 +253,23 @@ export function RedeemModal({
               </>
             )}
 
-            <button type="submit" disabled={loading || !anchorWallet} className={btnPrimaryClass}>
-              {loading ? 'Processing…' : anchorWallet ? 'Redeem & Claim' : 'Connect wallet'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={loading || !anchorWallet || readyToClaim}
+                className={btnPrimaryClass}
+              >
+                {loading ? 'Processing…' : anchorWallet ? 'Redeem (swap)' : 'Connect wallet'}
+              </button>
+              <button
+                type="button"
+                onClick={handleClaim}
+                disabled={loading || !anchorWallet || !readyToClaim}
+                className={btnPrimaryClass}
+              >
+                {loading ? 'Processing…' : 'Claim'}
+              </button>
+            </div>
           </form>
 
           {steps.length > 0 && (

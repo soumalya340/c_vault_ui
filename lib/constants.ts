@@ -28,20 +28,40 @@ export const REDEEM_SEED = Buffer.from('redeem');
 
 export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
+/** Canonical USDC/wSOL Orca Whirlpool per cluster — the genesis wSOL asset's
+ *  swap pool, prefilled on the Initialize global state form (editable there). */
+export const WSOL_USDC_POOL = new PublicKey('Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE');
+export const WSOL_USDC_POOL_DEVNET = new PublicKey(
+  '4wofA6PxPmYqjWv7tv4p7WYDbeKfhm7TgZ35WZoYouhU',
+);
+
 /**
  * Per-network values only. Program id is the constant C_VAULT_PROGRAM_ID
- * (same on mainnet and devnet); only the USDC mint differs by cluster.
+ * (same on mainnet and devnet); only the USDC mint and the canonical
+ * USDC/wSOL pool differ by cluster.
  */
-export const NETWORK_CONSTANTS: Record<Network, { usdcMint: PublicKey }> = {
+export const NETWORK_CONSTANTS: Record<
+  Network,
+  { usdcMint: PublicKey; wsolUsdcPool: PublicKey }
+> = {
   mainnet: {
     usdcMint: USDC_MINT,
+    wsolUsdcPool: WSOL_USDC_POOL,
   },
   devnet: {
     usdcMint: new PublicKey('CBh1CYgXrqK48NPKwCYe91fiUv66w9K2dBcjsKheaP23'),
+    wsolUsdcPool: WSOL_USDC_POOL_DEVNET,
   },
 };
 
 export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+
+/**
+ * Asset id 0 is permanently reserved for wSOL by construction —
+ * `init_global_state` creates the genesis wSOL AssetInfo inline and starts
+ * `total_assets` at 1. Mirrors `WSOL_ASSET_ID` in the program's constants.rs.
+ */
+export const WSOL_ASSET_ID = 0;
 export const WBTC_MINT = new PublicKey('3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh');
 export const WETH_MINT = new PublicKey('7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs');
 
@@ -70,7 +90,6 @@ export const DAMM_V2_EVENT_AUTHORITY = new PublicKey(
   '3rmHSu74h1ZcmAisVcWerTCiRDQbUrBKmcwptYGjHfet',
 );
 
-export const WSOL_USDC_POOL = new PublicKey('Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE');
 export const WSOL_WBTC_POOL = new PublicKey('B5EwJVDuAauzUEEdwvbuXzbFFgEYnUqqS37TUM1c4PQA');
 export const WSOL_WETH_POOL = new PublicKey('HktfL7iwGKT5QHjywQkcDnZXScoh811k7akrMZJkCcEF');
 
@@ -82,6 +101,19 @@ export const WSOL_WETH_POOL = new PublicKey('HktfL7iwGKT5QHjywQkcDnZXScoh811k7ak
  */
 export const PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey(
   'pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT',
+);
+
+/**
+ * Pyth SOL/USD price feed id (64-char hex, no 0x). Same id on mainnet and
+ * devnet (Pyth pull oracle) — mirrors `SOL_USD_PYTH_FEED_ID` in the program's
+ * constants.rs. Used for ViaSol DEX pricing and as the genesis wSOL asset's
+ * default feed.
+ */
+export const SOL_USD_PYTH_FEED_ID_HEX =
+  'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d';
+
+export const SOL_USD_PYTH_FEED_ID: number[] = Array.from(
+  Buffer.from(SOL_USD_PYTH_FEED_ID_HEX, 'hex'),
 );
 
 /** `AssetInfo.price_source_tag` / create_etf `price_source_tag`. */

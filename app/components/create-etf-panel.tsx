@@ -12,6 +12,7 @@ import {
   pythFeedAccount,
   vaultAssetAta,
   WSOL_MINT,
+  SOL_USD_PYTH_FEED_ID,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
   NETWORK_CONSTANTS,
@@ -83,9 +84,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const [rows, setRows] = useState<AssetRow[]>([{ ...EMPTY_ROW }]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
 
-  // USDC/wSOL pool — required when any picked asset routes ViaSol. Free-form address.
-  const [solPool, setSolPool] = useState('');
-
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<{
@@ -95,9 +93,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   } | null>(null);
 
   useEffect(() => {
-    if (network !== 'devnet') return;
     let cancelled = false;
-    fetchAssetRegistry()
+    fetchAssetRegistry(network)
       .then((rows) => {
         if (cancelled) return;
         setRegistry(rows);
@@ -154,10 +151,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         return { entry, allocationBps: pctToBps(row.allocationPct) };
       });
 
-      if (hasViaSol && !solPool.trim()) {
-        throw new Error('USDC/wSOL pool address is required when any asset routes ViaSol.');
-      }
-
       setStatus('Creating vault (create_etf)…');
       const created = await createEtf(
         connection,
@@ -166,7 +159,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           feeRecipient: feeRecipient.trim() ? new PublicKey(feeRecipient.trim()) : null,
           depositFeeBps: Number(depositFeeBps) || 0,
           redeemFeeBps: Number(redeemFeeBps) || 0,
-          usdcSolPool: solPool.trim() ? new PublicKey(solPool.trim()) : null,
           assets: picked.map((p) => ({
             assetId: Number(p.entry.asset_id),
             allocationBps: p.allocationBps,
@@ -197,8 +189,9 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             else whirlpoolAddrs.push(pricePool);
           }
         }
-        if (solPool.trim()) {
-          whirlpoolAddrs.push(new PublicKey(solPool.trim()));
+        // ViaSol legs use the cluster's canonical USDC↔wSOL Whirlpool (not vault-stored).
+        if (hasViaSol) {
+          whirlpoolAddrs.push(NETWORK_CONSTANTS[network].wsolUsdcPool);
         }
 
         const uniqueWp = Array.from(new Set(whirlpoolAddrs.map((p) => p.toBase58()))).map(
@@ -225,6 +218,15 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           .map((p) => Array.from(Buffer.from(p.entry.pyth_feed_id, 'hex')))
           .filter((bytes) => bytes.some((b) => b !== 0))
           .map((bytes) => pythFeedAccount(bytes));
+        // DEX ViaSol NAV needs SOL/USD Pyth after the price pool (sum_nav stride).
+        if (
+          picked.some(
+            (p) =>
+              p.entry.price_source_tag === PRICE_SOURCE_DEX && p.entry.route === 'ViaSol',
+          )
+        ) {
+          priceFeeds.push(pythFeedAccount(SOL_USD_PYTH_FEED_ID));
+        }
 
         const lut = await createVaultAlt(
           connection,
@@ -256,6 +258,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
       setStatus('Recording vault…');
       let registryNote = '';
       try {
+        const manager = publicKey.toBase58();
+        const feeRcpt = feeRecipient.trim() || manager;
         await saveVault({
           vault_address: created.vaultPda.toBase58(),
           vault_id: created.vaultId,
@@ -263,26 +267,24 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           vault_authority: created.vaultAuthority.toBase58(),
           shares_mint: created.sharesMint.toBase58(),
           usdc_vault: created.usdcVault.toBase58(),
-          base_mint: usdcBase58,
           name,
           symbol,
           uri,
-          fee_recipient: feeRecipient.trim() || publicKey.toBase58(),
-          performance_fee_bps: Number(redeemFeeBps) || 0,
+          fee_recipient: feeRcpt,
           fund_type: fundType,
           max_shares: maxShares.trim() || null,
-          usdc_sol_pool: solPool.trim() || null,
-          assets: picked.map((p) => ({
-            mint: p.entry.mint,
-            pool_address: p.entry.pool_address,
-            allocation_bps: p.allocationBps,
-            decimals: p.entry.decimals,
-            route: p.entry.route,
-            pyth_feed_id: p.entry.pyth_feed_id,
-          })),
-          creator: publicKey.toBase58(),
+          creator: manager,
           tx_signature: created.tx,
           alt_address: altAddress,
+          paused: 0,
+          admin_locked: 0,
+          vault_manager: manager,
+          deposit_fee_bps: Number(depositFeeBps) || 0,
+          redeem_fee_bps: Number(redeemFeeBps) || 0,
+          total_usdc_value: '0',
+          asset_ids: picked.map((p) => Number(p.entry.asset_id)),
+          asset_allocation_bps: picked.map((p) => p.allocationBps),
+          num_assets: picked.length,
         });
       } catch (err) {
         registryNote = `\n\nVault created on-chain but recording it failed: ${
@@ -429,18 +431,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                 value={maxShares}
                 onChange={(e) => setMaxShares(e.target.value)}
                 placeholder="1000000000"
-              />
-            </div>
-          )}
-          {hasViaSol && (
-            <div className="sm:col-span-2 lg:col-span-3">
-              <label className={fieldLabelClass}>USDC/wSOL pool (any address)</label>
-              <input
-                className={inputClass}
-                value={solPool}
-                onChange={(e) => setSolPool(e.target.value)}
-                placeholder="Whirlpool USDC↔wSOL pool address"
-                required
               />
             </div>
           )}

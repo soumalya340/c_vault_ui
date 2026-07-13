@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { fetchVaultCtx, type Network, type VaultChainAsset } from '@/lib/cvault';
+import { fetchVaultCtx, NETWORK_CONSTANTS, type Network, type VaultChainAsset } from '@/lib/cvault';
 import { fetchVaults, fetchTokens, type VaultRecord, type TokenOption } from '@/lib/registryClient';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
@@ -262,8 +262,9 @@ export function VaultsPanel({ network }: { network: Network }) {
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <span className="font-mono text-[11px] text-muted-foreground">
-                    vault {shorten(vault.vault_address)} · base {shorten(vault.base_mint)} ·{' '}
-                    {vault.assets.length} asset{vault.assets.length === 1 ? '' : 's'}
+                    vault {shorten(vault.vault_address)} · base{' '}
+                    {shorten(NETWORK_CONSTANTS[network].usdcMint.toBase58())} ·{' '}
+                    {vault.num_assets} asset{vault.num_assets === 1 ? '' : 's'}
                   </span>
                   <div className="flex items-center gap-2">
                     <button

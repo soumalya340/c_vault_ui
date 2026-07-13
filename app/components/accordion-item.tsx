@@ -1,17 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
 import type { Connection } from '@solana/web3.js';
 import type { AssetRoute, Network } from '@/lib/cvault';
-import { fetchVaults, FieldError, type VaultRecord } from '@/lib/registryClient';
+import { fetchAssetRegistry, FieldError } from '@/lib/registryClient';
 import { checkPoolExists } from '@/lib/poolExists';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import {
   REQUIRES_WALLET,
   SECTION_STYLE,
+  resolveFixedValue,
   type FunctionDef,
   type SectionId,
 } from './function-defs';
@@ -20,7 +21,6 @@ import {
   fieldLabelClass,
   inputClass,
   outputPanelClass,
-  selectClass,
 } from './ui-classes';
 
 type PoolCheckState =
@@ -80,6 +80,55 @@ function usePoolCheck(
   return state;
 }
 
+type MintCheckState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'unlisted' }
+  | { status: 'listed'; assetId: string };
+
+/** Debounced check for whether the mint field on Create asset is already
+ *  registered (`pre_approved_token_registry`, scoped to `network`). Not the
+ *  source of truth — execute-vault-function.ts re-checks before signing —
+ *  this is purely so a duplicate listing is obvious before submit. */
+function useMintRegistryCheck(mint: string | undefined, network: Network): MintCheckState {
+  const [state, setState] = useState<MintCheckState>({ status: 'idle' });
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    const trimmed = mint?.trim() ?? '';
+    if (!trimmed) {
+      setState({ status: 'idle' });
+      return;
+    }
+
+    try {
+      new PublicKey(trimmed);
+    } catch {
+      setState({ status: 'idle' });
+      return;
+    }
+
+    const id = ++requestId.current;
+    setState({ status: 'checking' });
+    const timer = setTimeout(() => {
+      fetchAssetRegistry(network)
+        .then((rows) => {
+          if (requestId.current !== id) return;
+          const dupe = rows.find((r) => r.mint === trimmed);
+          setState(dupe ? { status: 'listed', assetId: dupe.asset_id } : { status: 'unlisted' });
+        })
+        .catch(() => {
+          if (requestId.current !== id) return;
+          setState({ status: 'idle' });
+        });
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [mint, network]);
+
+  return state;
+}
+
 export function AccordionItem({
   fn,
   section,
@@ -98,8 +147,6 @@ export function AccordionItem({
   } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const [ownedVaults, setOwnedVaults] = useState<VaultRecord[]>([]);
-  const [vaultsLoading, setVaultsLoading] = useState(false);
 
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
@@ -108,52 +155,20 @@ export function AccordionItem({
 
   const style = SECTION_STYLE[section];
   const needsWallet = REQUIRES_WALLET.has(fn.id);
-  const hasVaultIdField = fn.fields.some((field) => field.name === 'vault_id');
-  const hasPoolAddressField = fn.fields.some((field) => field.name === 'pool_address');
+  const poolAddressField = fn.fields.find((field) => field.name === 'pool_address');
+  const hasMintField = fn.fields.some((field) => field.name === 'mint');
 
   const poolCheck = usePoolCheck(
     connection,
-    hasPoolAddressField ? values.pool_address : undefined,
+    open && poolAddressField
+      ? (resolveFixedValue(poolAddressField, network) ?? values.pool_address)
+      : undefined,
     values.price_dex_kind === '1' ? 'dammV2' : 'whirlpool',
     values.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
     network,
   );
 
-  // Vault ID is picked from the vaults this wallet owns, not typed by hand —
-  // fetched from Supabase (single source of truth for what exists) and
-  // filtered to rows this wallet created.
-  const loadOwnedVaults = useCallback(
-    (owner: string, cancelledRef: { current: boolean }) => {
-      setVaultsLoading(true);
-      fetchVaults(network)
-        .then((rows) => {
-          if (cancelledRef.current) return;
-          const owned = rows.filter((v) => v.creator === owner);
-          setOwnedVaults(owned);
-          if (owned.length > 0) {
-            setValues((prev) =>
-              prev.vault_id ? prev : { ...prev, vault_id: String(owned[0].vault_id) },
-            );
-          }
-        })
-        .catch(() => {
-          if (!cancelledRef.current) setOwnedVaults([]);
-        })
-        .finally(() => {
-          if (!cancelledRef.current) setVaultsLoading(false);
-        });
-    },
-    [network],
-  );
-
-  useEffect(() => {
-    if (!open || !hasVaultIdField || !publicKey) return;
-    const cancelledRef = { current: false };
-    loadOwnedVaults(publicKey.toBase58(), cancelledRef);
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [open, hasVaultIdField, publicKey, loadOwnedVaults]);
+  const mintCheck = useMintRegistryCheck(hasMintField ? values.mint : undefined, network);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -286,34 +301,10 @@ export function AccordionItem({
                 return (
                   <div key={field.name} className={field.wide ? 'sm:col-span-2' : undefined}>
                     <label className={fieldLabelClass}>{field.label}</label>
-                    {field.name === 'vault_id' ? (
-                      !publicKey ? (
-                        <select disabled className={selectClass}>
-                          <option>Connect wallet to see your vaults</option>
-                        </select>
-                      ) : vaultsLoading ? (
-                        <select disabled className={selectClass}>
-                          <option>Loading your vaults…</option>
-                        </select>
-                      ) : ownedVaults.length === 0 ? (
-                        <select disabled className={selectClass}>
-                          <option>No vaults owned by this wallet</option>
-                        </select>
-                      ) : (
-                        <select
-                          value={values.vault_id ?? String(ownedVaults[0].vault_id)}
-                          onChange={(e) =>
-                            setValues((prev) => ({ ...prev, vault_id: e.target.value }))
-                          }
-                          className={selectClass}
-                        >
-                          {ownedVaults.map((v) => (
-                            <option key={v.vault_address} value={v.vault_id}>
-                              CVLT-{v.vault_id} · {v.symbol} · {v.name}
-                            </option>
-                          ))}
-                        </select>
-                      )
+                    {field.fixed !== undefined ? (
+                      <p className="break-all rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-[11px] text-foreground">
+                        {resolveFixedValue(field, network)}
+                      </p>
                     ) : field.type === 'select' ? (
                       <select
                         value={values[field.name] ?? field.options?.[0]?.value ?? ''}
@@ -370,6 +361,22 @@ export function AccordionItem({
                         {poolCheck.status === 'checking' && 'Checking pool…'}
                         {poolCheck.status === 'found' && '✓ Pool found on-chain.'}
                         {poolCheck.status === 'not-found' && poolCheck.message}
+                      </p>
+                    )}
+                    {!fieldError && field.name === 'mint' && mintCheck.status !== 'idle' && (
+                      <p
+                        className={`mt-1.5 font-mono text-xs leading-relaxed ${
+                          mintCheck.status === 'listed'
+                            ? 'text-destructive'
+                            : mintCheck.status === 'unlisted'
+                              ? 'text-accent'
+                              : 'text-muted-foreground'
+                        }`}
+                      >
+                        {mintCheck.status === 'checking' && 'Checking registry…'}
+                        {mintCheck.status === 'unlisted' && '✓ Not yet listed.'}
+                        {mintCheck.status === 'listed' &&
+                          `Already listed as asset #${mintCheck.assetId}.`}
                       </p>
                     )}
                     {field.hint && field.name !== 'assets_json' && (
