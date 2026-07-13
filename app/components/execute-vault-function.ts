@@ -12,6 +12,7 @@ import {
   setAssetActive,
   updateTreasuryAddr,
   setTwapKeeper,
+  updateDexTwap,
   getGlobalState,
   getVaultState,
   getTotalNavView,
@@ -19,11 +20,14 @@ import {
   previewRedeem,
   getUserPosition,
   getVaultAssetBalances,
+  getAssetState,
   describePreviewError,
+  PRICE_SOURCE_DEX,
   DEFAULT_VAULT_ID,
   type Network,
 } from '@/lib/cvault';
 import { fetchTokens, fetchAssetRegistry, saveAssetRegistryEntry, FieldError } from '@/lib/registryClient';
+import { assertPoolExists } from '@/lib/poolExists';
 
 function bn(v: string | undefined, fallback = '0'): BN {
   return new BN(v && v.length > 0 ? v : fallback);
@@ -70,7 +74,7 @@ export async function executeVaultFunction(
 
   switch (fnId) {
     case 'view_global_state':
-      return getGlobalState(connection, net);
+      return getGlobalState(connection);
     case 'view_vault_state':
       return getVaultState(connection, id, net);
     case 'view_nav':
@@ -104,6 +108,8 @@ export async function executeVaultFunction(
     case 'view_my_position':
       if (!publicKey) throw new Error('Connect wallet');
       return getUserPosition(connection, id, publicKey, net);
+    case 'view_asset_state':
+      return getAssetState(connection, Number(v.asset_id || 0));
     case 'init_global_state': {
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await initGlobalState(connection, anchorWallet, net);
@@ -143,15 +149,36 @@ export async function executeVaultFunction(
       }
 
       const route = v.route === 'directUsdc' ? { directUsdc: {} } : { viaSol: {} };
-      const swapKind = v.swap_kind === 'dammV2' ? { dammV2: {} } : { whirlpool: {} };
       const priceSourceTag = Number(v.price_source_tag || 0);
       const priceDexKind = Number(v.price_dex_kind || 0);
-      const pricePoolAddress = v.price_pool_address?.trim()
-        ? pk(v.price_pool_address)
-        : PublicKey.default;
       const poolAddress = pk(v.pool_address);
+      // Price pool and swap venue are no longer separate inputs — the swap
+      // pool doubles as the DEX price pool, and swap_kind mirrors the chosen
+      // DEX type, which is the common case and what the remaining-accounts
+      // logic in createAsset() assumes.
+      const pricePoolAddress = priceSourceTag === PRICE_SOURCE_DEX ? poolAddress : PublicKey.default;
+      const swapKind = priceDexKind === 1 ? { dammV2: {} } : { whirlpool: {} };
       const pythFeedId = pythFeedIdBytes(v.pyth_feed_id);
       const tokenProgramTag = Number(v.token_program_tag || 0);
+
+      // Guard before signing: verify the swap pool actually exists, decodes
+      // as the selected DEX Type, and includes the mint the chosen route
+      // requires — so a typo'd, wrong-venue, or wrong-route address fails
+      // here (next to the field) instead of as an on-chain rejection.
+      try {
+        await assertPoolExists(
+          connection,
+          poolAddress,
+          priceDexKind === 1 ? 'dammV2' : 'whirlpool',
+          v.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
+          net,
+        );
+      } catch (err) {
+        throw new FieldError(
+          err instanceof Error ? err.message : String(err),
+          'pool_address',
+        );
+      }
 
       const r = await createAsset(
         connection,
@@ -181,7 +208,7 @@ export async function executeVaultFunction(
           price_source_tag: priceSourceTag,
           price_dex_kind: priceDexKind,
           price_pool_address: pricePoolAddress.toBase58(),
-          swap_kind: v.swap_kind === 'dammV2' ? 'DammV2' : 'Whirlpool',
+          swap_kind: priceDexKind === 1 ? 'DammV2' : 'Whirlpool',
           token_program_tag: tokenProgramTag,
           active: true,
         });
@@ -218,6 +245,17 @@ export async function executeVaultFunction(
       if (!anchorWallet) throw new Error('Wallet required');
       const keeper = v.keeper?.trim() ? pk(v.keeper) : PublicKey.default;
       const r = await setTwapKeeper(connection, anchorWallet, keeper, net);
+      return { tx: r.tx, solscan: r.link };
+    }
+    case 'update_dex_twap': {
+      if (!anchorWallet) throw new Error('Wallet required');
+      const r = await updateDexTwap(
+        connection,
+        anchorWallet,
+        Number(v.asset_id || 0),
+        bn(v.twap_live_state),
+        net,
+      );
       return { tx: r.tx, solscan: r.link };
     }
     default:

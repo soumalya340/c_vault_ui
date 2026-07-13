@@ -230,7 +230,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           connection,
           anchorWallet,
           buildVaultAltAddresses({
-            globalState: deriveGlobalStatePda(network),
+            globalState: deriveGlobalStatePda(),
             vaultPda: created.vaultPda,
             vaultAuthority: created.vaultAuthority,
             sharesMint: created.sharesMint,

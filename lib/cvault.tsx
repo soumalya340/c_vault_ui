@@ -181,7 +181,7 @@ export async function fetchVaultCtx(
   vaultId: number,
   network: Network = 'mainnet',
 ): Promise<VaultChainCtx> {
-  const program = createProgram(createDummyWallet(), connection, network);
+  const program = createProgram(createDummyWallet(), connection);
   const { vaultPda, vaultAuthority, sharesMint, usdcVault } = deriveVaultPdas(vaultId, network);
   const vault = await (program.account as any).vault.fetch(vaultPda);
 
@@ -194,7 +194,7 @@ export async function fetchVaultCtx(
   const allocationBps = (vault.assetAllocationBps as number[]).slice(0, numAssets);
   const ataAddresses = (vault.assetAtaAddress as PublicKey[]).slice(0, numAssets);
 
-  const assetInfoPdas = assetIds.map((id) => deriveAssetInfoPda(id, network));
+  const assetInfoPdas = assetIds.map((id) => deriveAssetInfoPda(id));
   const infos: (RawAssetInfo | null)[] = await (program.account as any).assetInfo.fetchMultiple(
     assetInfoPdas,
   );
@@ -259,11 +259,8 @@ export interface AssetInfoView {
 }
 
 /** Every admin-listed AssetInfo PDA — for the create_etf asset picker and ALT building. */
-export async function listAssets(
-  connection: Connection,
-  network: Network = 'mainnet',
-): Promise<AssetInfoView[]> {
-  const program = createProgram(createDummyWallet(), connection, network);
+export async function listAssets(connection: Connection): Promise<AssetInfoView[]> {
+  const program = createProgram(createDummyWallet(), connection);
   const rows: { account: RawAssetInfo }[] = await (program.account as any).assetInfo.all();
   return rows
     .map(({ account }) => ({
@@ -281,6 +278,30 @@ export async function listAssets(
       active: account.active,
     }))
     .sort((a, b) => a.assetId - b.assetId);
+}
+
+/** Single admin-listed AssetInfo by id — `["asset", asset_id]` PDA lookup. */
+export async function getAssetState(
+  connection: Connection,
+  assetId: number,
+): Promise<AssetInfoView> {
+  const program = createProgram(createDummyWallet(), connection);
+  const assetInfoPda = deriveAssetInfoPda(assetId);
+  const account: RawAssetInfo = await (program.account as any).assetInfo.fetch(assetInfoPda);
+  return {
+    assetId: account.assetId.toNumber(),
+    mint: account.mint.toBase58(),
+    poolAddress: account.poolAddress.toBase58(),
+    decimals: account.decimals,
+    route: parseRoute(account.route),
+    priceSourceTag: account.priceSourceTag,
+    priceDexKind: account.priceDexKind,
+    pricePoolAddress: account.pricePoolAddress.toBase58(),
+    swapKind: parseSwapKind(account.swapKind),
+    tokenProgramTag: account.tokenProgramTag,
+    pythFeedId: Array.from(account.pythFeedId),
+    active: account.active,
+  };
 }
 
 type AccountMeta = { pubkey: PublicKey; isSigner: boolean; isWritable: boolean };
@@ -347,9 +368,9 @@ function baseAta(owner: PublicKey, baseMint: PublicKey = USDC_MINT): PublicKey {
   return getAssociatedTokenAddressSync(baseMint, owner, false, TOKEN_PROGRAM_ID);
 }
 
-async function fetchTreasury(connection: Connection, network: Network): Promise<PublicKey> {
-  const program = createProgram(createDummyWallet(), connection, network);
-  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda(network));
+async function fetchTreasury(connection: Connection): Promise<PublicKey> {
+  const program = createProgram(createDummyWallet(), connection);
+  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
   return gs.treasuryAddr as PublicKey;
 }
 
@@ -374,8 +395,8 @@ async function sendMethod(
   return { tx: sig, link: solscanLink(sig, network) };
 }
 
-function globalAdminAccounts(admin: PublicKey, network: Network) {
-  return { globalState: deriveGlobalStatePda(network), admin } as Record<string, PublicKey>;
+function globalAdminAccounts(admin: PublicKey) {
+  return { globalState: deriveGlobalStatePda(), admin } as Record<string, PublicKey>;
 }
 
 /** v2: no arguments — treasury defaults to the admin signer. */
@@ -384,7 +405,7 @@ export async function initGlobalState(
   wallet: AnchorWallet,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   return sendMethod(
     connection,
     wallet,
@@ -401,13 +422,13 @@ export async function setTwapKeeper(
   keeper: PublicKey,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   return sendMethod(
     connection,
     wallet,
     (program.methods as any)
       .setTwapKeeper(keeper)
-      .accounts(globalAdminAccounts(wallet.publicKey, network) as never),
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
     network,
   );
 }
@@ -420,15 +441,15 @@ export async function updateDexTwap(
   twapLiveState: BN,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   return sendMethod(
     connection,
     wallet,
     (program.methods as any)
       .updateDexTwap(new BN(assetId), twapLiveState)
       .accounts({
-        globalState: deriveGlobalStatePda(network),
-        assetInfo: deriveAssetInfoPda(assetId, network),
+        globalState: deriveGlobalStatePda(),
+        assetInfo: deriveAssetInfoPda(assetId),
         payer: wallet.publicKey,
         keeper: wallet.publicKey,
       } as never),
@@ -442,13 +463,13 @@ export async function updateTreasuryAddr(
   treasury: PublicKey,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   return sendMethod(
     connection,
     wallet,
     (program.methods as any)
       .updateTreasuryAddr(treasury)
-      .accounts(globalAdminAccounts(wallet.publicKey, network) as never),
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
     network,
   );
 }
@@ -459,13 +480,13 @@ export async function setEmergency(
   isEmergency: boolean,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   return sendMethod(
     connection,
     wallet,
     (program.methods as any)
       .setEmergency(isEmergency)
-      .accounts(globalAdminAccounts(wallet.publicKey, network) as never),
+      .accounts(globalAdminAccounts(wallet.publicKey) as never),
     network,
   );
 }
@@ -497,10 +518,10 @@ export async function createAsset(
   params: CreateAssetParams,
   network: Network,
 ): Promise<{ tx: string; link: string; assetId: number; decimals: number }> {
-  const program = createProgram(wallet, connection, network);
-  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda(network));
+  const program = createProgram(wallet, connection);
+  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
   const assetId = (gs.totalAssets as BN).toNumber();
-  const assetInfo = deriveAssetInfoPda(assetId, network);
+  const assetInfo = deriveAssetInfoPda(assetId);
   const mintInfo = await getMint(
     connection,
     params.mint,
@@ -536,7 +557,7 @@ export async function createAsset(
         tokenProgramTag: params.tokenProgramTag,
       })
       .accounts({
-        globalState: deriveGlobalStatePda(network),
+        globalState: deriveGlobalStatePda(),
         assetInfo,
         mint: params.mint,
         admin: wallet.publicKey,
@@ -556,14 +577,14 @@ export async function setAssetActive(
   active: boolean,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   return sendMethod(
     connection,
     wallet,
     (program.methods as any)
       .setAssetActive(new BN(assetId), active)
       .accounts({
-        assetInfo: deriveAssetInfoPda(assetId, network),
+        assetInfo: deriveAssetInfoPda(assetId),
         admin: wallet.publicKey,
       } as never),
     network,
@@ -578,7 +599,7 @@ export async function setVaultEmergencyLock(
   locked: boolean,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const { vaultPda } = deriveVaultPdas(vaultId, network);
   return sendMethod(
     connection,
@@ -607,7 +628,7 @@ export async function setPaused(
   paused: boolean,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   return sendMethod(
     connection,
     wallet,
@@ -625,7 +646,7 @@ export async function setFeeRecipient(
   feeRecipient: PublicKey,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   return sendMethod(
     connection,
     wallet,
@@ -684,14 +705,14 @@ export async function createEtf(
   uri: string,
   network: Network,
 ): Promise<CreatedVaultInfo> {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
 
   // The program assigns vault_id = global_state.total_vaults at execution.
-  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda(network));
+  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
   const vaultId = (gs.totalVaults as BN).toNumber();
 
   const remaining: AccountMeta[] = params.assets.map((a) => ({
-    pubkey: deriveAssetInfoPda(a.assetId, network),
+    pubkey: deriveAssetInfoPda(a.assetId),
     isSigner: false,
     isWritable: false,
   }));
@@ -751,14 +772,13 @@ async function buildDepositIxs(
   user: PublicKey,
   usdcAmount: BN,
   minSharesOut: BN,
-  network: Network,
 ): Promise<TransactionInstruction[]> {
   const userBase = baseAta(user, ctx.baseMint);
   const userShares = getAssociatedTokenAddressSync(
     ctx.sharesMint, user, false, TOKEN_2022_PROGRAM_ID,
   );
-  const userInfo = deriveUserInfoPda(ctx.vaultPda, user, network);
-  const treasury = await fetchTreasury(connection, network);
+  const userInfo = deriveUserInfoPda(ctx.vaultPda, user);
+  const treasury = await fetchTreasury(connection);
 
   const ensureAtaIxs: TransactionInstruction[] = [
     createAssociatedTokenAccountIdempotentInstruction(
@@ -772,7 +792,7 @@ async function buildDepositIxs(
   const depositIx = await (program.methods as any)
     .deposit(new BN(ctx.vaultId), usdcAmount, minSharesOut)
     .accounts({
-      globalState: deriveGlobalStatePda(network),
+      globalState: deriveGlobalStatePda(),
       vault: ctx.vaultPda,
       usdcMint: ctx.baseMint,
       vaultAuthority: ctx.vaultAuthority,
@@ -806,10 +826,10 @@ export async function deposit(
   minSharesOut: BN,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const ixs = await buildDepositIxs(
-    connection, program, ctx, wallet.publicKey, usdcAmount, minSharesOut, network,
+    connection, program, ctx, wallet.publicKey, usdcAmount, minSharesOut,
   );
   const sig = await sendV0(connection, wallet, ixs);
   return { tx: sig, link: solscanLink(sig, network) };
@@ -824,7 +844,6 @@ async function buildRequestRedeemIxs(
   ctx: VaultChainCtx,
   user: PublicKey,
   shares: BN,
-  network: Network,
 ): Promise<TransactionInstruction[]> {
   const userShares = getAssociatedTokenAddressSync(
     ctx.sharesMint, user, false, TOKEN_2022_PROGRAM_ID,
@@ -840,13 +859,13 @@ async function buildRequestRedeemIxs(
   const redeemIx = await (program.methods as any)
     .requestRedeem(new BN(ctx.vaultId), shares)
     .accounts({
-      globalState: deriveGlobalStatePda(network),
+      globalState: deriveGlobalStatePda(),
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
       sharesMint: ctx.sharesMint,
       userShareAccount: userShares,
-      redeemState: deriveRedeemStatePda(user, ctx.vaultId, network),
-      userInfo: deriveUserInfoPda(ctx.vaultPda, user, network),
+      redeemState: deriveRedeemStatePda(user, ctx.vaultId),
+      userInfo: deriveUserInfoPda(ctx.vaultPda, user),
       user,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
@@ -863,9 +882,9 @@ export async function requestRedeem(
   shares: BN,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const ixs = await buildRequestRedeemIxs(program, ctx, wallet.publicKey, shares, network);
+  const ixs = await buildRequestRedeemIxs(program, ctx, wallet.publicKey, shares);
   const sig = await sendV0(connection, wallet, ixs);
   return { tx: sig, link: solscanLink(sig, network) };
 }
@@ -875,10 +894,9 @@ async function buildClaimIxs(
   program: ReturnType<typeof createProgram>,
   ctx: VaultChainCtx,
   user: PublicKey,
-  network: Network,
 ): Promise<TransactionInstruction[]> {
   const userBase = baseAta(user, ctx.baseMint);
-  const treasury = await fetchTreasury(connection, network);
+  const treasury = await fetchTreasury(connection);
 
   const ensureUserBaseIx = createAssociatedTokenAccountIdempotentInstruction(
     user, userBase, user, ctx.baseMint, TOKEN_PROGRAM_ID,
@@ -886,11 +904,11 @@ async function buildClaimIxs(
   const claimIx = await (program.methods as any)
     .claim(new BN(ctx.vaultId))
     .accounts({
-      globalState: deriveGlobalStatePda(network),
+      globalState: deriveGlobalStatePda(),
       vault: ctx.vaultPda,
       usdcMint: ctx.baseMint,
       vaultAuthority: ctx.vaultAuthority,
-      redeemState: deriveRedeemStatePda(user, ctx.vaultId, network),
+      redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       usdcVault: ctx.usdcVault,
       userUsdcAccount: userBase,
       user,
@@ -912,9 +930,9 @@ export async function claim(
   vaultId: number,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const ixs = await buildClaimIxs(connection, program, ctx, wallet.publicKey, network);
+  const ixs = await buildClaimIxs(connection, program, ctx, wallet.publicKey);
   const sig = await sendV0(connection, wallet, ixs);
   return { tx: sig, link: solscanLink(sig, network) };
 }
@@ -1116,7 +1134,7 @@ export async function swapUsdcToSol(
   minWsolOut: BN,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const ix = await buildSwapUsdcToSolIx(connection, program, ctx, wallet.publicKey, minWsolOut);
   const sig = await sendV0(connection, wallet, [ix]);
@@ -1163,7 +1181,7 @@ export async function swapUsdcToAsset(
   minAssetOut: BN,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const ix = await buildSwapUsdcToAssetIx(
     connection, program, ctx, assetIndex, wallet.publicKey, minAssetOut,
@@ -1213,7 +1231,7 @@ export async function swapSolToAsset(
   minAssetOut: BN,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const ix = await buildSwapSolToAssetIx(
     connection, program, ctx, assetIndex, wallet.publicKey, minAssetOut,
@@ -1230,7 +1248,6 @@ async function buildSwapAssetToSolIx(
   assetIndex: number,
   user: PublicKey,
   minWsolOut: BN,
-  network: Network,
 ): Promise<TransactionInstruction> {
   const asset = assetAt(ctx, assetIndex);
   const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
@@ -1249,7 +1266,7 @@ async function buildSwapAssetToSolIx(
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
-      redeemState: deriveRedeemStatePda(user, ctx.vaultId, network),
+      redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       user,
     } as never)
     .remainingAccounts(remaining)
@@ -1266,9 +1283,9 @@ export async function swapAssetToSol(
   user: PublicKey,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const ix = await buildSwapAssetToSolIx(connection, program, ctx, assetIndex, user, minWsolOut, network);
+  const ix = await buildSwapAssetToSolIx(connection, program, ctx, assetIndex, user, minWsolOut);
   const sig = await sendV0(connection, wallet, [ix]);
   return { tx: sig, link: solscanLink(sig, network) };
 }
@@ -1282,7 +1299,6 @@ async function buildSwapSolToUsdcIx(
   wsolAmount: BN,
   minUsdcOut: BN,
   user: PublicKey,
-  network: Network,
 ): Promise<TransactionInstruction> {
   const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
   const pool = await fetchPoolCtx(connection, requireUsdcSolPool(ctx));
@@ -1294,7 +1310,7 @@ async function buildSwapSolToUsdcIx(
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
-      redeemState: deriveRedeemStatePda(user, ctx.vaultId, network),
+      redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       usdcVault: ctx.usdcVault,
       user,
       ...whirlpoolUsdcSolAccounts(pool, owners),
@@ -1313,10 +1329,10 @@ export async function swapSolToUsdc(
   user: PublicKey,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const ix = await buildSwapSolToUsdcIx(
-    connection, program, ctx, assetIndex, wsolAmount, minUsdcOut, user, network,
+    connection, program, ctx, assetIndex, wsolAmount, minUsdcOut, user,
   );
   const sig = await sendV0(connection, wallet, [ix]);
   return { tx: sig, link: solscanLink(sig, network) };
@@ -1330,7 +1346,6 @@ async function buildSwapAssetToUsdcIx(
   assetIndex: number,
   user: PublicKey,
   minUsdcOut: BN,
-  network: Network,
 ): Promise<TransactionInstruction> {
   const asset = assetAt(ctx, assetIndex);
   const assetAta = asset.vaultAssetAtaKey;
@@ -1348,7 +1363,7 @@ async function buildSwapAssetToUsdcIx(
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
-      redeemState: deriveRedeemStatePda(user, ctx.vaultId, network),
+      redeemState: deriveRedeemStatePda(user, ctx.vaultId),
       usdcVault: ctx.usdcVault,
       user,
     } as never)
@@ -1366,9 +1381,9 @@ export async function swapAssetToUsdc(
   user: PublicKey,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const ix = await buildSwapAssetToUsdcIx(connection, program, ctx, assetIndex, user, minUsdcOut, network);
+  const ix = await buildSwapAssetToUsdcIx(connection, program, ctx, assetIndex, user, minUsdcOut);
   const sig = await sendV0(connection, wallet, [ix]);
   return { tx: sig, link: solscanLink(sig, network) };
 }
@@ -1463,13 +1478,13 @@ export async function depositAndDeploy(
   altAddress: string | null | undefined,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const lut = await resolveVaultAlt(connection, altAddress);
 
   const ixs: TransactionInstruction[] = [
     ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
-    ...(await buildDepositIxs(connection, program, ctx, wallet.publicKey, usdcAmount, minSharesOut, network)),
+    ...(await buildDepositIxs(connection, program, ctx, wallet.publicKey, usdcAmount, minSharesOut)),
     ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
   ];
 
@@ -1488,7 +1503,7 @@ export async function deployPendingSwaps(
   altAddress: string | null | undefined,
   network: Network,
 ) {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const vault = await (program.account as any).vault.fetch(ctx.vaultPda);
   const pendingUsdc = BigInt(vault.totalPendingUsdc.toString());
@@ -1523,11 +1538,10 @@ async function tryFetchRedeemState(
   program: ReturnType<typeof createProgram>,
   user: PublicKey,
   vaultId: number,
-  network: Network,
 ): Promise<RawRedeemState | null> {
   try {
     return await (program.account as any).redeemState.fetch(
-      deriveRedeemStatePda(user, vaultId, network),
+      deriveRedeemStatePda(user, vaultId),
     );
   } catch {
     return null;
@@ -1562,13 +1576,13 @@ export async function redeemAndClaim(
   network: Network,
   onProgress?: ProgressFn,
 ): Promise<RedeemClaimResult> {
-  const program = createProgram(wallet, connection, network);
+  const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const lut = await resolveVaultAlt(connection, altAddress);
   const user = wallet.publicKey;
   const signatures: string[] = [];
 
-  let redeemState = await tryFetchRedeemState(program, user, vaultId, network);
+  let redeemState = await tryFetchRedeemState(program, user, vaultId);
 
   if (!redeemState || redeemState.redeemableShares.isZero()) {
     // Phase 1 — on-chain share balance check, then burn.
@@ -1589,9 +1603,9 @@ export async function redeemAndClaim(
     }
 
     onProgress?.('Burning shares (request_redeem)…');
-    const ixs = await buildRequestRedeemIxs(program, ctx, user, shares, network);
+    const ixs = await buildRequestRedeemIxs(program, ctx, user, shares);
     signatures.push(await sendV0(connection, wallet, ixs, lut));
-    redeemState = await tryFetchRedeemState(program, user, vaultId, network);
+    redeemState = await tryFetchRedeemState(program, user, vaultId);
     if (!redeemState) throw new Error('RedeemState not found after request_redeem.');
   }
 
@@ -1618,24 +1632,24 @@ export async function redeemAndClaim(
 
     if (asset.mint.equals(WSOL_MINT)) {
       usdcLegIxs.push(
-        await buildSwapSolToUsdcIx(connection, program, ctx, i, amountIn, new BN(0), user, network),
+        await buildSwapSolToUsdcIx(connection, program, ctx, i, amountIn, new BN(0), user),
       );
     } else if (asset.route === 'ViaSol') {
       onProgress?.(`Swapping asset ${i + 1}/${redeemState.numAssets} → wSOL…`);
       const before = await vaultWsolBalance(connection, ctx);
-      const legIx = await buildSwapAssetToSolIx(connection, program, ctx, i, user, new BN(0), network);
+      const legIx = await buildSwapAssetToSolIx(connection, program, ctx, i, user, new BN(0));
       signatures.push(await sendV0(connection, wallet, [legIx], lut));
       const received = (await vaultWsolBalance(connection, ctx)) - before;
       if (received > 0n) {
         usdcLegIxs.push(
           await buildSwapSolToUsdcIx(
-            connection, program, ctx, i, new BN(received.toString()), new BN(0), user, network,
+            connection, program, ctx, i, new BN(received.toString()), new BN(0), user,
           ),
         );
       }
     } else {
       usdcLegIxs.push(
-        await buildSwapAssetToUsdcIx(connection, program, ctx, i, user, new BN(0), network),
+        await buildSwapAssetToUsdcIx(connection, program, ctx, i, user, new BN(0)),
       );
     }
   }
@@ -1647,7 +1661,7 @@ export async function redeemAndClaim(
 
   // Phase 3 — claim (program re-checks unlock_time and pending_usdc > 0).
   onProgress?.('Claiming payout…');
-  const claimIxs = await buildClaimIxs(connection, program, ctx, user, network);
+  const claimIxs = await buildClaimIxs(connection, program, ctx, user);
   signatures.push(await sendV0(connection, wallet, claimIxs, lut));
 
   return {
@@ -1667,12 +1681,9 @@ export interface GlobalStateView {
   totalAssets: string;
 }
 
-export async function getGlobalState(
-  connection: Connection,
-  network: Network = 'mainnet',
-): Promise<GlobalStateView> {
-  const program = createProgram(createDummyWallet(), connection, network);
-  const pda = deriveGlobalStatePda(network);
+export async function getGlobalState(connection: Connection): Promise<GlobalStateView> {
+  const program = createProgram(createDummyWallet(), connection);
+  const pda = deriveGlobalStatePda();
   const gs = await (program.account as any).globalState.fetch(pda);
   return {
     isEmergency: gs.isEmergency,
@@ -1707,7 +1718,7 @@ export async function getVaultState(
   network: Network = 'mainnet',
 ): Promise<VaultStateView> {
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const program = createProgram(createDummyWallet(), connection, network);
+  const program = createProgram(createDummyWallet(), connection);
   const vault = await (program.account as any).vault.fetch(ctx.vaultPda);
   const pausedRaw = vault.paused as number | boolean;
   const adminLockedRaw = vault.adminLocked as number | boolean;
@@ -1742,7 +1753,7 @@ export async function getTotalNavView(
   vaultId: number = DEFAULT_VAULT_ID,
   network: Network = 'mainnet',
 ): Promise<NavView> {
-  const program = createProgram(createDummyWallet(), connection, network);
+  const program = createProgram(createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
 
   const result = await (program.methods as any)
@@ -1771,12 +1782,12 @@ export async function previewDeposit(
   usdcAmount: BN,
   network: Network = 'mainnet',
 ): Promise<PreviewDepositResult> {
-  const program = createProgram(createDummyWallet(), connection, network);
+  const program = createProgram(createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
 
   const result = await (program.methods as any)
     .previewDeposit(new BN(vaultId), usdcAmount)
-    .accounts({ globalState: deriveGlobalStatePda(network), vault: ctx.vaultPda } as never)
+    .accounts({ globalState: deriveGlobalStatePda(), vault: ctx.vaultPda } as never)
     .remainingAccounts(await navRemainingAccounts(connection, ctx))
     .view();
 
@@ -1801,12 +1812,12 @@ export async function previewRedeem(
   shares: BN,
   network: Network = 'mainnet',
 ): Promise<PreviewRedeemResult> {
-  const program = createProgram(createDummyWallet(), connection, network);
+  const program = createProgram(createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
 
   const result = await (program.methods as any)
     .previewRedeem(new BN(vaultId), shares)
-    .accounts({ globalState: deriveGlobalStatePda(network), vault: ctx.vaultPda } as never)
+    .accounts({ globalState: deriveGlobalStatePda(), vault: ctx.vaultPda } as never)
     .remainingAccounts(await navRemainingAccounts(connection, ctx))
     .view();
 
@@ -1843,7 +1854,7 @@ export async function getUserPosition(
   user: PublicKey,
   network: Network = 'mainnet',
 ): Promise<UserPosition> {
-  const program = createProgram(createDummyWallet(), connection, network);
+  const program = createProgram(createDummyWallet(), connection);
   const { vaultPda, sharesMint } = deriveVaultPdas(vaultId, network);
   const userShareAta = getAssociatedTokenAddressSync(sharesMint, user, false, TOKEN_2022_PROGRAM_ID);
 
@@ -1855,7 +1866,7 @@ export async function getUserPosition(
     // ata may not exist
   }
 
-  const userInfoPda = deriveUserInfoPda(vaultPda, user, network);
+  const userInfoPda = deriveUserInfoPda(vaultPda, user);
   let userInfoData = null;
   try {
     userInfoData = await (program.account as any).userInfo.fetch(userInfoPda);
@@ -1863,7 +1874,7 @@ export async function getUserPosition(
     // not created yet
   }
 
-  const redeemPda = deriveRedeemStatePda(user, vaultId, network);
+  const redeemPda = deriveRedeemStatePda(user, vaultId);
   let redeemData = null;
   try {
     redeemData = await (program.account as any).redeemState.fetch(redeemPda);

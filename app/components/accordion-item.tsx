@@ -1,10 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import type { Network } from '@/lib/cvault';
+import { PublicKey } from '@solana/web3.js';
+import type { Connection } from '@solana/web3.js';
+import type { AssetRoute, Network } from '@/lib/cvault';
 import { fetchVaults, FieldError, type VaultRecord } from '@/lib/registryClient';
+import { checkPoolExists } from '@/lib/poolExists';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import {
   REQUIRES_WALLET,
@@ -19,6 +22,63 @@ import {
   outputPanelClass,
   selectClass,
 } from './ui-classes';
+
+type PoolCheckState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'found' }
+  | { status: 'not-found'; message: string };
+
+/** Debounced live existence check for the pool address field on Create asset.
+ *  Not the source of truth — execute-vault-function.ts re-checks before
+ *  signing — this is purely so a bad address is obvious before submit. */
+function usePoolCheck(
+  connection: Connection,
+  poolAddress: string | undefined,
+  dexKind: 'whirlpool' | 'dammV2',
+  route: AssetRoute,
+  network: Network,
+): PoolCheckState {
+  const [state, setState] = useState<PoolCheckState>({ status: 'idle' });
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    const trimmed = poolAddress?.trim() ?? '';
+    if (!trimmed) {
+      setState({ status: 'idle' });
+      return;
+    }
+
+    let pool: PublicKey;
+    try {
+      pool = new PublicKey(trimmed);
+    } catch {
+      setState({ status: 'not-found', message: 'Not a valid Solana address.' });
+      return;
+    }
+
+    const id = ++requestId.current;
+    setState({ status: 'checking' });
+    const timer = setTimeout(() => {
+      checkPoolExists(connection, pool, dexKind, route, network)
+        .then((result) => {
+          if (requestId.current !== id) return;
+          setState(result.ok ? { status: 'found' } : { status: 'not-found', message: result.message });
+        })
+        .catch((err) => {
+          if (requestId.current !== id) return;
+          setState({
+            status: 'not-found',
+            message: err instanceof Error ? err.message : 'Could not reach the pool account.',
+          });
+        });
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [connection, poolAddress, dexKind, route, network]);
+
+  return state;
+}
 
 export function AccordionItem({
   fn,
@@ -49,6 +109,15 @@ export function AccordionItem({
   const style = SECTION_STYLE[section];
   const needsWallet = REQUIRES_WALLET.has(fn.id);
   const hasVaultIdField = fn.fields.some((field) => field.name === 'vault_id');
+  const hasPoolAddressField = fn.fields.some((field) => field.name === 'pool_address');
+
+  const poolCheck = usePoolCheck(
+    connection,
+    hasPoolAddressField ? values.pool_address : undefined,
+    values.price_dex_kind === '1' ? 'dammV2' : 'whirlpool',
+    values.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
+    network,
+  );
 
   // Vault ID is picked from the vaults this wallet owns, not typed by hand —
   // fetched from Supabase (single source of truth for what exists) and
@@ -286,6 +355,21 @@ export function AccordionItem({
                     {fieldError && (
                       <p className="mt-1.5 font-mono text-xs leading-relaxed text-destructive">
                         {fieldError}
+                      </p>
+                    )}
+                    {!fieldError && field.name === 'pool_address' && poolCheck.status !== 'idle' && (
+                      <p
+                        className={`mt-1.5 font-mono text-xs leading-relaxed ${
+                          poolCheck.status === 'not-found'
+                            ? 'text-destructive'
+                            : poolCheck.status === 'found'
+                              ? 'text-accent'
+                              : 'text-muted-foreground'
+                        }`}
+                      >
+                        {poolCheck.status === 'checking' && 'Checking pool…'}
+                        {poolCheck.status === 'found' && '✓ Pool found on-chain.'}
+                        {poolCheck.status === 'not-found' && poolCheck.message}
                       </p>
                     )}
                     {field.hint && field.name !== 'assets_json' && (

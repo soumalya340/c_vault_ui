@@ -3,9 +3,12 @@ import { PublicKey } from '@solana/web3.js';
 /** Local copy of app/providers.tsx's Network type — kept dependency-free to avoid a cycle. */
 export type Network = 'devnet' | 'mainnet';
 
-/** Mainnet deployment — the long-standing defaults, kept as bare constants for callers that don't yet thread network through. */
+/**
+ * c_vault program id — same on devnet and mainnet (and in the IDL).
+ * Old id was 2YW9wGokqo321EtDNWWH2CSQxFiJz3uMoNxa9dgbHn2P — do not use for PDAs.
+ */
 export const C_VAULT_PROGRAM_ID = new PublicKey(
-  '2YW9wGokqo321EtDNWWH2CSQxFiJz3uMoNxa9dgbHn2P',
+  '7wcJJoT1d1kSUkc3HHvH2DG1cVvDXm6psLwe2pHgdQUk',
 );
 
 export const ADMIN_PUBKEY = new PublicKey(
@@ -26,17 +29,14 @@ export const REDEEM_SEED = Buffer.from('redeem');
 export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
 /**
- * mainnet and devnet are separate on-chain deployments of c_vault (different
- * program id, different USDC mint) — every PDA derivation and Program()
- * construction must key off this map rather than the bare constants above.
+ * Per-network values only. Program id is the constant C_VAULT_PROGRAM_ID
+ * (same on mainnet and devnet); only the USDC mint differs by cluster.
  */
-export const NETWORK_CONSTANTS: Record<Network, { programId: PublicKey; usdcMint: PublicKey }> = {
+export const NETWORK_CONSTANTS: Record<Network, { usdcMint: PublicKey }> = {
   mainnet: {
-    programId: C_VAULT_PROGRAM_ID,
     usdcMint: USDC_MINT,
   },
   devnet: {
-    programId: new PublicKey('7wcJJoT1d1kSUkc3HHvH2DG1cVvDXm6psLwe2pHgdQUk'),
     usdcMint: new PublicKey('CBh1CYgXrqK48NPKwCYe91fiUv66w9K2dBcjsKheaP23'),
   },
 };

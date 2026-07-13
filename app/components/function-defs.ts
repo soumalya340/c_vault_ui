@@ -94,6 +94,15 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     fields: [VAULT_ID_FIELD],
     submitLabel: 'Fetch asset balances',
   },
+  {
+    id: 'view_asset_state',
+    number: '08',
+    title: 'Asset state',
+    description:
+      'Read a single admin-listed AssetInfo account by asset id: mint, pools, price source, route, decimals, active flag.',
+    fields: [{ name: 'asset_id', label: 'Asset ID', type: 'number', placeholder: '0' }],
+    submitLabel: 'Fetch asset',
+  },
 ];
 
 /** Vault Ops №02+ — every non-create vault operation comes from vault_ops.rs. */
@@ -128,26 +137,6 @@ export const VAULT_OPS_FUNCTIONS: FunctionDef[] = [
       { name: 'fee_recipient', label: 'Fee recipient', placeholder: ADMIN_PUBKEY.toBase58() },
     ],
     submitLabel: 'Update recipient',
-  },
-  {
-    id: 'set_vault_emergency_lock',
-    number: '04',
-    title: 'Set vault emergency lock',
-    description:
-      'Admin-only: lock or unlock deposits for one specific vault, independent of the vault manager’s own pause. Redemptions always remain open.',
-    fields: [
-      VAULT_ID_FIELD,
-      {
-        name: 'locked',
-        label: 'Locked',
-        type: 'select',
-        options: [
-          { label: 'true', value: 'true' },
-          { label: 'false', value: 'false' },
-        ],
-      },
-    ],
-    submitLabel: 'Update lock',
   },
 ];
 
@@ -203,7 +192,7 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
       'List a new global asset. Runs pool/TVL/ownership validation once at listing time; vaults reference it by id afterward.',
     fields: [
       { name: 'mint', label: 'Mint', wide: true },
-      { name: 'pool_address', label: 'Swap pool address', wide: true },
+      { name: 'pool_address', label: 'Pool address', wide: true },
       {
         name: 'pyth_feed_id',
         label: 'Pyth feed ID (64-char hex, blank = zero feed)',
@@ -230,21 +219,11 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
       },
       {
         name: 'price_dex_kind',
-        label: 'Price DEX kind (ignored for Pyth)',
+        label: 'DEX Type',
         type: 'select',
         options: [
           { label: 'Whirlpool', value: '0' },
           { label: 'DammV2', value: '1' },
-        ],
-      },
-      { name: 'price_pool_address', label: 'Price pool address (DEX only)', wide: true },
-      {
-        name: 'swap_kind',
-        label: 'Swap venue',
-        type: 'select',
-        options: [
-          { label: 'Whirlpool', value: 'whirlpool' },
-          { label: 'DammV2', value: 'dammV2' },
         ],
       },
       {
@@ -279,6 +258,38 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
     ],
     submitLabel: 'Update asset flag',
   },
+  {
+    id: 'set_vault_emergency_lock',
+    number: '07',
+    title: 'Set vault emergency lock',
+    description:
+      'Lock or unlock deposits for one specific vault, independent of the vault manager’s own pause. Redemptions always remain open.',
+    fields: [
+      VAULT_ID_FIELD,
+      {
+        name: 'locked',
+        label: 'Locked',
+        type: 'select',
+        options: [
+          { label: 'true', value: 'true' },
+          { label: 'false', value: 'false' },
+        ],
+      },
+    ],
+    submitLabel: 'Update lock',
+  },
+  {
+    id: 'update_dex_twap',
+    number: '08',
+    title: 'Update DEX TWAP',
+    description:
+      'Keeper-only: push a live price observation into TWAP for one DEX-priced asset. Rejected if the asset is Pyth-priced or the connected wallet isn’t the configured TWAP keeper.',
+    fields: [
+      { name: 'asset_id', label: 'Asset ID', type: 'number', placeholder: '0' },
+      { name: 'twap_live_state', label: 'Live price (x64 fixed-point)', type: 'number', placeholder: '0' },
+    ],
+    submitLabel: 'Push TWAP observation',
+  },
 ];
 
 export const REQUIRES_WALLET = new Set([
@@ -291,6 +302,7 @@ export const REQUIRES_WALLET = new Set([
   'set_twap_keeper',
   'create_asset',
   'set_asset_active',
+  'update_dex_twap',
 ]);
 
 export const SECTION_STYLE: Record<SectionId, { accent: string; glow: string }> = {
