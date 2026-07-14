@@ -110,31 +110,39 @@ export async function executeVaultFunction(
     case 'view_vault_state':
       return getVaultState(connection, id, net);
     case 'view_nav':
-      return getTotalNavView(connection, id, net);
+      try {
+        // Pass wallet so missing vault ATAs can be created (CLI does this too).
+        return await getTotalNavView(connection, id, net, anchorWallet);
+      } catch (err) {
+        throw new Error(describePreviewError(err));
+      }
     case 'preview_deposit':
       try {
-        return await previewDeposit(connection, id, bn(v.usdc_amount), net);
+        return await previewDeposit(connection, id, bn(v.usdc_amount), net, anchorWallet);
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
     case 'preview_redeem':
       try {
-        return await previewRedeem(connection, id, bn(v.shares), net);
+        return await previewRedeem(connection, id, bn(v.shares), net, anchorWallet);
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
     case 'view_vault_asset_balances': {
-      const [balances, tokens] = await Promise.all([
+      const [balances, tokens, registry] = await Promise.all([
         getVaultAssetBalances(connection, id, net),
         fetchTokens().catch(() => []),
+        fetchAssetRegistry(net).catch(() => []),
       ]);
       const symbolByMint = new Map(tokens.map((t) => [t.mint, t.symbol]));
+      for (const entry of registry) {
+        if (entry.asset_name && !symbolByMint.has(entry.mint)) {
+          symbolByMint.set(entry.mint, entry.asset_name);
+        }
+      }
       return balances.map((b) => ({
         asset: symbolByMint.get(b.mint) ?? b.mint,
         balance: b.uiAmount,
-        raw: b.raw,
-        decimals: b.decimals,
-        mint: b.mint,
       }));
     }
     case 'view_my_position':
@@ -183,6 +191,7 @@ export async function executeVaultFunction(
         await saveAssetRegistryEntry({
           network: net,
           asset_id: String(WSOL_ASSET_ID),
+          asset_name: 'Wrapped SOL',
           mint: WSOL_MINT.toBase58(),
           pool_address: poolAddress.toBase58(),
           pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
@@ -294,6 +303,7 @@ export async function executeVaultFunction(
         await saveAssetRegistryEntry({
           network: net,
           asset_id: String(r.assetId),
+          asset_name: '',
           mint: mint.toBase58(),
           pool_address: poolAddress.toBase58(),
           pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
@@ -358,6 +368,17 @@ export async function executeVaultFunction(
 }
 
 export function formatResult(data: unknown): string {
+  if (data == null) return String(data);
   if (typeof data === 'string') return data;
-  return JSON.stringify(data, null, 2);
+  try {
+    const s = JSON.stringify(
+      data,
+      (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
+      2,
+    );
+    // JSON.stringify(undefined) → undefined; never hand React an empty text.
+    return s ?? String(data);
+  } catch {
+    return String(data);
+  }
 }

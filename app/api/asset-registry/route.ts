@@ -10,6 +10,7 @@ import { getDb, type DbNetwork } from "@/lib/db";
  */
 export type AssetRegistryRow = {
   asset_id: string;
+  asset_name: string;
   mint: string;
   pool_address: string;
   pyth_feed_id: string;
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
     const rows = await getDb(network).listRegistry(network);
     const assets: AssetRegistryRow[] = rows.map((r) => ({
       asset_id: r.asset_id,
+      asset_name: r.asset_name,
       mint: r.mint,
       pool_address: r.pool_address,
       pyth_feed_id: r.pyth_feed_id,

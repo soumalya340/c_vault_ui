@@ -100,7 +100,7 @@ export function DepositModal({
     setPreview(null);
     try {
       const raw = parseUnits(amount || '0', baseDecimals);
-      const r = await previewDeposit(connection, vault.vault_id, raw, network);
+      const r = await previewDeposit(connection, vault.vault_id, raw, network, anchorWallet);
       setPreview(
         `≈ ${r.sharesToMint} shares · NAV ${r.totalNav} · price ${r.sharePrice}`,
       );

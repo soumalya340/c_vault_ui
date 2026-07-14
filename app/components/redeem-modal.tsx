@@ -90,7 +90,13 @@ export function RedeemModal({
     setPreviewing(true);
     setPreview(null);
     try {
-      const r = await previewRedeem(connection, vault.vault_id, new BN(shares || '0'), network);
+      const r = await previewRedeem(
+        connection,
+        vault.vault_id,
+        new BN(shares || '0'),
+        network,
+        anchorWallet,
+      );
       setPreview(`≈ ${r.estimatedUsdcValue} base units · ${r.numAssets} assets to swap`);
     } catch (err) {
       setPreview(err instanceof Error ? err.message : String(err));

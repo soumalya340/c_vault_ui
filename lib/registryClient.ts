@@ -17,6 +17,7 @@ export interface TokenOption {
 /** One row from `pre_approved_token_registry` — mirrors the on-chain AssetInfo shape. */
 export interface AssetRegistryEntry {
   asset_id: string;
+  asset_name: string;
   mint: string;
   pool_address: string;
   pyth_feed_id: string;

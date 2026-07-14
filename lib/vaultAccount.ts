@@ -2,13 +2,13 @@
  * Manual decoder for the on-chain zero-copy `Vault` account.
  *
  * Anchor's JS coder does **not** apply rustc `repr(C)` padding for this
- * account (body is 696 bytes with padding after pubkey clusters / fee fields
+ * account (body is 704 bytes with padding after pubkey clusters / fee fields
  * / FundType). `program.account.vault.fetch` therefore mis-reads `num_assets`
  * and `asset_ids` (e.g. reports asset id 1 when the vault only holds id 0).
  *
  * Layout mirrors `deps/c_vault/programs/vault/src/account_state/state.rs`
- * (`#[account(zero_copy(unsafe))] #[repr(C)]`). Field offsets were verified
- * against a live devnet vault account.
+ * (`#[account(zero_copy(unsafe))] #[repr(C)]`). Offsets stay in lockstep with
+ * `c_vault_script/lib/vaultAccount.js`.
  */
 
 import { PublicKey } from '@solana/web3.js';
@@ -28,6 +28,8 @@ export interface DecodedVault {
   sharesMint: PublicKey;
   totalShares: BN;
   totalUsdcValue: BN;
+  /** Genesis baseline share price (PRICE_SCALE). Set once in create_etf. */
+  baselineSharePrice: BN;
   athSharePrice: BN;
   rollingHighPrice: BN;
   rollingWindowStart: BN;
@@ -63,34 +65,35 @@ const OFF = {
   // pad 6 → align u64
   totalShares: 120,
   totalUsdcValue: 128,
-  athSharePrice: 136,
-  rollingHighPrice: 144,
-  rollingWindowStart: 152,
-  totalDeposited: 160,
-  totalWithdrawn: 168,
-  depositFeeBps: 176,
-  redeemFeeBps: 178,
+  baselineSharePrice: 136,
+  athSharePrice: 144,
+  rollingHighPrice: 152,
+  rollingWindowStart: 160,
+  totalDeposited: 168,
+  totalWithdrawn: 176,
+  depositFeeBps: 184,
+  redeemFeeBps: 186,
   // pad 4 → align u64
-  totalPendingUsdc: 184,
-  totalPendingSol: 192,
-  usdcTargetAmount: 200, // [u64; 8]
-  solTargetBps: 264, // [u16; 8]
-  reservedAssets: 280, // [u64; 8]
-  bump: 344,
-  authorityBump: 345,
-  shareMintBump: 346,
-  usdcVaultBump: 347,
-  fundType: 348,
+  totalPendingUsdc: 192,
+  totalPendingSol: 200,
+  usdcTargetAmount: 208, // [u64; 8]
+  solTargetBps: 272, // [u16; 8]
+  reservedAssets: 288, // [u64; 8]
+  bump: 352,
+  authorityBump: 353,
+  shareMintBump: 354,
+  usdcVaultBump: 355,
+  fundType: 356,
   // pad 3 → align u64
-  maxShares: 352,
-  numAssets: 360,
+  maxShares: 360,
+  numAssets: 368,
   // pad 7 → align u64
-  assetIds: 368, // [u64; 8]
-  assetAllocationBps: 432, // [u16; 8]
-  assetAtaAddress: 448, // [Pubkey; 8]
+  assetIds: 376, // [u64; 8]
+  assetAllocationBps: 440, // [u16; 8]
+  assetAtaAddress: 456, // [Pubkey; 8]
 } as const;
 
-const EXPECTED_LEN = DISC + 696; // 704
+const EXPECTED_LEN = DISC + 704; // 712
 
 function u64(data: Buffer, off: number): BN {
   return new BN(data.subarray(off, off + 8), 'le');
@@ -154,6 +157,7 @@ export function decodeVaultAccount(data: Buffer | Uint8Array): DecodedVault {
     sharesMint: pk(buf, OFF.sharesMint),
     totalShares: u64(buf, OFF.totalShares),
     totalUsdcValue: u64(buf, OFF.totalUsdcValue),
+    baselineSharePrice: u64(buf, OFF.baselineSharePrice),
     athSharePrice: u64(buf, OFF.athSharePrice),
     rollingHighPrice: u64(buf, OFF.rollingHighPrice),
     rollingWindowStart: u64(buf, OFF.rollingWindowStart),
