@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import {
   fetchVaultCtx,
@@ -25,6 +25,8 @@ import { RedeemModal } from './redeem-modal';
 import { ErrorModal } from './error-modal';
 import { SECTION_STYLE } from './function-defs';
 import { btnGhostClass, btnPrimaryClass, btnSecondaryClass, panelClass, sectionLabelClass } from './ui-classes';
+
+const VAULTS_PER_PAGE = 8;
 
 /** Human-readable token amount with thousands separators; exact string math. */
 function formatTokenUi(raw: string, decimals: number): string {
@@ -350,6 +352,7 @@ export function VaultsPanel({ network }: { network: Network }) {
   const style = SECTION_STYLE.vaults;
 
   const [vaults, setVaults] = useState<VaultRecord[]>([]);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [depositTarget, setDepositTarget] = useState<VaultRecord | null>(null);
@@ -375,6 +378,24 @@ export function VaultsPanel({ network }: { network: Network }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [network]);
+
+  const totalPages = Math.max(1, Math.ceil(vaults.length / VAULTS_PER_PAGE));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pageVaults = useMemo(() => {
+    const start = (page - 1) * VAULTS_PER_PAGE;
+    return vaults.slice(start, start + VAULTS_PER_PAGE);
+  }, [vaults, page]);
+
+  const pageStart = vaults.length === 0 ? 0 : (page - 1) * VAULTS_PER_PAGE + 1;
+  const pageEnd = Math.min(page * VAULTS_PER_PAGE, vaults.length);
 
   // Network-scoped asset registry so mints resolve to asset_name. Failure is
   // non-fatal — resolveAssetLabel still falls back to Pools.md presets.
@@ -446,7 +467,7 @@ export function VaultsPanel({ network }: { network: Network }) {
 
         {!loading && !error && vaults.length > 0 && (
           <div className="flex flex-col divide-y divide-border px-3 py-1 md:px-4">
-            {vaults.map((vault) => (
+            {pageVaults.map((vault) => (
               <div key={vault.vault_address} className="flex flex-col gap-3 px-2 py-4 md:px-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <div className="flex items-baseline gap-4">
@@ -494,6 +515,37 @@ export function VaultsPanel({ network }: { network: Network }) {
                 />
               </div>
             ))}
+          </div>
+        )}
+
+        {!loading && !error && vaults.length > VAULTS_PER_PAGE && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-strong px-5 py-3.5 md:px-6">
+            <span className={`${sectionLabelClass} uppercase`}>
+              Showing {pageStart}–{pageEnd} of {vaults.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className={btnGhostClass}
+                aria-label="Previous page"
+              >
+                Previous
+              </button>
+              <span className="px-2 font-mono text-[11px] tabular-nums tracking-[0.12em] text-muted-foreground">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className={btnSecondaryClass}
+                aria-label="Next page"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </div>
