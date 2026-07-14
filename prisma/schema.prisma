@@ -86,3 +86,16 @@ model AssetPreset {
 
   @@map("asset_presets")
 }
+
+model VaultPreset {
+  vault_num         Int    @id
+  name              String
+  symbol            String
+  theme             String
+  fund_type         String @default("dynamic")
+  deposit_fee_bps   Int    @default(0)
+  redeem_fee_bps    Int    @default(100)
+  assets            String
+
+  @@map("vault_presets")
+}

@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useConnection } from '@solana/wallet-adapter-react';
 import type { Network } from '@/app/providers';
+import { formatSyncStatus, syncRegistryFromChain } from '@/lib/db-sync';
 import { btnGhostClass, fieldLabelClass } from '../ui-classes';
+import { DbPanel, DbRowSkeleton } from './db-panel';
 
 type RegistryRow = {
   asset_id: string;
@@ -31,6 +34,7 @@ function ActiveToggle({
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const toggle = async () => {
     setSaving(true);
@@ -44,6 +48,8 @@ function ActiveToggle({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to toggle active flag.');
       onChanged({ ...row, active: !row.active });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -53,9 +59,12 @@ function ActiveToggle({
 
   return (
     <div className="flex flex-col gap-1">
-      <button type="button" onClick={toggle} disabled={saving} className={btnGhostClass}>
-        {saving ? 'Saving…' : `Set active=${!row.active} (DB flag only)`}
-      </button>
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={toggle} disabled={saving} className={btnGhostClass}>
+          {saving ? 'Saving…' : `Set active=${!row.active} (DB flag only)`}
+        </button>
+        {saved && <span className="font-mono text-[11px] text-accent">Saved.</span>}
+      </div>
       {error && <p className="font-mono text-[11px] text-destructive">{error}</p>}
     </div>
   );
@@ -80,14 +89,16 @@ function RegistryDetail({ row, network, onChanged }: { row: RegistryRow; network
 }
 
 export function DbRegistryTable({ network }: { network: Network }) {
+  const { connection } = useConnection();
   const [rows, setRows] = useState<RegistryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  useEffect(() => {
-    setRows(null);
+  const load = useCallback(() => {
     setError(null);
-    fetch(`/api/asset-registry?network=${network}`)
+    return fetch(`/api/asset-registry?network=${network}`)
       .then((r) => r.json())
       .then((d) => {
         if (d.error) throw new Error(d.error);
@@ -96,33 +107,80 @@ export function DbRegistryTable({ network }: { network: Network }) {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [network]);
 
-  if (error) return <p className="font-mono text-[11px] text-destructive">{error}</p>;
-  if (!rows) return <p className="font-mono text-[11px] text-muted-foreground">Loading…</p>;
-  if (rows.length === 0) return <p className="font-mono text-[11px] text-muted-foreground">No registry entries for {network}.</p>;
+  useEffect(() => {
+    setRows(null);
+    setSyncStatus(null);
+    load();
+  }, [load]);
+
+  const refresh = useCallback(async () => {
+    setSyncing(true);
+    setError(null);
+    try {
+      const report = await syncRegistryFromChain(connection, network);
+      setSyncStatus(formatSyncStatus('asset', report));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSyncStatus(null);
+    } finally {
+      setSyncing(false);
+    }
+  }, [connection, network, load]);
+
+  let body: React.ReactNode;
+  if (error) {
+    body = (
+      <div className="flex flex-col items-start gap-2 px-1 py-2">
+        <p className="font-mono text-[11px] text-destructive">Couldn&rsquo;t load the asset registry — {error}</p>
+        <button type="button" onClick={load} className={btnGhostClass}>
+          Retry
+        </button>
+      </div>
+    );
+  } else if (!rows) {
+    body = <DbRowSkeleton />;
+  } else if (rows.length === 0) {
+    body = (
+      <div className="flex flex-col items-start gap-2 px-1 py-2">
+        <p className="font-mono text-[11px] text-muted-foreground">No registry entries for {network} yet.</p>
+        <button type="button" onClick={refresh} disabled={syncing} className={btnGhostClass}>
+          {syncing ? 'Syncing…' : 'Sync from chain'}
+        </button>
+      </div>
+    );
+  } else {
+    body = (
+      <div className="flex flex-col divide-y divide-border">
+        {rows.map((r) => (
+          <div key={r.asset_id}>
+            <button
+              type="button"
+              onClick={() => setExpanded(expanded === r.asset_id ? null : r.asset_id)}
+              className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foreground/[0.02]"
+              aria-expanded={expanded === r.asset_id}
+            >
+              <span className="font-mono text-[11px] text-foreground">
+                <span className="tabular-nums">#{r.asset_id}</span> · {short(r.mint)} · {r.route} · {r.swap_kind} · active={String(r.active)}
+              </span>
+              <span className={btnGhostClass}>{expanded === r.asset_id ? 'Collapse' : 'Expand'}</span>
+            </button>
+            {expanded === r.asset_id && (
+              <RegistryDetail
+                row={r}
+                network={network}
+                onChanged={(updated) => setRows((prev) => prev!.map((row) => (row.asset_id === updated.asset_id ? updated : row)))}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col divide-y divide-border">
-      {rows.map((r) => (
-        <div key={r.asset_id}>
-          <button
-            type="button"
-            onClick={() => setExpanded(expanded === r.asset_id ? null : r.asset_id)}
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foreground/[0.02]"
-          >
-            <span className="font-mono text-[11px] text-foreground">
-              #{r.asset_id} · {short(r.mint)} · {r.route} · {r.swap_kind} · active={String(r.active)}
-            </span>
-            <span className={btnGhostClass}>{expanded === r.asset_id ? 'Collapse' : 'Expand'}</span>
-          </button>
-          {expanded === r.asset_id && (
-            <RegistryDetail
-              row={r}
-              network={network}
-              onChanged={(updated) => setRows((prev) => prev!.map((row) => (row.asset_id === updated.asset_id ? updated : row)))}
-            />
-          )}
-        </div>
-      ))}
-    </div>
+    <DbPanel title="Asset registry" onRefresh={refresh} refreshing={syncing} status={syncStatus}>
+      {body}
+    </DbPanel>
   );
 }

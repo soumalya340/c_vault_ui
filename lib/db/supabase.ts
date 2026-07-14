@@ -1,8 +1,16 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
-import type { DbDriver, TableColumnInfo, UnifiedRegistryRow, UnifiedVaultRow } from "./types";
+import { allAssetPresetRows, allVaultPresetRows } from "@/lib/presets/seed";
+import type {
+  DbDriver,
+  TableColumnInfo,
+  UnifiedAssetPresetRow,
+  UnifiedRegistryRow,
+  UnifiedVaultPresetRow,
+  UnifiedVaultRow,
+} from "./types";
 
-const TABLE_FALLBACK = ["vaults", "pre_approved_token_registry"];
+const TABLE_FALLBACK = ["vaults", "pre_approved_token_registry", "asset_presets", "vault_presets"];
 
 const REGISTRY_SELECT =
   "asset_id::text, asset_name, network, mint, pool_address, pyth_feed_id, decimals, route, price_source_tag, price_dex_kind, price_pool_address, swap_kind, token_program_tag, active, created_at";
@@ -14,7 +22,52 @@ function wrapMissingColumn(err: unknown): never {
       "Supabase is missing admin-parity columns — run supabase/migration/0004_admin_parity.sql in the Supabase SQL editor.",
     );
   }
+  if (message.includes("asset_presets") || message.includes("vault_presets")) {
+    throw new Error(
+      "Supabase is missing preset tables — run supabase/migration/0005_presets.sql in the Supabase SQL editor.",
+    );
+  }
   throw err instanceof Error ? err : new Error(message);
+}
+
+type SupabaseAssetPresetRow = {
+  preset_key: string;
+  asset_name: string;
+  mint: string;
+  pool_address: string;
+  pyth_feed_id: string;
+  decimals: number;
+  route: "ViaSol" | "DirectUsdc";
+  price_source_tag: number;
+  price_dex_kind: number;
+  swap_kind: "Whirlpool" | "DammV2";
+  token_program_tag: number;
+  aliases: string[] | string;
+};
+
+type SupabaseVaultPresetRow = {
+  vault_num: number;
+  name: string;
+  symbol: string;
+  theme: string;
+  fund_type: "dynamic" | "fixed";
+  deposit_fee_bps: number;
+  redeem_fee_bps: number;
+  assets: UnifiedVaultPresetRow["assets"] | string;
+};
+
+function parseAliases(v: string[] | string): string[] {
+  return typeof v === "string" ? (JSON.parse(v) as string[]) : v;
+}
+
+function toUnifiedAssetPreset(row: SupabaseAssetPresetRow): UnifiedAssetPresetRow {
+  return { ...row, aliases: parseAliases(row.aliases) };
+}
+
+function toUnifiedVaultPreset(row: SupabaseVaultPresetRow): UnifiedVaultPresetRow {
+  const assets =
+    typeof row.assets === "string" ? (JSON.parse(row.assets) as UnifiedVaultPresetRow["assets"]) : row.assets;
+  return { ...row, assets };
 }
 
 type SupabaseVaultRow = {
@@ -194,22 +247,25 @@ export const supabaseDriver: DbDriver = {
 
   async insertRegistryEntry(network, row) {
     const supabase = createServiceClient();
-    const { error } = await supabase.from("pre_approved_token_registry").insert({
-      network,
-      asset_id: Number(row.asset_id),
-      asset_name: row.asset_name,
-      mint: row.mint,
-      pool_address: row.pool_address,
-      pyth_feed_id: row.pyth_feed_id,
-      decimals: row.decimals,
-      route: row.route,
-      price_source_tag: row.price_source_tag,
-      price_dex_kind: row.price_dex_kind,
-      price_pool_address: row.price_pool_address,
-      swap_kind: row.swap_kind,
-      token_program_tag: row.token_program_tag,
-      active: row.active,
-    });
+    const { error } = await supabase.from("pre_approved_token_registry").upsert(
+      {
+        network,
+        asset_id: Number(row.asset_id),
+        asset_name: row.asset_name,
+        mint: row.mint,
+        pool_address: row.pool_address,
+        pyth_feed_id: row.pyth_feed_id,
+        decimals: row.decimals,
+        route: row.route,
+        price_source_tag: row.price_source_tag,
+        price_dex_kind: row.price_dex_kind,
+        price_pool_address: row.price_pool_address,
+        swap_kind: row.swap_kind,
+        token_program_tag: row.token_program_tag,
+        active: row.active,
+      },
+      { onConflict: "network,asset_id" },
+    );
     if (error) wrapMissingColumn(error);
   },
 
@@ -270,6 +326,64 @@ export const supabaseDriver: DbDriver = {
     const { data, error } = await supabase.from(table).select("*").limit(limit);
     if (error) wrapMissingColumn(error);
     return (data ?? []) as Record<string, unknown>[];
+  },
+
+  async listAssetPresets() {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("asset_presets")
+      .select("*")
+      .order("preset_key", { ascending: true });
+    if (error) wrapMissingColumn(error);
+    return ((data ?? []) as SupabaseAssetPresetRow[]).map(toUnifiedAssetPreset);
+  },
+
+  async listVaultPresets() {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("vault_presets")
+      .select("*")
+      .order("vault_num", { ascending: true });
+    if (error) wrapMissingColumn(error);
+    return ((data ?? []) as SupabaseVaultPresetRow[]).map(toUnifiedVaultPreset);
+  },
+
+  async seedPresets() {
+    const supabase = createServiceClient();
+    const assetRows = allAssetPresetRows().map((row) => ({
+      preset_key: row.preset_key,
+      asset_name: row.asset_name,
+      mint: row.mint,
+      pool_address: row.pool_address,
+      pyth_feed_id: row.pyth_feed_id,
+      decimals: row.decimals,
+      route: row.route,
+      price_source_tag: row.price_source_tag,
+      price_dex_kind: row.price_dex_kind,
+      swap_kind: row.swap_kind,
+      token_program_tag: row.token_program_tag,
+      aliases: row.aliases,
+    }));
+    const { error: assetErr } = await supabase.from("asset_presets").upsert(assetRows, { onConflict: "preset_key" });
+    if (assetErr) wrapMissingColumn(assetErr);
+
+    const vaultRows = allVaultPresetRows().map((row) => ({
+      vault_num: row.vault_num,
+      name: row.name,
+      symbol: row.symbol,
+      theme: row.theme,
+      fund_type: row.fund_type,
+      deposit_fee_bps: row.deposit_fee_bps,
+      redeem_fee_bps: row.redeem_fee_bps,
+      assets: row.assets,
+    }));
+    const { error: vaultErr } = await supabase.from("vault_presets").upsert(vaultRows, { onConflict: "vault_num" });
+    if (vaultErr) wrapMissingColumn(vaultErr);
+
+    return {
+      assetPresets: assetRows.length,
+      vaultPresets: vaultRows.length,
+    };
   },
 
   async clearAllData(network) {

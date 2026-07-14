@@ -49,6 +49,38 @@ export interface UnifiedRegistryRow {
   created_at: string | null;
 }
 
+export interface UnifiedAssetPresetRow {
+  preset_key: string;
+  asset_name: string;
+  mint: string;
+  pool_address: string;
+  pyth_feed_id: string;
+  decimals: number;
+  route: "ViaSol" | "DirectUsdc";
+  price_source_tag: number;
+  price_dex_kind: number;
+  swap_kind: "Whirlpool" | "DammV2";
+  token_program_tag: number;
+  aliases: string[];
+}
+
+export interface UnifiedVaultPresetAsset {
+  assetId: number;
+  allocationBps: number;
+  role: string;
+}
+
+export interface UnifiedVaultPresetRow {
+  vault_num: number;
+  name: string;
+  symbol: string;
+  theme: string;
+  fund_type: "dynamic" | "fixed";
+  deposit_fee_bps: number;
+  redeem_fee_bps: number;
+  assets: UnifiedVaultPresetAsset[];
+}
+
 export interface TableColumnInfo {
   cid: number;
   name: string;
@@ -84,6 +116,11 @@ export interface DbDriver {
   /** Full row dump, capped (default 500). */
   tableData(table: string, limit?: number): Promise<Record<string, unknown>[]>;
 
-  /** Deletes vaults + registry rows for the network; returns counts. Schema/tables are kept. */
+  listAssetPresets(): Promise<UnifiedAssetPresetRow[]>;
+  listVaultPresets(): Promise<UnifiedVaultPresetRow[]>;
+  /** Upsert canonical presets from Pools.md / Vault.md (idempotent). */
+  seedPresets(): Promise<{ assetPresets: number; vaultPresets: number }>;
+
+  /** Deletes vaults + asset-registry rows for the network; presets and schema are kept. */
   clearAllData(network: DbNetwork): Promise<{ vaultsDeleted: number; registryDeleted: number }>;
 }

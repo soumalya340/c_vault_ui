@@ -20,10 +20,13 @@ import {
   previewRedeem,
   getUserPosition,
   getVaultAssetBalances,
+  genesisDepositAndDeploy,
   getAssetState,
   describePreviewError,
+  parseUnits,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
+  PRICE_SCALE_DECIMALS,
   DEFAULT_VAULT_ID,
   WSOL_MINT,
   WSOL_ASSET_ID,
@@ -32,7 +35,7 @@ import {
   type Network,
 } from '@/lib/cvault';
 import { WSOL_DECIMALS } from '@/lib/constants';
-import { fetchTokens, fetchAssetRegistry, saveAssetRegistryEntry, FieldError } from '@/lib/registryClient';
+import { fetchTokens, fetchAssetRegistry, saveAssetRegistryEntry, fetchVaults, FieldError } from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
 
 function bn(v: string | undefined, fallback = '0'): BN {
@@ -220,6 +223,25 @@ export async function executeVaultFunction(
     case 'set_emergency': {
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await setEmergency(connection, anchorWallet, v.is_emergency === 'true', net);
+      return { tx: r.tx, solscan: r.link };
+    }
+    case 'genesis_deposit': {
+      if (!anchorWallet) throw new Error('Wallet required');
+      let baselineSharePrice: BN;
+      try {
+        baselineSharePrice = parseUnits(v.baseline_share_price || '0', PRICE_SCALE_DECIMALS);
+      } catch (err) {
+        throw new FieldError(
+          err instanceof Error ? err.message : String(err),
+          'baseline_share_price',
+        );
+      }
+      // The vault's own Address Lookup Table (created alongside it in Create
+      // ETF) is applied automatically — genesis needs the same swap-leg
+      // accounts a deposit does, so there is nothing for the admin to look up.
+      const vaults = await fetchVaults(net).catch(() => []);
+      const altAddress = vaults.find((row) => row.vault_id === id)?.alt_address ?? null;
+      const r = await genesisDepositAndDeploy(connection, anchorWallet, id, baselineSharePrice, altAddress, net);
       return { tx: r.tx, solscan: r.link };
     }
     case 'set_paused': {

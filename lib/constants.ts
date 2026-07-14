@@ -1,16 +1,16 @@
 import { PublicKey } from '@solana/web3.js';
+import idlJson from '@/idl/c_vault.json';
 
 /** Local copy of app/providers.tsx's Network type — kept dependency-free to avoid a cycle. */
 export type Network = 'localhost' | 'mainnet';
 
 /**
- * c_vault program id — same on every cluster (and in the IDL).
+ * c_vault program id — read from the IDL's `address` field (Anchor 0.30+ format) so this
+ * can never drift from what `lib/program.ts`'s `Program` instance resolves at runtime.
  * Prior ids: 7wcJJoT1d1kSUkc3HHvH2DG1cVvDXm6psLwe2pHgdQUk,
  * 2YW9wGokqo321EtDNWWH2CSQxFiJz3uMoNxa9dgbHn2P — do not use for PDAs.
  */
-export const C_VAULT_PROGRAM_ID = new PublicKey(
-  '3ifxGy4phHHAEpomdyyrBx2Bs5vKejbUPqsJ1eGPned2',
-);
+export const C_VAULT_PROGRAM_ID = new PublicKey((idlJson as { address: string }).address);
 
 export const ADMIN_PUBKEY = new PublicKey(
   'cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF',
@@ -136,3 +136,5 @@ export const TOKEN_PROGRAM_TAG_SPL = 0;
 export const TOKEN_PROGRAM_TAG_TOKEN_2022 = 1;
 
 export const PRICE_SCALE = 1_000_000_000;
+/** Decimal places implied by `PRICE_SCALE` — for parseUnits/formatUnits on share prices. */
+export const PRICE_SCALE_DECIMALS = 9;

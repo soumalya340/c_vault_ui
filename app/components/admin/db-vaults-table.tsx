@@ -1,9 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import type { Network } from '@/app/providers';
+import { formatSyncStatus, syncVaultsFromChain } from '@/lib/db-sync';
 import { inputClass, fieldLabelClass, btnGhostClass, btnPrimaryClass } from '../ui-classes';
+import { DbPanel, DbRowSkeleton } from './db-panel';
 
 type VaultRow = {
   vault_address: string;
@@ -54,6 +57,7 @@ function AltEditor({
   const [redeem, setRedeem] = useState(vault.redeem_alt_address ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const save = async () => {
     if (!isValidPubkeyOrBlank(deposit) || !isValidPubkeyOrBlank(redeem)) {
@@ -76,6 +80,8 @@ function AltEditor({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update ALT addresses.');
       onSaved(data.vault);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -86,17 +92,42 @@ function AltEditor({
   return (
     <div className="grid gap-3 md:grid-cols-2">
       <div>
-        <label className={fieldLabelClass}>Deposit ALT address</label>
-        <input className={inputClass} value={deposit} onChange={(e) => setDeposit(e.target.value)} placeholder="blank to clear" />
+        <label className={fieldLabelClass} htmlFor={`deposit-alt-${vault.vault_id}`}>Deposit ALT address</label>
+        <input
+          id={`deposit-alt-${vault.vault_id}`}
+          className={inputClass}
+          value={deposit}
+          onChange={(e) => {
+            setDeposit(e.target.value);
+            setSaved(false);
+          }}
+          placeholder="blank to clear"
+          autoComplete="off"
+          spellCheck={false}
+        />
       </div>
       <div>
-        <label className={fieldLabelClass}>Redeem ALT address</label>
-        <input className={inputClass} value={redeem} onChange={(e) => setRedeem(e.target.value)} placeholder="blank to clear" />
+        <label className={fieldLabelClass} htmlFor={`redeem-alt-${vault.vault_id}`}>Redeem ALT address</label>
+        <input
+          id={`redeem-alt-${vault.vault_id}`}
+          className={inputClass}
+          value={redeem}
+          onChange={(e) => {
+            setRedeem(e.target.value);
+            setSaved(false);
+          }}
+          placeholder="blank to clear"
+          autoComplete="off"
+          spellCheck={false}
+        />
       </div>
       {error && <p className="md:col-span-2 font-mono text-[11px] text-destructive">{error}</p>}
-      <button type="button" onClick={save} disabled={saving} className={`${btnPrimaryClass} md:col-span-2 w-fit`}>
-        {saving ? 'Saving…' : 'Save ALT addresses'}
-      </button>
+      <div className="flex items-center gap-3 md:col-span-2">
+        <button type="button" onClick={save} disabled={saving} className={`${btnPrimaryClass} w-fit`}>
+          {saving ? 'Saving…' : 'Save ALT addresses'}
+        </button>
+        {saved && <span className="font-mono text-[11px] text-accent">Saved.</span>}
+      </div>
     </div>
   );
 }
@@ -120,56 +151,100 @@ function VaultDetail({ vault, network, onUpdated }: { vault: VaultRow; network: 
 }
 
 export function DbVaultsTable({ network }: { network: Network }) {
+  const { connection } = useConnection();
   const [rows, setRows] = useState<VaultRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
 
-  const load = () => {
+  const load = useCallback(() => {
     setError(null);
-    fetch(`/api/vaults?network=${network}`)
+    return fetch(`/api/vaults?network=${network}`)
       .then((r) => r.json())
       .then((d) => {
         if (d.error) throw new Error(d.error);
         setRows(d.vaults);
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  };
+  }, [network]);
 
   useEffect(() => {
     setRows(null);
+    setSyncStatus(null);
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [network]);
+  }, [load]);
 
-  if (error) return <p className="font-mono text-[11px] text-destructive">{error}</p>;
-  if (!rows) return <p className="font-mono text-[11px] text-muted-foreground">Loading…</p>;
-  if (rows.length === 0) return <p className="font-mono text-[11px] text-muted-foreground">No vaults for {network}.</p>;
+  const refresh = useCallback(async () => {
+    setSyncing(true);
+    setError(null);
+    try {
+      const report = await syncVaultsFromChain(connection, network);
+      setSyncStatus(formatSyncStatus('vault', report));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSyncStatus(null);
+    } finally {
+      setSyncing(false);
+    }
+  }, [connection, network, load]);
+
+  let body: React.ReactNode;
+  if (error) {
+    body = (
+      <div className="flex flex-col items-start gap-2 px-1 py-2">
+        <p className="font-mono text-[11px] text-destructive">Couldn&rsquo;t load vaults — {error}</p>
+        <button type="button" onClick={load} className={btnGhostClass}>
+          Retry
+        </button>
+      </div>
+    );
+  } else if (!rows) {
+    body = <DbRowSkeleton />;
+  } else if (rows.length === 0) {
+    body = (
+      <div className="flex flex-col items-start gap-2 px-1 py-2">
+        <p className="font-mono text-[11px] text-muted-foreground">No vaults recorded for {network} yet.</p>
+        <button type="button" onClick={refresh} disabled={syncing} className={btnGhostClass}>
+          {syncing ? 'Syncing…' : 'Sync from chain'}
+        </button>
+      </div>
+    );
+  } else {
+    body = (
+      <div className="flex flex-col divide-y divide-border">
+        {rows.map((v) => (
+          <div key={v.vault_address}>
+            <button
+              type="button"
+              onClick={() => setExpanded(expanded === v.vault_id ? null : v.vault_id)}
+              className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foreground/[0.02]"
+              aria-expanded={expanded === v.vault_id}
+            >
+              <span className="font-mono text-[11px] text-foreground">
+                <span className="tabular-nums">#{v.vault_id}</span> · {v.name} ({v.symbol}) · <span className="tabular-nums">{v.num_assets}</span> assets
+              </span>
+              <span className={btnGhostClass}>{expanded === v.vault_id ? 'Collapse' : 'Expand'}</span>
+            </button>
+            {expanded === v.vault_id && (
+              <VaultDetail
+                vault={v}
+                network={network}
+                onUpdated={(updated) => {
+                  setRows((prev) => prev!.map((r) => (r.vault_id === updated.vault_id ? { ...r, ...updated } : r)));
+                }}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col divide-y divide-border">
-      {rows.map((v) => (
-        <div key={v.vault_address}>
-          <button
-            type="button"
-            onClick={() => setExpanded(expanded === v.vault_id ? null : v.vault_id)}
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foreground/[0.02]"
-          >
-            <span className="font-mono text-[11px] text-foreground">
-              #{v.vault_id} · {v.name} ({v.symbol}) · {v.num_assets} assets
-            </span>
-            <span className={btnGhostClass}>{expanded === v.vault_id ? 'Collapse' : 'Expand'}</span>
-          </button>
-          {expanded === v.vault_id && (
-            <VaultDetail
-              vault={v}
-              network={network}
-              onUpdated={(updated) => {
-                setRows((prev) => prev!.map((r) => (r.vault_id === updated.vault_id ? { ...r, ...updated } : r)));
-              }}
-            />
-          )}
-        </div>
-      ))}
-    </div>
+    <DbPanel title="Vaults" onRefresh={refresh} refreshing={syncing} status={syncStatus}>
+      {body}
+    </DbPanel>
   );
 }

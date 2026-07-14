@@ -5,7 +5,7 @@ import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapte
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
 import type { Connection } from '@solana/web3.js';
-import type { AssetRoute, Network } from '@/lib/cvault';
+import { parseUnits, PRICE_SCALE_DECIMALS, type AssetRoute, type Network } from '@/lib/cvault';
 import { fetchAssetRegistry, FieldError } from '@/lib/registryClient';
 import { checkPoolExists } from '@/lib/poolExists';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
@@ -115,6 +115,17 @@ function usePoolCheck(
   return state;
 }
 
+/** "1.50" → "1,500,000,000" (PRICE_SCALE units), or null while unparseable/empty. */
+function usdToPriceScale(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  try {
+    return parseUnits(trimmed, PRICE_SCALE_DECIMALS).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  } catch {
+    return null;
+  }
+}
+
 type MintCheckState =
   | { status: 'idle' }
   | { status: 'checking' }
@@ -182,6 +193,7 @@ export function AccordionItem({
   } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [openInfo, setOpenInfo] = useState<string | null>(null);
 
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
@@ -354,9 +366,27 @@ export function AccordionItem({
                     return rest;
                   });
                 };
+                const infoOpen = openInfo === field.name;
                 return (
                   <div key={field.name} className={field.wide ? 'sm:col-span-2' : undefined}>
-                    <label className={fieldLabelClass}>{field.label}</label>
+                    <div className="mb-1.5 flex items-baseline gap-1.5">
+                      <label className={`${fieldLabelClass} !mb-0`}>{field.label}</label>
+                      {field.info && (
+                        <button
+                          type="button"
+                          onClick={() => setOpenInfo(infoOpen ? null : field.name)}
+                          aria-expanded={infoOpen}
+                          aria-label={`${infoOpen ? 'Hide' : 'Show'} details for ${field.label}`}
+                          className={`inline-flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border font-mono text-[9px] leading-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                            infoOpen
+                              ? 'border-accent text-accent'
+                              : 'border-border-strong text-muted-foreground hover:border-accent hover:text-accent'
+                          }`}
+                        >
+                          i
+                        </button>
+                      )}
+                    </div>
                     {field.fixed !== undefined ? (
                       <p className="break-all rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-[11px] text-foreground">
                         {resolveFixedValue(field, network)}
@@ -387,6 +417,23 @@ export function AccordionItem({
                         placeholder={field.hint}
                         className={`${fieldInputClass} text-xs`}
                       />
+                    ) : field.type === 'usd' ? (
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm text-muted-foreground">
+                          $
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder={field.placeholder}
+                          value={values[field.name] ?? ''}
+                          onChange={(e) => {
+                            clearFieldError();
+                            setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
+                          }}
+                          className={`${fieldInputClass} pl-6`}
+                        />
+                      </div>
                     ) : (
                       <input
                         type={field.type ?? 'text'}
@@ -398,6 +445,23 @@ export function AccordionItem({
                         }}
                         className={fieldInputClass}
                       />
+                    )}
+                    {infoOpen && field.info && (
+                      <div className="mt-1.5 rounded-[2px] border border-border-strong bg-foreground/[0.03] px-3 py-2.5">
+                        <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
+                          {field.info}
+                        </p>
+                        {field.type === 'usd' && (() => {
+                          const scaled = usdToPriceScale(values[field.name] ?? '');
+                          return (
+                            <p className="mt-2 border-t border-border pt-2 font-mono text-[11px] text-foreground">
+                              {scaled !== null
+                                ? `→ ${scaled} on-chain`
+                                : 'Enter a value above to see the on-chain integer.'}
+                            </p>
+                          );
+                        })()}
+                      </div>
                     )}
                     {fieldError && (
                       <p className="mt-1.5 font-mono text-xs leading-relaxed text-destructive">

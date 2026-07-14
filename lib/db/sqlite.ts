@@ -1,9 +1,23 @@
 import "server-only";
 import { getPrisma } from "./prisma";
-import type { DbDriver, DbNetwork, TableColumnInfo, UnifiedRegistryRow, UnifiedVaultRow } from "./types";
-import type { Vault as PrismaVault, PreApprovedTokenRegistry as PrismaRegistryRow } from "@/lib/generated/prisma";
+import { allAssetPresetRows, allVaultPresetRows } from "@/lib/presets/seed";
+import type {
+  DbDriver,
+  DbNetwork,
+  TableColumnInfo,
+  UnifiedAssetPresetRow,
+  UnifiedRegistryRow,
+  UnifiedVaultPresetRow,
+  UnifiedVaultRow,
+} from "./types";
+import type {
+  AssetPreset as PrismaAssetPreset,
+  Vault as PrismaVault,
+  VaultPreset as PrismaVaultPreset,
+  PreApprovedTokenRegistry as PrismaRegistryRow,
+} from "@/lib/generated/prisma";
 
-const TABLE_ALLOWLIST = ["vaults", "pre_approved_token_registry", "asset_presets"] as const;
+const TABLE_ALLOWLIST = ["vaults", "pre_approved_token_registry", "asset_presets", "vault_presets"] as const;
 
 function wrapMissingDb(err: unknown): never {
   const message = err instanceof Error ? err.message : String(err);
@@ -44,6 +58,36 @@ function toUnifiedVault(row: PrismaVault): UnifiedVaultRow {
     asset_allocation_bps: JSON.parse(row.asset_allocation_bps) as number[],
     num_assets: row.num_assets,
     created_at: row.created_at || null,
+  };
+}
+
+function toUnifiedAssetPreset(row: PrismaAssetPreset): UnifiedAssetPresetRow {
+  return {
+    preset_key: row.preset_key,
+    asset_name: row.asset_name,
+    mint: row.mint,
+    pool_address: row.pool_address,
+    pyth_feed_id: row.pyth_feed_id,
+    decimals: row.decimals,
+    route: row.route as "ViaSol" | "DirectUsdc",
+    price_source_tag: row.price_source_tag,
+    price_dex_kind: row.price_dex_kind,
+    swap_kind: row.swap_kind as "Whirlpool" | "DammV2",
+    token_program_tag: row.token_program_tag,
+    aliases: JSON.parse(row.aliases) as string[],
+  };
+}
+
+function toUnifiedVaultPreset(row: PrismaVaultPreset): UnifiedVaultPresetRow {
+  return {
+    vault_num: row.vault_num,
+    name: row.name,
+    symbol: row.symbol,
+    theme: row.theme,
+    fund_type: row.fund_type as "dynamic" | "fixed",
+    deposit_fee_bps: row.deposit_fee_bps,
+    redeem_fee_bps: row.redeem_fee_bps,
+    assets: JSON.parse(row.assets) as UnifiedVaultPresetRow["assets"],
   };
 }
 
@@ -250,6 +294,87 @@ export const sqliteDriver: DbDriver = {
     return prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT * FROM ${table} LIMIT ${Number(limit)}`,
     );
+  },
+
+  async listAssetPresets() {
+    try {
+      const rows = await getPrisma().assetPreset.findMany({ orderBy: { preset_key: "asc" } });
+      return rows.map(toUnifiedAssetPreset);
+    } catch (err) {
+      wrapMissingDb(err);
+    }
+  },
+
+  async listVaultPresets() {
+    try {
+      const rows = await getPrisma().vaultPreset.findMany({ orderBy: { vault_num: "asc" } });
+      return rows.map(toUnifiedVaultPreset);
+    } catch (err) {
+      wrapMissingDb(err);
+    }
+  },
+
+  async seedPresets() {
+    const prisma = getPrisma();
+    for (const row of allAssetPresetRows()) {
+      await prisma.assetPreset.upsert({
+        where: { preset_key: row.preset_key },
+        create: {
+          preset_key: row.preset_key,
+          asset_name: row.asset_name,
+          mint: row.mint,
+          pool_address: row.pool_address,
+          pyth_feed_id: row.pyth_feed_id,
+          decimals: row.decimals,
+          route: row.route,
+          price_source_tag: row.price_source_tag,
+          price_dex_kind: row.price_dex_kind,
+          swap_kind: row.swap_kind,
+          token_program_tag: row.token_program_tag,
+          aliases: JSON.stringify(row.aliases),
+        },
+        update: {
+          asset_name: row.asset_name,
+          mint: row.mint,
+          pool_address: row.pool_address,
+          pyth_feed_id: row.pyth_feed_id,
+          decimals: row.decimals,
+          route: row.route,
+          price_source_tag: row.price_source_tag,
+          price_dex_kind: row.price_dex_kind,
+          swap_kind: row.swap_kind,
+          token_program_tag: row.token_program_tag,
+          aliases: JSON.stringify(row.aliases),
+        },
+      });
+    }
+    for (const row of allVaultPresetRows()) {
+      await prisma.vaultPreset.upsert({
+        where: { vault_num: row.vault_num },
+        create: {
+          vault_num: row.vault_num,
+          name: row.name,
+          symbol: row.symbol,
+          theme: row.theme,
+          fund_type: row.fund_type,
+          deposit_fee_bps: row.deposit_fee_bps,
+          redeem_fee_bps: row.redeem_fee_bps,
+          assets: JSON.stringify(row.assets),
+        },
+        update: {
+          name: row.name,
+          symbol: row.symbol,
+          theme: row.theme,
+          fund_type: row.fund_type,
+          deposit_fee_bps: row.deposit_fee_bps,
+          redeem_fee_bps: row.redeem_fee_bps,
+          assets: JSON.stringify(row.assets),
+        },
+      });
+    }
+    const assetPresets = (await this.listAssetPresets()).length;
+    const vaultPresets = (await this.listVaultPresets()).length;
+    return { assetPresets, vaultPresets };
   },
 
   async clearAllData(network) {

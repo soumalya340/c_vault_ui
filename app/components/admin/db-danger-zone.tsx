@@ -3,28 +3,22 @@
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import type { Network } from '@/app/providers';
-import { inputClass, fieldLabelClass, panelClass } from '../ui-classes';
+import { inputClass, fieldLabelClass, panelClass, btnGhostClass } from '../ui-classes';
 
+// Mount with `key={network}` at the call site — a network switch should reset every
+// piece of confirm state, and remounting gets that for free instead of a reset effect.
 export function DbDangerZone({ network }: { network: Network }) {
   const { signMessage, publicKey } = useWallet();
   const [confirmText, setConfirmText] = useState('');
-  const [confirmedOnce, setConfirmedOnce] = useState(false);
+  const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ vaultsDeleted: number; registryDeleted: number } | null>(null);
 
   const expectedText = `CLEAR ${network.toUpperCase()}`;
+  const textMatches = confirmText === expectedText;
 
   const runClear = async () => {
-    if (confirmText !== expectedText) {
-      setError(`Type "${expectedText}" exactly to confirm.`);
-      return;
-    }
-    if (!confirmedOnce) {
-      setConfirmedOnce(true);
-      setError('Click again to confirm — this is irreversible.');
-      return;
-    }
     if (!publicKey || !signMessage) {
       setError('Connect a wallet that supports message signing.');
       return;
@@ -45,7 +39,7 @@ export function DbDangerZone({ network }: { network: Network }) {
       if (!res.ok) throw new Error(data.error || 'Clear failed.');
       setResult(data);
       setConfirmText('');
-      setConfirmedOnce(false);
+      setArmed(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -59,36 +53,65 @@ export function DbDangerZone({ network }: { network: Network }) {
         Danger zone
       </p>
       <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-        Deletes vaults + pre_approved_token_registry rows for <strong>{network}</strong> (schema kept).
-        Requires a wallet signature from the admin key.
+        Removes all <strong>Vaults</strong> and <strong>Asset registry</strong> rows for{' '}
+        <strong>{network}</strong> only. Asset presets, vault presets, schema, and every other
+        table are left untouched. Requires a wallet signature from the admin key.
       </p>
       <div className="mt-3 max-w-sm">
-        <label className={fieldLabelClass}>{`Type "${expectedText}" to confirm`}</label>
+        <label className={fieldLabelClass} htmlFor="db-clear-confirm">{`Type "${expectedText}" to confirm`}</label>
         <input
+          id="db-clear-confirm"
           className={inputClass}
           value={confirmText}
           onChange={(e) => {
             setConfirmText(e.target.value);
-            setConfirmedOnce(false);
             setError(null);
           }}
           placeholder={expectedText}
+          autoComplete="off"
+          spellCheck={false}
+          aria-invalid={confirmText.length > 0 && !textMatches}
         />
       </div>
       {error && <p className="mt-2 font-mono text-[11px] text-destructive">{error}</p>}
       {result && (
         <p className="mt-2 font-mono text-[11px] text-foreground">
-          Cleared. vaults={result.vaultsDeleted}, registry={result.registryDeleted}
+          Cleared. vaults={result.vaultsDeleted}, asset registry={result.registryDeleted}
         </p>
       )}
-      <button
-        type="button"
-        onClick={runClear}
-        disabled={busy}
-        className="mt-3 rounded-[2px] border border-destructive bg-destructive px-5 py-2.5 font-mono text-xs font-bold uppercase tracking-[0.14em] text-background transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {busy ? 'Clearing…' : confirmedOnce ? 'Confirm again — irreversible' : `Clear all ${network} data`}
-      </button>
+
+      {!armed ? (
+        <button
+          type="button"
+          onClick={() => setArmed(true)}
+          disabled={!textMatches}
+          className="mt-3 rounded-[2px] border border-destructive bg-destructive px-5 py-2.5 font-mono text-xs font-bold uppercase tracking-[0.14em] text-background transition-[filter] duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          {`Clear vaults + asset registry (${network})`}
+        </button>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-3 border border-destructive/50 bg-destructive/[0.06] px-3 py-2.5">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-destructive">
+            This cannot be undone.
+          </p>
+          <button
+            type="button"
+            onClick={runClear}
+            disabled={busy}
+            className="rounded-[2px] border border-destructive bg-destructive px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.14em] text-background transition-[filter] duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            {busy ? 'Clearing…' : 'Yes, delete permanently'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setArmed(false)}
+            disabled={busy}
+            className={btnGhostClass}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }

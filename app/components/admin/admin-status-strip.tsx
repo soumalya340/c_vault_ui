@@ -30,6 +30,8 @@ export function AdminStatusStrip({ network }: { network: Network }) {
   const [db, setDb] = useState<DbInfo | null>(null);
   const [vaultCount, setVaultCount] = useState<number | null>(null);
   const [registryCount, setRegistryCount] = useState<number | null>(null);
+  const [assetPresetCount, setAssetPresetCount] = useState<number | null>(null);
+  const [vaultPresetCount, setVaultPresetCount] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +58,8 @@ export function AdminStatusStrip({ network }: { network: Network }) {
     setDb(null);
     setVaultCount(null);
     setRegistryCount(null);
+    setAssetPresetCount(null);
+    setVaultPresetCount(null);
     fetch(`/api/admin/db/tables?network=${network}`)
       .then((r) => r.json())
       .then((d) => {
@@ -74,6 +78,15 @@ export function AdminStatusStrip({ network }: { network: Network }) {
         if (!cancelled) setRegistryCount(Array.isArray(d.assets) ? d.assets.length : 0);
       })
       .catch(() => {});
+    fetch(`/api/presets?network=${network}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) {
+          setAssetPresetCount(Array.isArray(d.assetPresets) ? d.assetPresets.length : 0);
+          setVaultPresetCount(Array.isArray(d.vaultPresets) ? d.vaultPresets.length : 0);
+        }
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -85,6 +98,8 @@ export function AdminStatusStrip({ network }: { network: Network }) {
       <Stat label="DB backend" value={db ? db.label : '…'} />
       <Stat label="Vaults" value={vaultCount === null ? '…' : String(vaultCount)} />
       <Stat label="Registry" value={registryCount === null ? '…' : String(registryCount)} />
+      <Stat label="Asset presets" value={assetPresetCount === null ? '…' : String(assetPresetCount)} />
+      <Stat label="Vault presets" value={vaultPresetCount === null ? '…' : String(vaultPresetCount)} />
       <Stat label="Program" value={short(C_VAULT_PROGRAM_ID.toBase58())} />
       <Stat label="Admin" value={short(ADMIN_PUBKEY.toBase58())} />
     </div>

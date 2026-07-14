@@ -11,10 +11,10 @@ function toDbNetwork(v: string | undefined): DbNetwork {
 }
 
 /**
- * Deletes vaults + pre_approved_token_registry rows for the network (schema
- * kept). Requires an ed25519 signature from ADMIN_PUBKEY over
- * `cvault-admin:clear:<network>:<unix-ms>` — see c_vault_script menus/admin.js
- * choice '9' / menus/db.js choice '9' for the CLI-parity operation.
+ * Deletes vaults + asset-registry rows for the network only (presets, schema,
+ * and all other tables untouched). Requires an ed25519 signature from
+ * ADMIN_PUBKEY over `cvault-admin:clear:<network>:<unix-ms>` — see
+ * c_vault_script menus/admin.js choice '9' / menus/db.js choice '9'.
  */
 export async function POST(request: Request) {
   try {

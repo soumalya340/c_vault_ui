@@ -7,10 +7,17 @@ export interface FieldDef {
   name: string;
   label: string;
   placeholder?: string;
-  type?: 'text' | 'number' | 'select';
+  type?: 'text' | 'number' | 'select' | 'usd';
   options?: { label: string; value: string }[];
   hint?: string;
   wide?: boolean;
+  /**
+   * Rendered next to the label as a small "i" mark; click reveals `info` as a
+   * note beneath the field instead of a plain always-visible hint. Use for
+   * detail that rewards a deliberate look (unit conversions, on-chain
+   * mechanics) without cluttering the form by default.
+   */
+  info?: string;
   /**
    * Fixed value rendered read-only instead of an input — informational for
    * the admin; the executor reads the same constant itself. A record picks
@@ -126,8 +133,27 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   },
 ];
 
-/** Vault Ops №02+ — every non-create vault operation comes from vault_ops.rs. */
+/** Vault Ops №01+ — every non-create vault operation comes from vault_ops.rs. */
 export const VAULT_OPS_FUNCTIONS: FunctionDef[] = [
+  {
+    id: 'genesis_deposit',
+    number: '01',
+    title: 'Genesis deposit',
+    description:
+      'One-time seed: admin or vault-manager-only, callable once per vault while total_shares == 0. Deposits a fixed 1 USDC and reverse-prices shares to pin the opening share price, then deploys the seed across the vault’s asset basket in the same transaction. Vault must already exist (Create ETF) with vault asset ATAs resolvable. The vault’s lookup table (if one was created with it) is applied automatically.',
+    fields: [
+      VAULT_ID_FIELD,
+      {
+        name: 'baseline_share_price',
+        label: 'Opening share price',
+        type: 'usd',
+        placeholder: '1.00',
+        info:
+          'Stored on-chain as an integer in PRICE_SCALE units (1e9 per $1) — Solana programs can’t do floating-point math, so every price is a whole number of billionths of a dollar. $1.00 becomes 1,000,000,000. This is the price the first share is minted at; every later share price is computed from it. Valid range: $0.00001–$100,000.',
+      },
+    ],
+    submitLabel: 'Genesis deposit',
+  },
   {
     id: 'set_paused',
     number: '02',

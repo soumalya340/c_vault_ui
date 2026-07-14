@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { getGlobalState, type GlobalStateView } from '@/lib/cvault';
-import { panelClass, btnGhostClass } from '../ui-classes';
+import { panelClass } from '../ui-classes';
 
 function short(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-6)}`;
@@ -13,15 +13,11 @@ export function GlobalStateCard() {
   const { connection } = useConnection();
   const [state, setState] = useState<GlobalStateView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
   const load = useCallback(() => {
-    setLoading(true);
     setError(null);
     getGlobalState(connection)
       .then(setState)
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setLoading(false));
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [connection]);
 
   useEffect(() => {
@@ -30,14 +26,9 @@ export function GlobalStateCard() {
 
   return (
     <div className={`${panelClass} px-5 py-4 md:px-6`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-foreground">
-          Global state
-        </span>
-        <button type="button" onClick={load} className={btnGhostClass}>
-          {loading ? 'Loading…' : 'Refresh'}
-        </button>
-      </div>
+      <span className="font-mono text-[11px] font-bold uppercase tracking-[0.18em] text-foreground">
+        Global state
+      </span>
       {error && (
         <p className="mt-3 font-mono text-[11px] text-destructive">{error}</p>
       )}

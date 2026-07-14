@@ -27,7 +27,7 @@ const WORKSPACES: {
   {
     id: 'db',
     label: 'DB management',
-    detail: 'Vaults · registry · danger',
+    detail: 'Vaults · registry · presets · danger',
     mark: '⊞',
     activeClass: 'bg-seal text-background',
     focusRingClass: 'focus-visible:ring-seal',

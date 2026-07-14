@@ -59,6 +59,7 @@ import {
   TOKEN_PROGRAM_TAG_TOKEN_2022,
   NETWORK_CONSTANTS,
   PRICE_SCALE,
+  PRICE_SCALE_DECIMALS,
   USDC_DECIMALS,
 } from './constants';
 
@@ -77,6 +78,8 @@ export {
   DAMM_V2_PROGRAM_ID,
   WHIRLPOOL_PROGRAM_ID,
   NETWORK_CONSTANTS,
+  PRICE_SCALE,
+  PRICE_SCALE_DECIMALS,
 };
 export {
   deriveGlobalStatePda,
@@ -1812,6 +1815,98 @@ export async function depositAndDeploy(
   const ixs: TransactionInstruction[] = [
     ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
     ...(await buildDepositIxs(connection, program, ctx, wallet.publicKey, usdcAmount, minSharesOut)),
+    ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
+  ];
+
+  const sig = await sendV0(connection, wallet, ixs, lut);
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+
+// ─── Genesis deposit (one-time seed) ─────────────────────────────────────────
+
+/** Idempotent USDC + shares ATAs for the genesis signer. */
+function buildSignerAtaIxs(ctx: VaultChainCtx, authority: PublicKey): TransactionInstruction[] {
+  const authorityUsdc = baseAta(authority, ctx.baseMint);
+  const authorityShares = getAssociatedTokenAddressSync(
+    ctx.sharesMint, authority, false, TOKEN_2022_PROGRAM_ID,
+  );
+  return [
+    createAssociatedTokenAccountIdempotentInstruction(
+      authority, authorityUsdc, authority, ctx.baseMint, TOKEN_PROGRAM_ID,
+    ),
+    createAssociatedTokenAccountIdempotentInstruction(
+      authority, authorityShares, authority, ctx.sharesMint, TOKEN_2022_PROGRAM_ID,
+    ),
+  ];
+}
+
+/**
+ * `genesis_deposit` only — signer ATAs must already exist (built separately
+ * by `buildSignerAtaIxs`). remaining_accounts = AssetInfo PDAs in slot order.
+ */
+async function buildGenesisDepositIx(
+  program: ReturnType<typeof createProgram>,
+  ctx: VaultChainCtx,
+  authority: PublicKey,
+  baselineSharePrice: BN,
+): Promise<TransactionInstruction> {
+  const authorityUsdc = baseAta(authority, ctx.baseMint);
+  const authorityShares = getAssociatedTokenAddressSync(
+    ctx.sharesMint, authority, false, TOKEN_2022_PROGRAM_ID,
+  );
+
+  return (program.methods as any)
+    .genesisDeposit(new BN(ctx.vaultId), baselineSharePrice)
+    .accounts({
+      globalState: deriveGlobalStatePda(),
+      vault: ctx.vaultPda,
+      usdcMint: ctx.baseMint,
+      vaultAuthority: ctx.vaultAuthority,
+      usdcVault: ctx.usdcVault,
+      shareMint: ctx.sharesMint,
+      authorityUsdcAccount: authorityUsdc,
+      authorityShareAccount: authorityShares,
+      authority,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+      baseTokenProgram: TOKEN_PROGRAM_ID,
+      userInfo: deriveUserInfoPda(ctx.vaultPda, authority),
+      systemProgram: SystemProgram.programId,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    } as never)
+    .remainingAccounts(
+      ctx.assets.map((a) => ({
+        pubkey: a.assetInfoPda,
+        isSigner: false,
+        isWritable: false,
+      })),
+    )
+    .instruction();
+}
+
+/**
+ * One-time genesis seed + inflow deploy in ONE v0 transaction (mirrors
+ * `depositAndDeploy`): `[ensure vault ATAs, ensure signer ATAs, genesis_deposit,
+ * swap legs]`. Admin or vault manager only (enforced on-chain); callable once
+ * per vault while `total_shares == 0`.
+ */
+export async function genesisDepositAndDeploy(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  baselineSharePrice: BN,
+  altAddress: string | null | undefined,
+  network: Network,
+  onProgress?: ProgressFn,
+) {
+  const program = createProgram(wallet, connection);
+  const ctx = await fetchVaultCtx(connection, vaultId, network);
+  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+  const lut = await resolveVaultAlt(connection, altAddress);
+
+  const ixs: TransactionInstruction[] = [
+    ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
+    ...buildSignerAtaIxs(ctx, wallet.publicKey),
+    await buildGenesisDepositIx(program, ctx, wallet.publicKey, baselineSharePrice),
     ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
   ];
 
