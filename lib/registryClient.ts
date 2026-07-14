@@ -61,6 +61,22 @@ export interface VaultRecord {
   created_at?: string;
 }
 
+/** One row from `asset_presets` (Pools.md) — the catalogue `create_asset` can fill from. */
+export interface AssetPresetRecord {
+  preset_key: string;
+  asset_name: string;
+  mint: string;
+  pool_address: string;
+  pyth_feed_id: string;
+  decimals: number;
+  route: 'ViaSol' | 'DirectUsdc';
+  price_source_tag: number;
+  price_dex_kind: number;
+  swap_kind: 'Whirlpool' | 'DammV2';
+  token_program_tag: number;
+  aliases: string[];
+}
+
 export interface PoolRecord {
   pool_address: string;
   mint_a: string;
@@ -135,6 +151,13 @@ export async function saveAssetRegistryEntry(
     body: JSON.stringify(row),
   });
   await jsonOrThrow<{ ok: boolean }>(res);
+}
+
+/** Catalogue of known assets (Pools.md), seeded identically on every network. */
+export async function fetchAssetPresets(network: string): Promise<AssetPresetRecord[]> {
+  const res = await fetch(`/api/presets?network=${encodeURIComponent(network)}`);
+  const { assetPresets } = await jsonOrThrow<{ assetPresets: AssetPresetRecord[] }>(res);
+  return assetPresets;
 }
 
 /** Insert (or return existing) mint in `token_registry` when a new token is used. */

@@ -3,17 +3,24 @@
 import { useEffect, useState } from 'react';
 import { BN } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
+import { getMint, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import {
   depositAndDeploy,
   previewDeposit,
   parseUnits,
+  formatUnits,
   fetchMintDecimals,
+  getUserUsdcBalance,
+  deriveVaultPdas,
   describePreviewError,
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import { useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
+import { PRICE_SCALE_DECIMALS } from '@/lib/constants';
+import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { fetchTokens, type VaultRecord } from '@/lib/registryClient';
+import { ErrorModal } from './error-modal';
 import {
   btnGhostClass,
   btnPrimaryClass,
@@ -22,6 +29,14 @@ import {
   inputClass,
   outputPanelClass,
 } from './ui-classes';
+
+/** Human-readable token amount with thousands separators; exact string math. */
+function formatTokenUi(raw: string, decimals: number): string {
+  const ui = formatUnits(raw, decimals);
+  const [whole, frac] = ui.split('.');
+  const wholeFmt = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return frac ? `${wholeFmt}.${frac}` : wholeFmt;
+}
 
 export function DepositModal({
   vault,
@@ -34,9 +49,10 @@ export function DepositModal({
 }) {
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
+  const { publicKey } = useWallet();
 
   const [amount, setAmount] = useState('');
-  const [minSharesOut, setMinSharesOut] = useState('0');
+  const [minSharesOut, setMinSharesOut] = useState('');
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -45,6 +61,8 @@ export function DepositModal({
     text: string;
     solscan?: string;
   } | null>(null);
+  const [lastError, setLastError] = useState<UserFacingError | null>(null);
+  const [errorOpen, setErrorOpen] = useState(false);
 
   // Base-mint metadata for human-readable amounts. Symbol/decimals come from
   // the token registry; decimals fall back to the on-chain mint account.
@@ -54,6 +72,51 @@ export function DepositModal({
   // Quote mint is always network USDC (program constant) — not stored on the
   // vaults row.
   const baseMint = NETWORK_CONSTANTS[network].usdcMint.toBase58();
+
+  // Wallet's USDC balance — what the user can actually deposit.
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [checkingBalance, setCheckingBalance] = useState(false);
+
+  // Vault share-token decimals — needed to show the deposit preview
+  // ("≈ 0.98 BC shares") and the min-shares-out field in human units.
+  const [sharesDecimals, setSharesDecimals] = useState<number | null>(null);
+
+  const refreshUsdcBalance = async () => {
+    if (!publicKey) {
+      setUsdcBalance(null);
+      return;
+    }
+    setCheckingBalance(true);
+    try {
+      const bal = await getUserUsdcBalance(connection, publicKey, network);
+      setUsdcBalance(bal);
+    } catch {
+      setUsdcBalance(null);
+    } finally {
+      setCheckingBalance(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshUsdcBalance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicKey, network]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { sharesMint } = deriveVaultPdas(vault.vault_id, network);
+        const mintInfo = await getMint(connection, sharesMint, undefined, TOKEN_2022_PROGRAM_ID);
+        if (!cancelled) setSharesDecimals(mintInfo.decimals);
+      } catch {
+        if (!cancelled) setSharesDecimals(6);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, vault.vault_id, network]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,8 +146,8 @@ export function DepositModal({
     };
   }, [connection, baseMint]);
 
-  // Live raw-unit echo shown under the amount field, so the raw value the
-  // program receives is always visible.
+  // Live raw-unit echo shown under the amount field — demoted to a small
+  // muted aside; the primary display is always the human-readable amount.
   let rawUnits: string | null = null;
   if (baseDecimals !== null && amount.trim()) {
     try {
@@ -94,6 +157,11 @@ export function DepositModal({
     }
   }
 
+  const usdcBalanceUi =
+    usdcBalance !== null ? formatTokenUi(usdcBalance, baseDecimals ?? 6) : null;
+  const insufficientBalance =
+    usdcBalance !== null && rawUnits !== null && BigInt(rawUnits) > BigInt(usdcBalance);
+
   const handlePreview = async () => {
     if (baseDecimals === null) return;
     setPreviewing(true);
@@ -101,8 +169,12 @@ export function DepositModal({
     try {
       const raw = parseUnits(amount || '0', baseDecimals);
       const r = await previewDeposit(connection, vault.vault_id, raw, network, anchorWallet);
+      const decimals = sharesDecimals ?? 6;
+      const sharesUi = formatTokenUi(r.sharesToMint, decimals);
+      const navUi = formatTokenUi(r.totalNav, baseDecimals);
+      const priceUi = formatTokenUi(r.sharePrice, PRICE_SCALE_DECIMALS);
       setPreview(
-        `≈ ${r.sharesToMint} shares · NAV ${r.totalNav} · price ${r.sharePrice}`,
+        `≈ ${sharesUi} ${vault.symbol} shares · vault NAV $${navUi} · price $${priceUi}/share`,
       );
     } catch (err) {
       setPreview(describePreviewError(err));
@@ -123,6 +195,9 @@ export function DepositModal({
     try {
       if (!amount.trim()) throw new Error('Enter an amount.');
       const rawAmount = parseUnits(amount, baseDecimals);
+      const rawMinShares = minSharesOut.trim()
+        ? parseUnits(minSharesOut.trim(), sharesDecimals ?? 6)
+        : new BN(0);
       // One v0 transaction via the vault's ALT: deposit + all inflow swap
       // legs. No pre-checks — the program enforces everything (Plan.md §9).
       const r = await depositAndDeploy(
@@ -130,7 +205,7 @@ export function DepositModal({
         anchorWallet,
         vault.vault_id,
         rawAmount,
-        new BN(minSharesOut.trim() || '0'),
+        rawMinShares,
         vault.alt_address,
         network,
       );
@@ -139,11 +214,17 @@ export function DepositModal({
         text: `Deposited into vault №${vault.vault_id} — swaps executed in the same transaction.`,
         solscan: r.link,
       });
+      setAmount('');
+      await refreshUsdcBalance();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isRejection =
-        msg.toLowerCase().includes('user rejected') || msg.toLowerCase().includes('rejected the request');
-      setResult({ type: isRejection ? 'info' : 'error', text: isRejection ? 'Transaction cancelled.' : msg });
+      const parsed = parseTxError(err);
+      setLastError(parsed);
+      setErrorOpen(true);
+      setResult({
+        type: parsed.kind === 'info' ? 'info' : 'error',
+        text: parsed.title,
+      });
+      await refreshUsdcBalance();
     } finally {
       setLoading(false);
     }
@@ -151,6 +232,9 @@ export function DepositModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {errorOpen && lastError && (
+        <ErrorModal error={lastError} onClose={() => setErrorOpen(false)} />
+      )}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
         role="dialog"
@@ -173,12 +257,31 @@ export function DepositModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+          {publicKey && (
+            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              wallet balance:{' '}
+              <span className="text-foreground">
+                {checkingBalance ? '…' : usdcBalanceUi !== null ? `${usdcBalanceUi} ${baseSymbol}` : '—'}
+              </span>
+            </p>
+          )}
           <div>
-            <label className={fieldLabelClass}>
-              Amount ({baseSymbol})
-            </label>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <label className={fieldLabelClass}>
+                Amount ({baseSymbol})
+              </label>
+              {publicKey && usdcBalanceUi !== null && usdcBalance !== '0' && (
+                <button
+                  type="button"
+                  onClick={() => baseDecimals !== null && setAmount(formatUnits(usdcBalance!, baseDecimals))}
+                  className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent transition-colors hover:text-foreground"
+                >
+                  Max {usdcBalanceUi}
+                </button>
+              )}
+            </div>
             <input
-              className={inputClass}
+              className={`${inputClass} tabular-nums`}
               type="text"
               inputMode="decimal"
               value={amount}
@@ -187,22 +290,31 @@ export function DepositModal({
               disabled={baseDecimals === null}
               required
             />
-            <p className="mt-1.5 font-mono text-[11px] text-muted-foreground/70">
+            <p
+              className={`mt-1.5 font-mono text-[11px] tabular-nums ${
+                insufficientBalance ? 'text-destructive' : 'text-muted-foreground/70'
+              }`}
+            >
               {baseDecimals === null
                 ? 'Resolving base token decimals…'
-                : rawUnits
-                  ? `= ${rawUnits} base units (${baseDecimals} decimals)`
-                  : `Enter a ${baseSymbol} amount (e.g. 100)`}
+                : insufficientBalance
+                  ? `Exceeds wallet balance (${usdcBalanceUi} ${baseSymbol} available)`
+                  : rawUnits
+                    ? `${rawUnits} raw units (${baseDecimals} decimals)`
+                    : `Enter a ${baseSymbol} amount (e.g. 100)`}
             </p>
           </div>
           <div>
-            <label className={fieldLabelClass}>Min shares out (0 = no slippage check)</label>
+            <label className={fieldLabelClass}>
+              Min shares out ({vault.symbol}) — leave blank to skip the slippage check
+            </label>
             <input
-              className={inputClass}
-              type="number"
+              className={`${inputClass} tabular-nums`}
+              type="text"
+              inputMode="decimal"
               value={minSharesOut}
               onChange={(e) => setMinSharesOut(e.target.value)}
-              placeholder="0"
+              placeholder="0.0"
             />
           </div>
 
@@ -216,13 +328,17 @@ export function DepositModal({
               {previewing ? 'Previewing…' : 'Preview'}
             </button>
             {preview && (
-              <span className="font-mono text-[11px] leading-relaxed text-muted-foreground">
+              <span className="font-mono text-[11px] tabular-nums leading-relaxed text-muted-foreground">
                 {preview}
               </span>
             )}
           </div>
 
-          <button type="submit" disabled={loading || !anchorWallet} className={btnPrimaryClass}>
+          <button
+            type="submit"
+            disabled={loading || !anchorWallet || insufficientBalance}
+            className={btnPrimaryClass}
+          >
             {loading ? 'Processing…' : anchorWallet ? 'Deposit' : 'Connect wallet'}
           </button>
 
@@ -242,6 +358,17 @@ export function DepositModal({
               >
                 <span className="mr-2 text-muted-foreground/50">&gt;</span>
                 {result.text}
+                {result.type === 'error' && lastError && (
+                  <div className="mt-2 border-t border-border pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setErrorOpen(true)}
+                      className="font-mono text-[11px] text-accent underline transition-colors hover:text-foreground"
+                    >
+                      View error details
+                    </button>
+                  </div>
+                )}
                 {result.solscan && (
                   <div className="mt-2 border-t border-border pt-2">
                     <a

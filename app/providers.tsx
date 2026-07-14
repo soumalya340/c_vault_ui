@@ -21,12 +21,28 @@ const NETWORK_STORAGE_KEY = 'cvault-network';
 /** Default to mainnet — program quote mint is mainnet USDC. */
 export const DEFAULT_NETWORK: Network = 'mainnet';
 
+/** True when the page itself is served from a local dev origin. */
+export function isLocalOrigin(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
 export function getStoredNetwork(): Network {
   if (typeof window === 'undefined') return DEFAULT_NETWORK;
   try {
     const saved = window.localStorage.getItem(NETWORK_STORAGE_KEY);
     // Only localhost | mainnet. Legacy values (e.g. 'devnet') fall through.
-    if (saved === 'mainnet' || saved === 'localhost') return saved;
+    // A persisted 'localhost' preference is only honored when the page is
+    // served from a local origin — a deployed site can never reach a local
+    // validator, and a stale 'localhost' value silently routes mainnet
+    // transactions to 127.0.0.1:8899 ("Program is not deployed").
+    if (saved === 'mainnet') return saved;
+    if (saved === 'localhost') {
+      if (isLocalOrigin()) return saved;
+      window.localStorage.setItem(NETWORK_STORAGE_KEY, DEFAULT_NETWORK);
+      return DEFAULT_NETWORK;
+    }
   } catch {
     // ignore storage failures
   }

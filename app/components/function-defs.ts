@@ -257,6 +257,13 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
       'List a new global asset. Pool address is verified live with the Orca Whirlpools SDK or Meteora DAMM v2 (CpAmm) SDK — pick DEX Type to match the pool. The pool must be this mint paired with wSOL (ViaSol) or network USDC (DirectUsdc).',
     fields: [
       {
+        name: 'asset_name',
+        label: 'Asset name',
+        placeholder: 'e.g. Wrapped BTC',
+        wide: true,
+        hint: 'Display name stored in the registry. Free text — if you pick a preset (or paste a known mint), this is filled from the preset catalog.',
+      },
+      {
         name: 'mint',
         label: 'Mint',
         wide: true,

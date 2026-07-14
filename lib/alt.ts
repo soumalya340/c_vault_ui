@@ -10,6 +10,7 @@ import {
   ComputeBudgetProgram,
   Connection,
   PublicKey,
+  SendTransactionError,
   Transaction,
   TransactionInstruction,
   TransactionMessage,
@@ -24,6 +25,7 @@ import {
 import { SystemProgram } from '@solana/web3.js';
 
 import {
+  C_VAULT_PROGRAM_ID,
   WHIRLPOOL_PROGRAM_ID,
   DAMM_V2_PROGRAM_ID,
   DAMM_V2_POOL_AUTHORITY,
@@ -34,6 +36,28 @@ import {
 import type { PoolCtx } from './whirlpool';
 import type { DammPoolCtx } from './damm';
 import { confirmBySignaturePolling } from './confirm';
+import { probeClusterHealth } from './clusterHealth';
+
+function isLocalRpc(connection: Connection): boolean {
+  const endpoint = connection.rpcEndpoint ?? '';
+  return /127\.0\.0\.1|localhost/.test(endpoint);
+}
+
+async function assertLocalProgramDeployed(connection: Connection): Promise<void> {
+  const health = await probeClusterHealth(connection);
+  const programShort = `${C_VAULT_PROGRAM_ID.toBase58().slice(0, 8)}…`;
+  if (!health.rpcOnline) {
+    throw new Error(
+      `Local validator is offline (${connection.rpcEndpoint}). Start Surfpool or solana-test-validator, then recheck in the nav.`,
+    );
+  }
+  if (!health.programDeployed) {
+    throw new Error(
+      `c_vault program (${programShort}) is not deployed on your local validator (slot ${health.slot ?? '—'}). ` +
+        'Deploy from `c_vault/` (`anchor build` then `solana program deploy`), or switch the UI network to mainnet.',
+    );
+  }
+}
 
 const EXTEND_BATCH = 20;
 
@@ -184,6 +208,10 @@ export async function sendV0(
   ixs: TransactionInstruction[],
   lut?: AddressLookupTableAccount | null,
 ): Promise<string> {
+  if (isLocalRpc(connection)) {
+    await assertLocalProgramDeployed(connection);
+  }
+
   const latest = await connection.getLatestBlockhash('confirmed');
   const message = new TransactionMessage({
     payerKey: wallet.publicKey,
@@ -196,10 +224,20 @@ export async function sendV0(
 
   const tx = new VersionedTransaction(message);
   const signed = (await wallet.signTransaction(tx)) as VersionedTransaction;
-  const sig = await connection.sendTransaction(signed, {
-    skipPreflight: false,
-    maxRetries: 5,
-  });
+  let sig: string;
+  try {
+    sig = await connection.sendTransaction(signed, {
+      skipPreflight: false,
+      maxRetries: 5,
+    });
+  } catch (err) {
+    if (err instanceof SendTransactionError) {
+      const logs = err.logs?.length ? err.logs : undefined;
+      const detail = logs?.length ? `\nLogs:\n${logs.join('\n')}` : '';
+      throw new Error(`${err.message}${detail}`);
+    }
+    throw err;
+  }
   // Poll signature status instead of relying on the websocket subscription —
   // the public devnet RPC drops those under load, which surfaces as the 30s
   // "not confirmed / unknown if it succeeded" error even when the tx landed.

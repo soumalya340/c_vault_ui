@@ -26,7 +26,9 @@ import {
   saveVault,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
+import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { SECTION_STYLE } from './function-defs';
+import { ErrorModal } from './error-modal';
 import {
   btnGhostClass,
   btnPrimaryClass,
@@ -91,6 +93,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
     text: string;
     solscan?: string;
   } | null>(null);
+  const [lastError, setLastError] = useState<UserFacingError | null>(null);
+  const [errorOpen, setErrorOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -306,13 +310,12 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         solscan: created.tx ? created.link : undefined,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isRejection =
-        msg.toLowerCase().includes('user rejected') ||
-        msg.toLowerCase().includes('rejected the request');
+      const parsed = parseTxError(err);
+      setLastError(parsed);
+      setErrorOpen(true);
       setResult({
-        type: isRejection ? 'info' : 'error',
-        text: isRejection ? 'Transaction cancelled.' : msg,
+        type: parsed.kind === 'info' ? 'info' : 'error',
+        text: parsed.title,
       });
     } finally {
       setStatus(null);
@@ -322,6 +325,9 @@ export function CreateEtfPanel({ network }: { network: Network }) {
 
   return (
     <section aria-label="Create ETF vault" className={`${panelClass} overflow-hidden`}>
+      {errorOpen && lastError && (
+        <ErrorModal error={lastError} onClose={() => setErrorOpen(false)} />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">
         <span
           className="font-display text-base font-semibold uppercase tracking-[0.18em]"
@@ -476,7 +482,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               const tabColorClass = active
                 ? 'text-background'
                 : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground';
-              const label = entry ? shortMint(entry.mint) : row.assetId ? '…' : '—';
+              const label = entry ? assetLabel(entry) : row.assetId ? '…' : '—';
 
               return (
                 <button
@@ -519,7 +525,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-mono text-xs font-bold tracking-[0.08em] text-seal">
                       ASSET {String(i + 1).padStart(2, '0')}
-                      {entry ? ` · ${shortMint(entry.mint)}` : ''}
+                      {entry ? ` · ${assetLabel(entry)}` : ''}
                     </span>
                     {rows.length > 1 && (
                       <button
@@ -551,7 +557,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                         <option value="">— pick token —</option>
                         {activeAssets.map((a) => (
                           <option key={a.asset_id} value={a.asset_id}>
-                            #{a.asset_id} · {shortMint(a.mint)} ({a.decimals} dec, {a.route})
+                            {formatAssetOption(a)}
                           </option>
                         ))}
                       </select>
@@ -609,6 +615,17 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             >
               <span className="mr-2 text-muted-foreground/50">&gt;</span>
               {result.text}
+              {result.type === 'error' && lastError && (
+                <div className="mt-2 border-t border-border pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setErrorOpen(true)}
+                    className="font-mono text-[11px] text-accent underline transition-colors hover:text-foreground"
+                  >
+                    View error details
+                  </button>
+                </div>
+              )}
               {result.solscan && (
                 <div className="mt-2 border-t border-border pt-2">
                   <a
@@ -631,4 +648,17 @@ export function CreateEtfPanel({ network }: { network: Network }) {
 
 function shortMint(mint: string): string {
   return mint.length > 8 ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : mint;
+}
+
+/** Human-readable name from the asset registry, with mint fallback when unset. */
+function assetLabel(entry: Pick<AssetRegistryEntry, 'asset_name' | 'mint'>): string {
+  const name = entry.asset_name?.trim();
+  return name || shortMint(entry.mint);
+}
+
+function formatAssetOption(a: AssetRegistryEntry): string {
+  const name = a.asset_name?.trim();
+  const mint = shortMint(a.mint);
+  const title = name ? `${name} · ${mint}` : mint;
+  return `#${a.asset_id} · ${title} (${a.decimals} dec, ${a.route})`;
 }

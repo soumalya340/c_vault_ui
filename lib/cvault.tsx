@@ -62,6 +62,8 @@ import {
   PRICE_SCALE_DECIMALS,
   USDC_DECIMALS,
 } from './constants';
+import { formatUserFacingError, parseTxError } from './txError';
+export { parseTxError, formatUserFacingError, type UserFacingError } from './txError';
 
 export {
   C_VAULT_PROGRAM_ID,
@@ -2521,6 +2523,26 @@ export async function getUserPosition(
   };
 }
 
+/** Raw USDC base units held in the user's wallet (network's canonical USDC ATA). */
+export async function getUserUsdcBalance(
+  connection: Connection,
+  user: PublicKey,
+  network: Network = 'mainnet',
+): Promise<string> {
+  const usdcAta = getAssociatedTokenAddressSync(
+    NETWORK_CONSTANTS[network].usdcMint,
+    user,
+    false,
+    TOKEN_PROGRAM_ID,
+  );
+  try {
+    const bal = await connection.getTokenAccountBalance(usdcAta);
+    return bal.value.amount;
+  } catch {
+    return '0'; // ata may not exist
+  }
+}
+
 /** Raw wSOL balance of the vault's wSOL ATA — used to measure ViaSol leg output. */
 export async function vaultWsolBalance(
   connection: Connection,
@@ -2585,59 +2607,27 @@ export async function fetchMintDecimals(
 }
 
 /**
- * Pull program logs / custom codes out of Anchor `.view()` failures.
- */
-function simulationBlob(err: unknown): string {
-  const e = err as {
-    message?: string;
-    logs?: string[];
-    simulationResponse?: { logs?: string[]; err?: unknown };
-  } | null;
-  const sim = e?.simulationResponse;
-  const logs = Array.isArray(sim?.logs)
-    ? sim!.logs!.join('\n')
-    : Array.isArray(e?.logs)
-      ? e!.logs!.join('\n')
-      : '';
-  const raw = err instanceof Error ? err.message : String(err ?? '');
-  return `${raw}\n${logs}\n${JSON.stringify(sim?.err ?? '')}`;
-}
-
-/**
- * Turn a preview / NAV `.view()` failure into a legible message.
- * Prefer specific program errors over the generic AccountNotFound blanket.
+ * Turn a preview / NAV / send failure into a short operator-facing string.
+ * Prefer {@link parseTxError} + ErrorModal for interactive UI.
  */
 export function describePreviewError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err ?? '');
-  // Already a crafted diagnostic from prepareViewAccounts / diagnose — keep it.
-  if (/Missing on-chain accounts for/i.test(raw)) return raw;
-
-  const blob = simulationBlob(err);
-  if (/StaleOracle|6009|6011|0x1779|0x177b/i.test(blob)) {
-    return (
-      'Oracle price is stale (StaleOracle). On localhost/Surfpool, Pyth feeds are ' +
-      'auto-refreshed before deposit/preview — retry once. If it persists, ensure ' +
-      'you are on Surfpool (not a plain test-validator) and WSOL/USDC pool is cloned.'
-    );
+  const parsed = parseTxError(err);
+  // AccountNotFound previews are common before first deposit — keep the older
+  // softer copy when the structured parser only has a raw simulation line.
+  const blob = parsed.details || parsed.raw;
+  if (/AccountNotFound|Account does not exist/i.test(blob) && !/insufficient funds/i.test(blob)) {
+    if (!/Missing on-chain accounts for/i.test(parsed.raw)) {
+      return (
+        "Vault asset ATAs or price feeds aren't on-chain yet. Connect a wallet and retry — " +
+        'missing vault ATAs will be created. On localhost, also ensure Surfpool Pyth refresh works.'
+      );
+    }
   }
-  if (/AccountNotInitialized|6016|0x1780/i.test(blob)) {
-    return (
-      'Vault asset token account is not initialized. Connect a wallet and retry Live NAV ' +
-      '(ATAs are created automatically), or deposit once.'
-    );
-  }
-  if (/AccountNotFound|Account does not exist/i.test(blob) || !raw.trim()) {
-    return (
-      "Vault asset ATAs or price feeds aren't on-chain yet. Connect a wallet and retry — " +
-      'missing vault ATAs will be created. On localhost, also ensure Surfpool Pyth refresh works.'
-    );
-  }
-  if (raw.trim()) return raw;
-  const logLine = blob
-    .split('\n')
-    .find((l) => /Error Code:|Error Message:|failed:/i.test(l));
-  return logLine?.trim() || 'Preview / NAV view failed (see program logs).';
+  return formatUserFacingError(err);
 }
+
+/** Same legibility helpers for send/preflight failures (deposit, redeem, admin txs). */
+export const describeSimulationError = describePreviewError;
 
 // ─── Live per-asset vault balances ───────────────────────────────────────────
 

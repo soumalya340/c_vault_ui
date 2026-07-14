@@ -1,6 +1,6 @@
 'use client';
 
-import type { Network } from '@/app/providers';
+import { isLocalOrigin, type Network } from '@/app/providers';
 
 export function NetworkToggle({
   network,
@@ -9,13 +9,18 @@ export function NetworkToggle({
   network: Network;
   onChange: (network: Network) => void;
 }) {
+  // A deployed site can never reach a local validator — only offer the
+  // localhost cluster when the page itself is served from a local origin.
+  const options = isLocalOrigin()
+    ? (['localhost', 'mainnet'] as const)
+    : (['mainnet'] as const);
   return (
     <div
       className="flex items-center gap-1 rounded-[2px] border border-border p-0.5"
       role="group"
       aria-label="Network"
     >
-      {(['localhost', 'mainnet'] as const).map((n) => {
+      {options.map((n) => {
         const active = network === n;
         return (
           <button

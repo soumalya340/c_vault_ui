@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb, type DbNetwork } from "@/lib/db";
+import { assetNameForMint } from "@/lib/presets/canonical-data";
 
 /**
  * Pre-approved asset catalog for the Create ETF token picker, scoped by the
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
     const rows = await getDb(network).listRegistry(network);
     const assets: AssetRegistryRow[] = rows.map((r) => ({
       asset_id: r.asset_id,
-      asset_name: r.asset_name,
+      asset_name: r.asset_name?.trim() || assetNameForMint(r.mint),
       mint: r.mint,
       pool_address: r.pool_address,
       pyth_feed_id: r.pyth_feed_id,

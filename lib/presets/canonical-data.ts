@@ -256,3 +256,9 @@ export const VAULT_PRESETS = [
     ],
   },
 ] as const;
+
+/** Resolve a display name for a mint from the canonical Pools.md preset catalog. */
+export function assetNameForMint(mint: string): string {
+  const preset = ASSET_PRESETS.find((p) => p.mint === mint);
+  return preset?.asset_name ?? '';
+}

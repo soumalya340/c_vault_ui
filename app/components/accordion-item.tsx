@@ -6,7 +6,9 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
 import type { Connection } from '@solana/web3.js';
 import { parseUnits, PRICE_SCALE_DECIMALS, type AssetRoute, type Network } from '@/lib/cvault';
-import { fetchAssetRegistry, FieldError } from '@/lib/registryClient';
+import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { fetchAssetRegistry, fetchAssetPresets, FieldError, type AssetPresetRecord } from '@/lib/registryClient';
+import { assetNameForMint } from '@/lib/presets/canonical-data';
 import { checkPoolExists } from '@/lib/poolExists';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import {
@@ -16,11 +18,13 @@ import {
   type FunctionDef,
   type SectionId,
 } from './function-defs';
+import { ErrorModal } from './error-modal';
 import {
   btnPrimaryClass,
   fieldLabelClass,
   inputClass,
   outputPanelClass,
+  selectClass,
 } from './ui-classes';
 
 type PoolCheckState =
@@ -135,8 +139,13 @@ type MintCheckState =
 /** Debounced check for whether the mint field on Create asset is already
  *  registered (`pre_approved_token_registry`, scoped to `network`). Not the
  *  source of truth — execute-vault-function.ts re-checks before signing —
- *  this is purely so a duplicate listing is obvious before submit. */
-function useMintRegistryCheck(mint: string | undefined, network: Network): MintCheckState {
+ *  this is purely so a duplicate listing is obvious before submit.
+ *  `registryVersion` re-runs the check after a successful create_asset. */
+function useMintRegistryCheck(
+  mint: string | undefined,
+  network: Network,
+  registryVersion: number,
+): MintCheckState {
   const [state, setState] = useState<MintCheckState>({ status: 'idle' });
   const requestId = useRef(0);
 
@@ -170,7 +179,49 @@ function useMintRegistryCheck(mint: string | undefined, network: Network): MintC
     }, 450);
 
     return () => clearTimeout(timer);
-  }, [mint, network]);
+  }, [mint, network, registryVersion]);
+
+  return state;
+}
+
+type PresetPickerState =
+  | { status: 'idle' | 'loading' }
+  | { status: 'ready'; options: AssetPresetRecord[] }
+  | { status: 'error'; message: string };
+
+/** Presets from Pools.md, minus whatever is already listed on this network's
+ *  registry — so the dropdown only ever offers assets worth creating.
+ *  `registryVersion` refetches after a successful create_asset, so a mint
+ *  listed moments ago drops out of the options without collapsing the form. */
+function useUnlistedPresets(
+  open: boolean,
+  network: Network,
+  registryVersion: number,
+): PresetPickerState {
+  const [state, setState] = useState<PresetPickerState>({ status: 'idle' });
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    Promise.all([fetchAssetPresets(network), fetchAssetRegistry(network)])
+      .then(([presets, registry]) => {
+        if (cancelled) return;
+        const listedMints = new Set(registry.map((r) => r.mint));
+        setState({ status: 'ready', options: presets.filter((p) => !listedMints.has(p.mint)) });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, network, registryVersion]);
+
+  // Not an effect-body setState: derives "loading" for render only when the
+  // fetch has actually kicked off (open) and hasn't resolved yet, without a
+  // synchronous transition inside the effect itself.
+  if (open && state.status === 'idle') return { status: 'loading' };
 
   return state;
 }
@@ -191,6 +242,9 @@ export function AccordionItem({
     text: string;
     solscan?: string;
   } | null>(null);
+  /** Last structured failure — kept after dismiss so OUTPUT can re-open the modal. */
+  const [lastError, setLastError] = useState<UserFacingError | null>(null);
+  const [errorOpen, setErrorOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [openInfo, setOpenInfo] = useState<string | null>(null);
@@ -204,6 +258,57 @@ export function AccordionItem({
   const needsWallet = REQUIRES_WALLET.has(fn.id);
   const poolAddressField = fn.fields.find((field) => field.name === 'pool_address');
   const hasMintField = fn.fields.some((field) => field.name === 'mint');
+  const isCreateAsset = fn.id === 'create_asset';
+
+  // Bumped after a successful create_asset so the preset dropdown and the
+  // duplicate-mint check refetch the registry instead of serving stale data.
+  const [registryVersion, setRegistryVersion] = useState(0);
+
+  const presetPicker = useUnlistedPresets(open && isCreateAsset, network, registryVersion);
+  const fillFromPreset = (presetKey: string) => {
+    const preset =
+      presetPicker.status === 'ready' ? presetPicker.options.find((p) => p.preset_key === presetKey) : undefined;
+    if (!preset) return;
+    setFieldErrors({});
+    // Preset catalog (asset_presets / Pools.md) is the source of truth for the
+    // display name when the admin picks a known mint.
+    setValues((prev) => ({
+      ...prev,
+      asset_name: preset.asset_name,
+      mint: preset.mint,
+      pool_address: preset.pool_address,
+      pyth_feed_id: preset.pyth_feed_id,
+      route: preset.route === 'DirectUsdc' ? 'directUsdc' : 'viaSol',
+      price_source_tag: String(preset.price_source_tag),
+      price_dex_kind: preset.swap_kind === 'DammV2' ? '1' : '0',
+      token_program_tag: String(preset.token_program_tag),
+    }));
+  };
+
+  /** When mint matches a cataloged preset, prefer its asset_name unless the
+   *  admin already typed a custom name that is not the previous preset name. */
+  const applyPresetNameForMint = (
+    prev: Record<string, string>,
+    nextMint: string,
+  ): Record<string, string> => {
+    const trimmed = nextMint.trim();
+    const fromDb =
+      (presetPicker.status === 'ready'
+        ? presetPicker.options.find((p) => p.mint === trimmed)?.asset_name
+        : undefined) || assetNameForMint(trimmed);
+    if (!fromDb) return { ...prev, mint: nextMint };
+
+    const curName = prev.asset_name?.trim() ?? '';
+    const prevMintPreset =
+      (presetPicker.status === 'ready'
+        ? presetPicker.options.find((p) => p.mint === (prev.mint ?? '').trim())?.asset_name
+        : undefined) || assetNameForMint((prev.mint ?? '').trim());
+    // Fill when empty, or when the field still holds the last auto-filled preset name.
+    if (!curName || curName === prevMintPreset) {
+      return { ...prev, mint: nextMint, asset_name: fromDb };
+    }
+    return { ...prev, mint: nextMint };
+  };
 
   // Always pass mint when present — swap pools must include the asset mint
   // even for Pyth-priced assets (DEX Type still selects Whirlpool vs DAMM).
@@ -218,7 +323,11 @@ export function AccordionItem({
     values.mint ?? '',
   );
 
-  const mintCheck = useMintRegistryCheck(hasMintField ? values.mint : undefined, network);
+  const mintCheck = useMintRegistryCheck(
+    hasMintField ? values.mint : undefined,
+    network,
+    registryVersion,
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,8 +358,33 @@ export function AccordionItem({
       return;
     }
 
+    // Create asset: require a display name. Prefer the typed value; if empty
+    // but mint is a known preset, take the catalog name so the registry row
+    // is never blank for Pools.md assets.
+    let submitValues = values;
+    if (isCreateAsset) {
+      const mintTrim = values.mint?.trim() ?? '';
+      const typedName = values.asset_name?.trim() ?? '';
+      const fromPreset =
+        (presetPicker.status === 'ready'
+          ? presetPicker.options.find((p) => p.mint === mintTrim)?.asset_name
+          : undefined) || assetNameForMint(mintTrim);
+      const assetName = typedName || fromPreset || '';
+      if (!assetName) {
+        setFieldErrors({
+          asset_name: 'Enter an asset name (or pick a preset / paste a known mint).',
+        });
+        setLoading(false);
+        return;
+      }
+      submitValues = { ...values, asset_name: assetName };
+      if (!typedName && fromPreset) {
+        setValues((prev) => ({ ...prev, asset_name: fromPreset }));
+      }
+    }
+
     try {
-      const data = await executeVaultFunction(fn.id, values, {
+      const data = await executeVaultFunction(fn.id, submitValues, {
         connection,
         anchorWallet: anchorWallet ?? null,
         publicKey: publicKey ?? null,
@@ -267,19 +401,18 @@ export function AccordionItem({
           : data;
 
       setResult({ type: 'success', text: formatResult(display), solscan: solscanUrl });
+      if (isCreateAsset) setRegistryVersion((v) => v + 1);
     } catch (err: unknown) {
       if (err instanceof FieldError) {
         setFieldErrors({ [err.field]: err.message });
         return;
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      const isRejection =
-        msg.toLowerCase().includes('user rejected') ||
-        msg.toLowerCase().includes('rejected the request') ||
-        msg.toLowerCase().includes('transaction cancelled');
+      const parsed = parseTxError(err);
+      setLastError(parsed);
+      setErrorOpen(true);
       setResult({
-        type: isRejection ? 'info' : 'error',
-        text: isRejection ? 'Transaction cancelled.' : msg,
+        type: parsed.kind === 'info' ? 'info' : 'error',
+        text: parsed.title,
       });
     } finally {
       setLoading(false);
@@ -292,6 +425,9 @@ export function AccordionItem({
         open ? 'bg-foreground/[0.03]' : 'bg-transparent'
       }`}
     >
+      {errorOpen && lastError && (
+        <ErrorModal error={lastError} onClose={() => setErrorOpen(false)} />
+      )}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -332,6 +468,44 @@ export function AccordionItem({
             >
               {fn.description}
             </p>
+
+            {isCreateAsset && (
+              <div>
+                <label className={`${fieldLabelClass} !mb-1.5`} htmlFor="create-asset-preset">
+                  Fill from preset (Pools.md)
+                </label>
+                {presetPicker.status === 'error' ? (
+                  <p className="font-mono text-xs text-destructive">
+                    Couldn&rsquo;t load presets — {presetPicker.message}
+                  </p>
+                ) : presetPicker.status === 'ready' && presetPicker.options.length === 0 ? (
+                  <p className="font-mono text-xs text-muted-foreground">
+                    Every cataloged preset is already listed on {network}.
+                  </p>
+                ) : (
+                  <select
+                    id="create-asset-preset"
+                    className={selectClass}
+                    disabled={presetPicker.status !== 'ready'}
+                    value=""
+                    onChange={(e) => e.target.value && fillFromPreset(e.target.value)}
+                  >
+                    <option value="">
+                      {presetPicker.status === 'loading' ? 'Loading presets…' : 'Choose a preset to autofill…'}
+                    </option>
+                    {presetPicker.status === 'ready' &&
+                      presetPicker.options.map((p) => (
+                        <option key={p.preset_key} value={p.preset_key}>
+                          {p.asset_name} · {p.route} · {p.swap_kind}
+                        </option>
+                      ))}
+                  </select>
+                )}
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
+                  Fills asset name, mint, pool, Pyth feed, and DEX settings below — review before submitting.
+                </p>
+              </div>
+            )}
 
             {fn.fields.length === 0 && (
               <p className="font-mono text-xs text-muted-foreground/70">No parameters required.</p>
@@ -441,7 +615,14 @@ export function AccordionItem({
                         value={values[field.name] ?? ''}
                         onChange={(e) => {
                           clearFieldError();
-                          setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
+                          const next = e.target.value;
+                          // Pasting a known mint auto-fills Asset name from the
+                          // preset catalog (unless the admin already customized it).
+                          if (isCreateAsset && field.name === 'mint') {
+                            setValues((prev) => applyPresetNameForMint(prev, next));
+                            return;
+                          }
+                          setValues((prev) => ({ ...prev, [field.name]: next }));
                         }}
                         className={fieldInputClass}
                       />
@@ -539,6 +720,17 @@ export function AccordionItem({
                 >
                   <span className="mr-2 text-muted-foreground/50">&gt;</span>
                   {result.text}
+                  {result.type === 'error' && lastError && (
+                    <div className="mt-2 border-t border-border pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setErrorOpen(true)}
+                        className="font-mono text-[11px] text-accent underline transition-colors hover:text-foreground"
+                      >
+                        View error details
+                      </button>
+                    </div>
+                  )}
                   {result.solscan && (
                     <div className="mt-2 border-t border-border pt-2">
                       <a

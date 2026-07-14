@@ -35,6 +35,7 @@ import {
   type Network,
 } from '@/lib/cvault';
 import { WSOL_DECIMALS } from '@/lib/constants';
+import { assetNameForMint } from '@/lib/presets/canonical-data';
 import { fetchTokens, fetchAssetRegistry, saveAssetRegistryEntry, fetchVaults, FieldError } from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
 
@@ -272,6 +273,23 @@ export async function executeVaultFunction(
         throw new FieldError(`Mint already listed as asset #${dupe.asset_id}.`, 'mint');
       }
 
+      // Display name for pre_approved_token_registry — resolve before signing
+      // so we never land an on-chain asset without a registry label ready.
+      const tokens = await fetchTokens().catch(() => []);
+      const token = tokens.find((t) => t.mint === mint.toBase58());
+      const assetName =
+        v.asset_name?.trim() ||
+        assetNameForMint(mint.toBase58()) ||
+        token?.name?.trim() ||
+        token?.symbol?.trim() ||
+        '';
+      if (!assetName) {
+        throw new FieldError(
+          'Asset name is required — enter a name or use a preset mint.',
+          'asset_name',
+        );
+      }
+
       const route = v.route === 'directUsdc' ? { directUsdc: {} } : { viaSol: {} };
       const priceSourceTag = Number(v.price_source_tag || 0);
       const priceDexKind = Number(v.price_dex_kind || 0);
@@ -325,7 +343,7 @@ export async function executeVaultFunction(
         await saveAssetRegistryEntry({
           network: net,
           asset_id: String(r.assetId),
-          asset_name: '',
+          asset_name: assetName,
           mint: mint.toBase58(),
           pool_address: poolAddress.toBase58(),
           pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
