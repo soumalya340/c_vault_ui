@@ -64,10 +64,6 @@ export function humanizeViewResult(fnId: string, data: unknown): unknown {
   switch (fnId) {
     case 'view_nav':
       return humanizeNav(data as Record<string, unknown>);
-    case 'preview_deposit':
-      return humanizePreviewDeposit(data as Record<string, unknown>);
-    case 'preview_redeem':
-      return humanizePreviewRedeem(data as Record<string, unknown>);
     case 'view_vault_state':
       return humanizeVaultState(data as Record<string, unknown>);
     case 'view_my_position':
@@ -120,26 +116,6 @@ function enhanceUsdString(s: string): string {
   if (s === '—' || s === '--' || s === '') return s;
   if (s.startsWith('$')) return `$${withCommas(s.slice(1))}`;
   return withCommas(s);
-}
-
-function humanizePreviewDeposit(d: Record<string, unknown>): Record<string, unknown> {
-  const sharesDecimals = 6;
-  return {
-    sharesToMint: formatTokenUi(String(d.sharesToMint ?? '0'), sharesDecimals),
-    totalNav: formatUsdUi(String(d.totalNav ?? '0'), USDC_DECIMALS),
-    sharePrice: formatUsdUi(String(d.sharePrice ?? '0'), PRICE_SCALE_DECIMALS),
-    totalShares: formatTokenUi(String(d.totalShares ?? '0'), sharesDecimals),
-  };
-}
-
-function humanizePreviewRedeem(d: Record<string, unknown>): Record<string, unknown> {
-  // Prefer the execute path (decimals from vault ctx). This is a fallback only.
-  const sharesDecimals = 6;
-  return {
-    estimatedUsdcValue: formatUsdUi(String(d.estimatedUsdcValue ?? '0'), USDC_DECIMALS),
-    assetsToSwap: d.numAssets ?? 0,
-    totalShares: formatTokenUi(String(d.totalShares ?? '0'), sharesDecimals),
-  };
 }
 
 function humanizeVaultState(d: Record<string, unknown>): Record<string, unknown> {

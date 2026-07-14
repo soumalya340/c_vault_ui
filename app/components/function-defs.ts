@@ -63,7 +63,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   {
     id: 'view_global_state',
     number: '01',
-    title: 'Global state',
+    title: 'Global State',
     description:
       'Read program-wide flags: emergency, treasury, TWAP keeper, total vaults, total listed assets.',
     fields: [],
@@ -72,7 +72,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   {
     id: 'view_vault_state',
     number: '02',
-    title: 'Vault state',
+    title: 'Vault State',
     description: 'Read a vault account: shares, TVL, pending balances, deposit/redeem fees, asset count.',
     fields: [VAULT_ID_FIELD],
     submitLabel: 'Fetch vault',
@@ -80,46 +80,24 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   {
     id: 'view_nav',
     number: '03',
-    title: 'Live NAV and share price',
+    title: 'Live Nav & Share Price',
     description:
       'Calls get_total_nav_view. Asset ATAs and price sources (Pyth or DEX pool) are derived from the vault on-chain.',
     fields: [VAULT_ID_FIELD],
     submitLabel: 'Get live NAV',
   },
   {
-    id: 'preview_deposit',
-    number: '04',
-    title: 'Preview deposit',
-    description: 'Estimate shares minted for a USDC amount at current NAV.',
-    fields: [
-      VAULT_ID_FIELD,
-      { name: 'usdc_amount', label: 'Amount (raw USDC units)', type: 'number', placeholder: '1000000' },
-    ],
-    submitLabel: 'Preview deposit',
-  },
-  {
-    id: 'preview_redeem',
-    number: '05',
-    title: 'Preview redeem',
-    description: 'Estimate per-asset amounts and USDC value for burning shares now.',
-    fields: [
-      VAULT_ID_FIELD,
-      { name: 'shares', label: 'Shares to burn', type: 'number', placeholder: '1000' },
-    ],
-    submitLabel: 'Preview redeem',
-  },
-  {
     id: 'view_my_position',
-    number: '06',
-    title: 'My position',
+    number: '04',
+    title: 'My Position',
     description: 'Your share balance, deposit history, and any active redeem state.',
     fields: [VAULT_ID_FIELD],
     submitLabel: 'Fetch my position',
   },
   {
     id: 'view_vault_asset_balances',
-    number: '07',
-    title: 'Vault asset balances',
+    number: '05',
+    title: 'Vault Asset Balances',
     description:
       'Live token balance the vault holds for each asset — read from each asset ATA on-chain and shown in human-readable units.',
     fields: [VAULT_ID_FIELD],
@@ -127,8 +105,8 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   },
   {
     id: 'view_asset_state',
-    number: '08',
-    title: 'Asset state',
+    number: '06',
+    title: 'Asset State',
     description:
       'Read a single admin-listed AssetInfo account by asset id: mint, pools, price source, route, decimals, active flag.',
     fields: [ASSET_ID_FIELD],

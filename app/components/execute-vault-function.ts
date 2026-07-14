@@ -16,14 +16,10 @@ import {
   getGlobalState,
   getVaultState,
   getTotalNavView,
-  previewDeposit,
-  previewRedeem,
   getUserPosition,
   getVaultAssetBalances,
   genesisDepositAndDeploy,
   getAssetState,
-  fetchVaultCtx,
-
   parseUnits,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
@@ -35,7 +31,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import { USDC_DECIMALS, WSOL_DECIMALS } from '@/lib/constants';
+import { WSOL_DECIMALS } from '@/lib/constants';
 import { assetNameForMint } from '@/lib/presets/canonical-data';
 import {
   fetchTokens,
@@ -46,7 +42,7 @@ import {
   FieldError,
 } from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
-import { formatTokenUi, formatUsdUi, humanizeViewResult, withCommas } from './view-display';
+import { humanizeViewResult, withCommas } from './view-display';
 
 /** Write ALT to Supabase/SQLite after on-chain create. Soft-fails with a note. */
 async function persistVaultAlt(
@@ -153,33 +149,6 @@ export async function executeVaultFunction(
         fnId,
         await getTotalNavView(connection, id, net, anchorWallet),
       );
-    case 'preview_deposit':
-      return humanizeViewResult(
-        fnId,
-        await previewDeposit(connection, id, bn(v.usdc_amount), net, anchorWallet),
-      );
-    case 'preview_redeem': {
-      const [result, ctx] = await Promise.all([
-        previewRedeem(connection, id, bn(v.shares), net, anchorWallet),
-        fetchVaultCtx(connection, id, net).catch(() => null),
-      ]);
-      const assetLines: Record<string, string> = {};
-      result.assetAmounts.forEach((amt, i) => {
-        const asset = ctx?.assets[i];
-        const label = asset
-          ? (assetNameForMint(asset.mint.toBase58()) ||
-            `${asset.mint.toBase58().slice(0, 4)}…${asset.mint.toBase58().slice(-4)}`)
-          : `Asset ${i}`;
-        const decimals = asset?.decimals ?? 0;
-        assetLines[label] = formatTokenUi(amt, decimals);
-      });
-      return {
-        estimatedUsdcValue: formatUsdUi(result.estimatedUsdcValue, USDC_DECIMALS),
-        assetsToSwap: result.numAssets,
-        totalShares: formatTokenUi(result.totalShares, 6),
-        ...(Object.keys(assetLines).length > 0 ? { perAssetAmounts: assetLines } : {}),
-      };
-    }
     case 'view_vault_asset_balances': {
       const [balances, tokens, registry] = await Promise.all([
         getVaultAssetBalances(connection, id, net),
