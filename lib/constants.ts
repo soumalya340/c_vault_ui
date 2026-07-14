@@ -131,6 +131,20 @@ export const SOL_USD_PYTH_FEED_ID: number[] = Array.from(
 export const PRICE_SOURCE_PYTH = 0;
 export const PRICE_SOURCE_DEX = 1;
 
+/** Mirror on-chain TWAP_OBSERVATION_MAX_STALE_SECS (45 minutes). */
+export const TWAP_OBSERVATION_MAX_STALE_SECS = 45 * 60;
+/** Mirror on-chain TWAP_KEEPER_MAX_STALE_SECS (1 hour). */
+export const TWAP_KEEPER_MAX_STALE_SECS = 60 * 60;
+
+/**
+ * Canonical on-chain `global_state.twap_keeper` for local/dev (matches c_vault_script).
+ * Auth signer only — never the fee payer. Secret stays server-side
+ * (`TWAP_KEEPER_SECRET` or monorepo script keypair file).
+ */
+export const TWAP_KEEPER_PUBKEY = new PublicKey(
+  'DExJYXEqEGCzbsN93FeeoQu6cQZkuEB8PBEn64GJKt7W',
+);
+
 /** `AssetInfo.token_program_tag`. */
 export const TOKEN_PROGRAM_TAG_SPL = 0;
 export const TOKEN_PROGRAM_TAG_TOKEN_2022 = 1;

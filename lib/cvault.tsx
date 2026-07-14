@@ -39,6 +39,7 @@ import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
 import { fetchPoolCtx, ownerAccountsFor, type PoolCtx } from './whirlpool';
 import { fetchDammPoolCtx, type DammPoolCtx } from './damm';
 import { ensureLocalhostSwapPreflight } from './localhost';
+import { ensureVaultDexTwapFresh } from './twap';
 import {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
@@ -1569,10 +1570,44 @@ export async function swapAssetToUsdc(
 export type ProgressFn = (message: string) => void;
 
 /**
- * Surfpool-only: rewrite stale Pyth feeds + sync Whirlpool clocks.
- * No-op on mainnet. Mirrors c_vault_script `ensureSwapPreflight` (Pyth + clock
- * legs; DEX TWAP keeper refresh remains CLI/admin — needs keeper keypair).
+ * Preflight before mutative deposit / redeem / genesis:
+ * 1. DEX TWAP — all networks: for vault basket DEX assets older than 45m,
+ *    push Orca/DAMM **spot** via `update_dex_twap` (user pays, keeper cosigns).
+ * 2. Localhost only — synthetic Pyth + Whirlpool clock (Surfpool).
+ *
+ * Views/NAV must not call the DEX TWAP leg (it sends a transaction).
  */
+async function prepareSwapPreflight(
+  connection: Connection,
+  wallet: AnchorWallet,
+  program: ReturnType<typeof createProgram>,
+  network: Network,
+  ctx: VaultChainCtx,
+  onProgress?: ProgressFn,
+): Promise<void> {
+  const hasDex = ctx.assets.some((a) => a.priceSourceTag === PRICE_SOURCE_DEX);
+  if (hasDex) {
+    await ensureVaultDexTwapFresh(connection, wallet, program, ctx, onProgress);
+  }
+  await ensureLocalhostSwapPreflight(
+    connection,
+    network,
+    {
+      assets: ctx.assets.map((a) => ({
+        priceSourceTag: a.priceSourceTag,
+        pythFeedId: a.pythFeedId,
+        mint: a.mint,
+        poolAddress: a.poolAddress,
+        decimals: a.decimals,
+        swapKind: a.swapKind,
+      })),
+      usdcSolPool: ctx.usdcSolPool,
+    },
+    onProgress,
+  );
+}
+
+/** Surfpool-only oracle prep for gasless views (no TWAP keeper tx). */
 async function prepareLocalhostOracles(
   connection: Connection,
   network: Network,
@@ -1813,7 +1848,7 @@ export async function depositAndDeploy(
 ): Promise<{ tx: string; link: string } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+  await prepareSwapPreflight(connection, wallet, program, network, ctx, onProgress);
   // ALT is required — create on the fly if create_etf never saved one.
   const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
 
@@ -1910,7 +1945,7 @@ export async function genesisDepositAndDeploy(
 ): Promise<{ tx: string; link: string } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+  await prepareSwapPreflight(connection, wallet, program, network, ctx, onProgress);
   // Hard guarantee: reuse live ALT or create a new one. Never send multi-leg
   // genesis without a lookup table (static keys blow the tx size limit).
   const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
@@ -1945,7 +1980,7 @@ export async function deployPendingSwaps(
 ): Promise<{ tx: string; link: string; pendingUsdc: string; pendingSol: string } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+  await prepareSwapPreflight(connection, wallet, program, network, ctx, onProgress);
   const vault = await fetchDecodedVault(connection, ctx.vaultPda);
   if (!vault) {
     throw await formatVaultMissingError(connection, vaultId, ctx.vaultPda);
@@ -2083,7 +2118,7 @@ export async function redeemSwap(
 ): Promise<RedeemSwapResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+  await prepareSwapPreflight(connection, wallet, program, network, ctx, onProgress);
   const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
   const lut = ensured.lut;
   const user = wallet.publicKey;

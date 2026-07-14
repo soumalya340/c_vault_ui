@@ -4,8 +4,9 @@
  * 1. Refresh synthetic Pyth feeds (StaleOracle)
  * 2. Advance Whirlpool clock if needed (InvalidTimestamp)
  *
- * No-op on mainnet. DEX TWAP keeper refresh stays in the CLI/admin path
- * (requires the keeper keypair).
+ * No-op on mainnet. DEX TWAP freshness (Orca/DAMM spot → update_dex_twap)
+ * is handled separately by `lib/twap/refresh.ts` on mutative flows — depositor
+ * pays, server-held keeper cosigns.
  */
 
 import type { Connection, PublicKey } from '@solana/web3.js';
