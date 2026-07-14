@@ -26,44 +26,79 @@ import {
 type PoolCheckState =
   | { status: 'idle' }
   | { status: 'checking' }
-  | { status: 'found' }
+  | {
+      status: 'found';
+      venue: 'whirlpool' | 'dammV2';
+      mintA: string;
+      mintB: string;
+      source: string;
+    }
   | { status: 'not-found'; message: string };
 
 /** Debounced live existence check for the pool address field on Create asset.
+ *  Uses Orca Whirlpools SDK or Meteora CpAmm SDK based on DEX Type.
  *  Not the source of truth — execute-vault-function.ts re-checks before
- *  signing — this is purely so a bad address is obvious before submit. */
+ *  signing — this is purely so a bad address is obvious before submit.
+ *
+ *  Dependency list length is fixed (React forbids changing it between
+ *  renders). Pass `assetMint: ''` when mint-leg validation is not needed.
+ */
 function usePoolCheck(
   connection: Connection,
-  poolAddress: string | undefined,
+  poolAddress: string,
   dexKind: 'whirlpool' | 'dammV2',
   route: AssetRoute,
   network: Network,
+  /** Asset mint base58, or `''` to skip mint-leg validation. */
+  assetMint: string,
 ): PoolCheckState {
   const [state, setState] = useState<PoolCheckState>({ status: 'idle' });
   const requestId = useRef(0);
 
+  // Normalize once so the effect deps are always the same 6 primitives.
+  const poolAddressKey = poolAddress.trim();
+  const assetMintKey = assetMint.trim();
+
   useEffect(() => {
-    const trimmed = poolAddress?.trim() ?? '';
-    if (!trimmed) {
+    if (!poolAddressKey) {
       setState({ status: 'idle' });
       return;
     }
 
     let pool: PublicKey;
     try {
-      pool = new PublicKey(trimmed);
+      pool = new PublicKey(poolAddressKey);
     } catch {
       setState({ status: 'not-found', message: 'Not a valid Solana address.' });
       return;
     }
 
+    let mintPk: PublicKey | undefined;
+    if (assetMintKey) {
+      try {
+        mintPk = new PublicKey(assetMintKey);
+      } catch {
+        mintPk = undefined;
+      }
+    }
+
     const id = ++requestId.current;
     setState({ status: 'checking' });
     const timer = setTimeout(() => {
-      checkPoolExists(connection, pool, dexKind, route, network)
+      checkPoolExists(connection, pool, dexKind, route, network, mintPk)
         .then((result) => {
           if (requestId.current !== id) return;
-          setState(result.ok ? { status: 'found' } : { status: 'not-found', message: result.message });
+          if (result.ok) {
+            setState({
+              status: 'found',
+              venue: result.venue,
+              mintA: result.mintA,
+              mintB: result.mintB,
+              source: result.source,
+            });
+          } else {
+            setState({ status: 'not-found', message: result.message });
+          }
         })
         .catch((err) => {
           if (requestId.current !== id) return;
@@ -75,7 +110,7 @@ function usePoolCheck(
     }, 450);
 
     return () => clearTimeout(timer);
-  }, [connection, poolAddress, dexKind, route, network]);
+  }, [connection, poolAddressKey, dexKind, route, network, assetMintKey]);
 
   return state;
 }
@@ -158,14 +193,17 @@ export function AccordionItem({
   const poolAddressField = fn.fields.find((field) => field.name === 'pool_address');
   const hasMintField = fn.fields.some((field) => field.name === 'mint');
 
+  // Always pass mint when present — swap pools must include the asset mint
+  // even for Pyth-priced assets (DEX Type still selects Whirlpool vs DAMM).
   const poolCheck = usePoolCheck(
     connection,
     open && poolAddressField
-      ? (resolveFixedValue(poolAddressField, network) ?? values.pool_address)
-      : undefined,
+      ? (resolveFixedValue(poolAddressField, network) ?? values.pool_address ?? '')
+      : '',
     values.price_dex_kind === '1' ? 'dammV2' : 'whirlpool',
     values.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
     network,
+    values.mint ?? '',
   );
 
   const mintCheck = useMintRegistryCheck(hasMintField ? values.mint : undefined, network);
@@ -180,6 +218,24 @@ export function AccordionItem({
     setLoading(true);
     setResult(null);
     setFieldErrors({});
+
+    if (poolAddressField && poolCheck.status === 'not-found') {
+      setFieldErrors({ pool_address: poolCheck.message });
+      setLoading(false);
+      return;
+    }
+    if (poolAddressField && poolCheck.status === 'checking') {
+      setFieldErrors({ pool_address: 'Still checking pool — wait a moment.' });
+      setLoading(false);
+      return;
+    }
+    if (hasMintField && mintCheck.status === 'listed') {
+      setFieldErrors({
+        mint: `Mint already listed as asset #${mintCheck.assetId}.`,
+      });
+      setLoading(false);
+      return;
+    }
 
     try {
       const data = await executeVaultFunction(fn.id, values, {
@@ -358,8 +414,14 @@ export function AccordionItem({
                               : 'text-muted-foreground'
                         }`}
                       >
-                        {poolCheck.status === 'checking' && 'Checking pool…'}
-                        {poolCheck.status === 'found' && '✓ Pool found on-chain.'}
+                        {poolCheck.status === 'checking' &&
+                          (values.price_dex_kind === '1'
+                            ? 'Checking DAMM v2 pool (Meteora SDK)…'
+                            : 'Checking Whirlpool (Orca SDK)…')}
+                        {poolCheck.status === 'found' &&
+                          `✓ ${
+                            poolCheck.venue === 'dammV2' ? 'DAMM v2 (Meteora)' : 'Whirlpool (Orca)'
+                          } — ${poolCheck.mintA.slice(0, 4)}… / ${poolCheck.mintB.slice(0, 4)}…`}
                         {poolCheck.status === 'not-found' && poolCheck.message}
                       </p>
                     )}

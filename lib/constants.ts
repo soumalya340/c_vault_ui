@@ -1,14 +1,15 @@
 import { PublicKey } from '@solana/web3.js';
 
 /** Local copy of app/providers.tsx's Network type — kept dependency-free to avoid a cycle. */
-export type Network = 'devnet' | 'mainnet';
+export type Network = 'localhost' | 'mainnet';
 
 /**
- * c_vault program id — same on devnet and mainnet (and in the IDL).
- * Old id was 2YW9wGokqo321EtDNWWH2CSQxFiJz3uMoNxa9dgbHn2P — do not use for PDAs.
+ * c_vault program id — same on every cluster (and in the IDL).
+ * Prior ids: 7wcJJoT1d1kSUkc3HHvH2DG1cVvDXm6psLwe2pHgdQUk,
+ * 2YW9wGokqo321EtDNWWH2CSQxFiJz3uMoNxa9dgbHn2P — do not use for PDAs.
  */
 export const C_VAULT_PROGRAM_ID = new PublicKey(
-  '7wcJJoT1d1kSUkc3HHvH2DG1cVvDXm6psLwe2pHgdQUk',
+  '3ifxGy4phHHAEpomdyyrBx2Bs5vKejbUPqsJ1eGPned2',
 );
 
 export const ADMIN_PUBKEY = new PublicKey(
@@ -26,31 +27,41 @@ export const USDC_VAULT_SEED = Buffer.from('usdc_vault');
 export const USER_INFO_SEED = Buffer.from('user_info');
 export const REDEEM_SEED = Buffer.from('redeem');
 
-export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-
-/** Canonical USDC/wSOL Orca Whirlpool per cluster — the genesis wSOL asset's
- *  swap pool, prefilled on the Initialize global state form (editable there). */
-export const WSOL_USDC_POOL = new PublicKey('Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE');
-export const WSOL_USDC_POOL_DEVNET = new PublicKey(
-  '4wofA6PxPmYqjWv7tv4p7WYDbeKfhm7TgZ35WZoYouhU',
+/**
+ * Quote mint per cluster. The program hardcodes a single `USDC_MINT` constant
+ * and is built+deployed once per cluster, so the mint the program accepts
+ * differs by deployment. Sending the wrong one fails `create_etf` with
+ * QuoteMintNotEligible (6041) and deposit/claim with InvalidMint.
+ *
+ * Always read these via `NETWORK_CONSTANTS[network].usdcMint` — never import
+ * a bare mint constant into instruction-building code.
+ */
+/** Mainnet (and local validator when mirroring mainnet): Circle USDC. */
+export const USDC_MINT_MAINNET = new PublicKey(
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
 );
 
+/** Canonical USDC/wSOL Orca Whirlpool — the genesis wSOL asset's swap pool,
+ *  prefilled on the Initialize global state form. Same address for mainnet and
+ *  localhost (local runs use the same program constants as mainnet). */
+export const WSOL_USDC_POOL = new PublicKey('Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE');
+
 /**
- * Per-network values only. Program id is the constant C_VAULT_PROGRAM_ID
- * (same on mainnet and devnet); only the USDC mint and the canonical
- * USDC/wSOL pool differ by cluster.
+ * Per-network values. Localhost and mainnet share program constants (quote mint,
+ * USDC↔wSOL pool) — only the RPC endpoint differs. The quote mint seeds the
+ * `usdc_vault` PDA; derive with the wrong one and you address a missing vault.
  */
 export const NETWORK_CONSTANTS: Record<
   Network,
   { usdcMint: PublicKey; wsolUsdcPool: PublicKey }
 > = {
   mainnet: {
-    usdcMint: USDC_MINT,
+    usdcMint: USDC_MINT_MAINNET,
     wsolUsdcPool: WSOL_USDC_POOL,
   },
-  devnet: {
-    usdcMint: new PublicKey('CBh1CYgXrqK48NPKwCYe91fiUv66w9K2dBcjsKheaP23'),
-    wsolUsdcPool: WSOL_USDC_POOL_DEVNET,
+  localhost: {
+    usdcMint: USDC_MINT_MAINNET,
+    wsolUsdcPool: WSOL_USDC_POOL,
   },
 };
 
@@ -104,8 +115,8 @@ export const PYTH_PUSH_ORACLE_PROGRAM_ID = new PublicKey(
 );
 
 /**
- * Pyth SOL/USD price feed id (64-char hex, no 0x). Same id on mainnet and
- * devnet (Pyth pull oracle) — mirrors `SOL_USD_PYTH_FEED_ID` in the program's
+ * Pyth SOL/USD price feed id (64-char hex, no 0x). Same id on every cluster
+ * (Pyth pull oracle) — mirrors `SOL_USD_PYTH_FEED_ID` in the program's
  * constants.rs. Used for ViaSol DEX pricing and as the genesis wSOL asset's
  * default feed.
  */

@@ -1,10 +1,12 @@
+import { PublicKey } from "@solana/web3.js";
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getDb, type DbNetwork } from "@/lib/db";
 
 /**
  * `vaults` table — single source of truth for vaults shown in c_vault_ui.
- * Schema matches live Supabase (see docs/Supabase_Info.md). Rows are written
- * by the UI right after an on-chain create_etf succeeds.
+ * Backed by SQLite (localhost, shared with c_vault_script) or Supabase
+ * (mainnet) via lib/db. Rows are written by the UI right after an on-chain
+ * create_etf succeeds.
  *
  * Note: base_mint / full asset basket JSON are not stored here. Quote mint is
  * always network USDC; asset details are loaded on-chain via fetchVaultCtx.
@@ -48,19 +50,42 @@ function errorMessage(err: unknown): string {
       : String(err);
 }
 
+function toDbNetwork(v: string | null): DbNetwork {
+  return v === "localhost" ? "localhost" : "mainnet";
+}
+
 export async function GET(request: Request) {
   try {
-    const network = new URL(request.url).searchParams.get("network") ?? "devnet";
-    const supabase = createServiceClient();
-    const { data, error } = await supabase
-      .from("vaults")
-      .select("*")
-      .eq("network", network)
-      .order("vault_id", { ascending: true });
-
-    if (error) throw error;
-
-    return NextResponse.json({ vaults: (data ?? []) as VaultRow[] });
+    const network = toDbNetwork(new URL(request.url).searchParams.get("network"));
+    const rows = await getDb(network).listVaults(network);
+    const vaults: VaultRow[] = rows.map((v) => ({
+      vault_address: v.vault_address,
+      vault_id: v.vault_id,
+      network: v.network,
+      vault_authority: v.vault_authority,
+      shares_mint: v.shares_mint,
+      usdc_vault: v.usdc_vault,
+      name: v.name,
+      symbol: v.symbol,
+      uri: v.uri,
+      fee_recipient: v.fee_recipient,
+      fund_type: v.fund_type,
+      max_shares: v.max_shares,
+      creator: v.creator,
+      tx_signature: v.tx_signature,
+      alt_address: v.deposit_alt_address ?? v.alt_address,
+      paused: v.paused,
+      admin_locked: v.admin_locked,
+      vault_manager: v.vault_manager,
+      deposit_fee_bps: v.deposit_fee_bps,
+      redeem_fee_bps: v.redeem_fee_bps,
+      total_usdc_value: v.total_usdc_value,
+      asset_ids: v.asset_ids,
+      asset_allocation_bps: v.asset_allocation_bps,
+      num_assets: v.num_assets,
+      created_at: v.created_at ?? undefined,
+    }));
+    return NextResponse.json({ vaults });
   } catch (err) {
     return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
@@ -125,10 +150,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const row: VaultRow = {
+    const network = toDbNetwork(body.network ?? null);
+
+    await getDb(network).upsertVault(network, {
       vault_address: body.vault_address!,
       vault_id: body.vault_id!,
-      network: body.network ?? "devnet",
+      network,
       vault_authority: body.vault_authority!,
       shares_mint: body.shares_mint!,
       usdc_vault: body.usdc_vault!,
@@ -141,6 +168,8 @@ export async function POST(request: Request) {
       creator: body.creator!,
       tx_signature: body.tx_signature!,
       alt_address: body.alt_address ?? null,
+      deposit_alt_address: body.alt_address ?? null,
+      redeem_alt_address: null,
       paused: body.paused ?? 0,
       admin_locked: body.admin_locked ?? 0,
       vault_manager: body.vault_manager!,
@@ -150,17 +179,51 @@ export async function POST(request: Request) {
       asset_ids: body.asset_ids,
       asset_allocation_bps: body.asset_allocation_bps,
       num_assets: body.num_assets!,
-    };
-
-    const supabase = createServiceClient();
-    // Upsert on the PK so retrying after a partial failure (tx landed,
-    // insert raced/failed) repairs the row instead of raising duplicate-key.
-    const { error } = await supabase
-      .from("vaults")
-      .upsert(row, { onConflict: "vault_address" });
-    if (error) throw error;
+      created_at: null,
+    });
 
     return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
+  }
+}
+
+function isValidPubkeyOrNull(v: unknown): v is string | null {
+  if (v === null || v === undefined) return true;
+  if (typeof v !== "string") return false;
+  try {
+    // eslint-disable-next-line no-new
+    new PublicKey(v);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Set deposit/redeem ALT addresses on an existing vault — admin dashboard
+ * only (see c_vault_script menus/db.js choice '3'). Blank/null clears.
+ */
+export async function PATCH(request: Request) {
+  try {
+    const body = (await request.json()) as {
+      network?: string;
+      vault_id?: number;
+      deposit_alt_address?: string | null;
+      redeem_alt_address?: string | null;
+    };
+    if (body.vault_id === undefined || body.vault_id === null) {
+      return NextResponse.json({ error: "vault_id is required." }, { status: 400 });
+    }
+    if (!isValidPubkeyOrNull(body.deposit_alt_address) || !isValidPubkeyOrNull(body.redeem_alt_address)) {
+      return NextResponse.json({ error: "ALT addresses must be valid base58 pubkeys or blank." }, { status: 400 });
+    }
+    const network = toDbNetwork(body.network ?? null);
+    const updated = await getDb(network).updateVaultAlts(network, Number(body.vault_id), {
+      deposit_alt_address: body.deposit_alt_address || null,
+      redeem_alt_address: body.redeem_alt_address || null,
+    });
+    return NextResponse.json({ vault: updated });
   } catch (err) {
     return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }

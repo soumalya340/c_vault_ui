@@ -254,10 +254,9 @@ export async function executeVaultFunction(
       const pythFeedId = pythFeedIdBytes(v.pyth_feed_id);
       const tokenProgramTag = Number(v.token_program_tag || 0);
 
-      // Guard before signing: verify the swap pool actually exists, decodes
-      // as the selected DEX Type, and includes the mint the chosen route
-      // requires — so a typo'd, wrong-venue, or wrong-route address fails
-      // here (next to the field) instead of as an on-chain rejection.
+      // Guard before signing: pool exists (Orca Whirlpools SDK or Meteora
+      // CpAmm SDK), correct venue, route quote leg, and asset mint is a pool
+      // leg (required for swaps even when Price source = Pyth).
       try {
         await assertPoolExists(
           connection,
@@ -265,6 +264,7 @@ export async function executeVaultFunction(
           priceDexKind === 1 ? 'dammV2' : 'whirlpool',
           v.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
           net,
+          mint,
         );
       } catch (err) {
         throw new FieldError(

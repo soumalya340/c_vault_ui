@@ -1,0 +1,88 @@
+// Client-only Prisma schema over the SQLite DB owned by c_vault_script
+// (c_vault_script/lib/db/schema.sql). Never run `prisma migrate` or
+// `prisma db push` against this file — the CLI script owns the schema.
+// Regenerate the client after schema.sql changes with:
+//   npx prisma db pull && npx prisma generate
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("SQLITE_DATABASE_URL")
+}
+
+model PreApprovedTokenRegistry {
+  id                Int     @id @default(autoincrement())
+  network           String
+  asset_id          Int
+  asset_name        String  @default("")
+  mint              String
+  pool_address      String
+  pyth_feed_id      String
+  decimals          Int
+  route             String
+  price_source_tag  Int
+  price_dex_kind    Int
+  price_pool_address String
+  twap              String?
+  swap_kind         String
+  token_program_tag Int
+  active            Int     @default(1)
+  created_at        String  @default("")
+
+  @@unique([network, asset_id])
+  @@unique([network, mint])
+  @@map("pre_approved_token_registry")
+}
+
+model Vault {
+  vault_address        String  @id
+  vault_id             Int
+  vault_authority       String
+  shares_mint           String  @unique
+  usdc_vault             String
+  name                   String
+  symbol                 String
+  uri                    String
+  fee_recipient          String
+  fund_type              String
+  max_shares             String?
+  creator                String
+  tx_signature           String
+  network                String  @default("localhost")
+  created_at             String  @default("")
+  deposit_alt_address    String?
+  redeem_alt_address     String?
+  paused                 Int     @default(0)
+  admin_locked           Int     @default(0)
+  vault_manager          String
+  deposit_fee_bps        Int     @default(0)
+  redeem_fee_bps         Int     @default(0)
+  total_usdc_value       String  @default("0")
+  asset_ids              String
+  asset_allocation_bps   String
+  num_assets             Int
+
+  @@unique([network, vault_id])
+  @@map("vaults")
+}
+
+model AssetPreset {
+  preset_key        String @id
+  asset_name        String
+  mint              String
+  pool_address      String
+  pyth_feed_id      String
+  decimals          Int
+  route             String
+  price_source_tag  Int
+  price_dex_kind    Int
+  swap_kind         String
+  token_program_tag Int
+  aliases           String @default("[]")
+
+  @@map("asset_presets")
+}

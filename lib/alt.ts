@@ -30,7 +30,6 @@ import {
   DAMM_V2_EVENT_AUTHORITY,
   MEMO_PROGRAM_ID,
   WSOL_MINT,
-  USDC_MINT,
 } from './constants';
 import type { PoolCtx } from './whirlpool';
 import type { DammPoolCtx } from './damm';
@@ -60,7 +59,8 @@ export function buildVaultAltAddresses(params: {
   vaultAuthority: PublicKey;
   sharesMint: PublicKey;
   usdcVault: PublicKey;
-  baseMint?: PublicKey;
+  /** Quote mint of the vault's cluster — pass `NETWORK_CONSTANTS[network].usdcMint`. */
+  baseMint: PublicKey;
   assetMints: PublicKey[];
   vaultAssetAtas: PublicKey[];
   priceFeeds: PublicKey[];
@@ -83,7 +83,7 @@ export function buildVaultAltAddresses(params: {
     params.vaultAuthority,
     params.sharesMint,
     params.usdcVault,
-    params.baseMint ?? USDC_MINT,
+    params.baseMint,
     WSOL_MINT,
     ...params.assetMints,
     ...params.vaultAssetAtas,

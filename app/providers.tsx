@@ -14,7 +14,7 @@ import { ADMIN_PUBKEY } from '@/lib/constants';
 import { createFailoverConnection } from '@/lib/connection';
 import { WalletModal } from './components/wallet-modal';
 
-export type Network = 'devnet' | 'mainnet';
+export type Network = 'localhost' | 'mainnet';
 
 const NETWORK_STORAGE_KEY = 'cvault-network';
 
@@ -25,7 +25,8 @@ export function getStoredNetwork(): Network {
   if (typeof window === 'undefined') return DEFAULT_NETWORK;
   try {
     const saved = window.localStorage.getItem(NETWORK_STORAGE_KEY);
-    if (saved === 'mainnet' || saved === 'devnet') return saved;
+    // Only localhost | mainnet. Legacy values (e.g. 'devnet') fall through.
+    if (saved === 'mainnet' || saved === 'localhost') return saved;
   } catch {
     // ignore storage failures
   }
@@ -40,17 +41,29 @@ export function setStoredNetwork(network: Network): void {
   }
 }
 
+/**
+ * RPC endpoint for the selected network.
+ *
+ * - mainnet: paid Helius via `NEXT_PUBLIC_HELIUS_RPC` (preferred — every wallet
+ *   uses this so the whole UI rides the paid RPC). Falls back to public
+ *   mainnet-beta only if the env var is unset.
+ * - localhost: local validator (`http://127.0.0.1:8899` by default).
+ */
 export function getRpcEndpoint(network: Network): string {
   if (network === 'mainnet') {
-    return process.env.NEXT_PUBLIC_MAINNET_RPC ?? 'https://api.mainnet-beta.solana.com';
+    return (
+      process.env.NEXT_PUBLIC_HELIUS_RPC ??
+      process.env.NEXT_PUBLIC_MAINNET_RPC ??
+      'https://api.mainnet-beta.solana.com'
+    );
   }
-  return process.env.NEXT_PUBLIC_DEVNET_RPC ?? 'https://api.devnet.solana.com';
+  return process.env.NEXT_PUBLIC_LOCALHOST_RPC ?? 'http://127.0.0.1:8899';
 }
 
 /**
- * Arms/disarms the public-RPC-retry-then-Helius-failover behavior based on
- * whether the connected wallet is ADMIN_PUBKEY. Every other wallet always
- * uses the public endpoint, no retries, no fallback.
+ * Arms/disarms admin-only Helius failover when the primary mainnet endpoint
+ * is not already Helius (see lib/connection.ts). Everyone already uses
+ * NEXT_PUBLIC_HELIUS_RPC as the mainnet primary when that env is set.
  */
 function AdminFailoverArmer({ connection }: { connection: ReturnType<typeof createFailoverConnection> }) {
   const { publicKey } = useWallet();

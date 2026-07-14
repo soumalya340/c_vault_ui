@@ -42,7 +42,6 @@ import {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
   DEFAULT_VAULT_ID,
-  USDC_MINT,
   WSOL_MINT,
   WSOL_ASSET_ID,
   SOL_USD_PYTH_FEED_ID,
@@ -64,7 +63,6 @@ export {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
   DEFAULT_VAULT_ID,
-  USDC_MINT,
   WSOL_MINT,
   WSOL_ASSET_ID,
   SOL_USD_PYTH_FEED_ID,
@@ -471,7 +469,7 @@ function assetAtaRemainingAccounts(ctx: VaultChainCtx): AccountMeta[] {
   ];
 }
 
-function baseAta(owner: PublicKey, baseMint: PublicKey = USDC_MINT): PublicKey {
+function baseAta(owner: PublicKey, baseMint: PublicKey): PublicKey {
   return getAssociatedTokenAddressSync(baseMint, owner, false, TOKEN_PROGRAM_ID);
 }
 

@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     const mintB = params.get("mintB");
     const mint = params.get("mint");
     const counterMints = params.get("counterMints");
-    const network = params.get("network") ?? "devnet";
+    const network = params.get("network") ?? "mainnet";
 
     const poolSelect =
       "pool_address, mint_a, mint_b, symbol_a, symbol_b, decimals_a, decimals_b, tick_spacing, network";

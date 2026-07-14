@@ -1,5 +1,5 @@
 import { ADMIN_PUBKEY, SOL_USD_PYTH_FEED_ID_HEX, type Network } from '@/lib/cvault';
-import { WSOL_USDC_POOL, WSOL_USDC_POOL_DEVNET } from '@/lib/constants';
+import { WSOL_USDC_POOL } from '@/lib/constants';
 
 export type SectionId = 'view' | 'vaults' | 'vault-ops' | 'admin';
 
@@ -173,18 +173,18 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
         name: 'pool_address',
         label: 'USDC/wSOL Whirlpool pool',
         fixed: {
-          devnet: WSOL_USDC_POOL_DEVNET.toBase58(),
+          localhost: WSOL_USDC_POOL.toBase58(),
           mainnet: WSOL_USDC_POOL.toBase58(),
         },
         wide: true,
-        hint: 'Canonical USDC↔wSOL Orca Whirlpool for the selected network — every ViaSol swap leg is validated against it on-chain.',
+        hint: 'Canonical USDC↔wSOL Orca Whirlpool — every ViaSol swap leg is validated against it on-chain. Same address on localhost and mainnet.',
       },
       {
         name: 'pyth_feed_id',
         label: 'Pyth feed ID (SOL/USD)',
         fixed: SOL_USD_PYTH_FEED_ID_HEX,
         wide: true,
-        hint: 'The genesis asset is Pyth-priced. Same feed id on devnet and mainnet (pull oracle).',
+        hint: 'The genesis asset is Pyth-priced. Same feed id on every cluster (pull oracle).',
       },
     ],
     submitLabel: 'Initialize',
@@ -228,10 +228,20 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
     number: '05',
     title: 'Create asset',
     description:
-      'List a new global asset. Runs pool/TVL/ownership validation once at listing time; vaults reference it by id afterward.',
+      'List a new global asset. Pool address is verified live with the Orca Whirlpools SDK or Meteora DAMM v2 (CpAmm) SDK — pick DEX Type to match the pool. The pool must be this mint paired with wSOL (ViaSol) or network USDC (DirectUsdc).',
     fields: [
-      { name: 'mint', label: 'Mint', wide: true },
-      { name: 'pool_address', label: 'Pool address', wide: true },
+      {
+        name: 'mint',
+        label: 'Mint',
+        wide: true,
+        hint: 'Token mint being listed. Must be one leg of the pool (with wSOL or USDC).',
+      },
+      {
+        name: 'pool_address',
+        label: 'Pool address',
+        wide: true,
+        hint: 'Whirlpool or DAMM v2 pool. ViaSol → mint/wSOL. DirectUsdc → mint/USDC. Verified via Orca / Meteora SDK before submit.',
+      },
       {
         name: 'pyth_feed_id',
         label: 'Pyth feed ID (64-char hex, blank = zero feed)',

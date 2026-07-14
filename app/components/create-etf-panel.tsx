@@ -94,6 +94,10 @@ export function CreateEtfPanel({ network }: { network: Network }) {
 
   useEffect(() => {
     let cancelled = false;
+    // Network switch → reload this cluster's registry and clear the basket so
+    // asset ids from the previous network can't be submitted by mistake.
+    setRows([{ ...EMPTY_ROW }]);
+    setActiveRowIndex(0);
     fetchAssetRegistry(network)
       .then((rows) => {
         if (cancelled) return;
@@ -110,8 +114,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   }, [network]);
 
   const activeAssets = useMemo(
-    () => (network === 'devnet' ? registry.filter((a) => a.active) : []),
-    [registry, network],
+    () => registry.filter((a) => a.active),
+    [registry],
   );
 
   const assetById = useMemo(
@@ -379,7 +383,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             <label className={fieldLabelClass}>Base / quote mint</label>
             <input className={inputClass} value={`USDC · ${usdcBase58}`} readOnly />
             <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-              Program constant — {network} USDC only
+              Program constant — Circle USDC (EPjF…) on every network
             </p>
           </div>
           <div>
@@ -447,16 +451,16 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             </span>
           </div>
 
-          {network !== 'devnet' && (
-            <p className="px-4 py-3 font-mono text-xs text-muted-foreground">
-              <span className="mr-1 text-muted-foreground/50">&gt;</span>
-              asset picker is devnet-only for now — switch network to pick assets
-            </p>
-          )}
-          {network === 'devnet' && registryError && (
+          {registryError && (
             <p className="px-4 py-3 font-mono text-xs text-destructive">
               <span className="mr-1 text-muted-foreground/50">&gt;</span>
               asset registry unavailable — {registryError}
+            </p>
+          )}
+          {!registryError && activeAssets.length === 0 && (
+            <p className="px-4 py-3 font-mono text-xs text-muted-foreground">
+              <span className="mr-1 text-muted-foreground/50">&gt;</span>
+              no active assets on {network} — list some under Admin → Create asset (same network)
             </p>
           )}
 
@@ -542,7 +546,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                         value={row.assetId}
                         onChange={(e) => updateRow(i, { assetId: e.target.value })}
                         required
-                        disabled={network !== 'devnet'}
+                        disabled={!!registryError || activeAssets.length === 0}
                       >
                         <option value="">— pick token —</option>
                         {activeAssets.map((a) => (

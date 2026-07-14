@@ -1,0 +1,92 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useConnection } from '@solana/wallet-adapter-react';
+import type { Network } from '@/app/providers';
+import { C_VAULT_PROGRAM_ID, ADMIN_PUBKEY } from '@/lib/constants';
+import { panelClass } from '../ui-classes';
+
+type DbInfo = { backend: 'sqlite' | 'supabase'; label: string; tables: string[] };
+
+function short(addr: string, head = 4, tail = 4) {
+  return `${addr.slice(0, head)}…${addr.slice(-tail)}`;
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+        {label}
+      </span>
+      <span className="font-mono text-[11px] text-foreground">{value}</span>
+    </div>
+  );
+}
+
+export function AdminStatusStrip({ network }: { network: Network }) {
+  const { connection } = useConnection();
+  const [slot, setSlot] = useState<number | null>(null);
+  const [rpcOk, setRpcOk] = useState<boolean | null>(null);
+  const [db, setDb] = useState<DbInfo | null>(null);
+  const [vaultCount, setVaultCount] = useState<number | null>(null);
+  const [registryCount, setRegistryCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSlot(null);
+    setRpcOk(null);
+    connection
+      .getSlot()
+      .then((s) => {
+        if (!cancelled) {
+          setSlot(s);
+          setRpcOk(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRpcOk(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connection]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDb(null);
+    setVaultCount(null);
+    setRegistryCount(null);
+    fetch(`/api/admin/db/tables?network=${network}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setDb(d);
+      })
+      .catch(() => {});
+    fetch(`/api/vaults?network=${network}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setVaultCount(Array.isArray(d.vaults) ? d.vaults.length : 0);
+      })
+      .catch(() => {});
+    fetch(`/api/asset-registry?network=${network}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setRegistryCount(Array.isArray(d.assets) ? d.assets.length : 0);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [network]);
+
+  return (
+    <div className={`${panelClass} flex flex-wrap items-center gap-6 px-5 py-3.5 md:px-6`}>
+      <Stat label="RPC" value={rpcOk === null ? '…' : rpcOk ? `live · slot ${slot}` : 'unreachable'} />
+      <Stat label="DB backend" value={db ? db.label : '…'} />
+      <Stat label="Vaults" value={vaultCount === null ? '…' : String(vaultCount)} />
+      <Stat label="Registry" value={registryCount === null ? '…' : String(registryCount)} />
+      <Stat label="Program" value={short(C_VAULT_PROGRAM_ID.toBase58())} />
+      <Stat label="Admin" value={short(ADMIN_PUBKEY.toBase58())} />
+    </div>
+  );
+}

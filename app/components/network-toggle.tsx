@@ -15,7 +15,7 @@ export function NetworkToggle({
       role="group"
       aria-label="Network"
     >
-      {(['devnet', 'mainnet'] as const).map((n) => {
+      {(['localhost', 'mainnet'] as const).map((n) => {
         const active = network === n;
         return (
           <button

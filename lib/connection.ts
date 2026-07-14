@@ -1,11 +1,17 @@
 import { Connection, type Commitment, type ConnectionConfig } from '@solana/web3.js';
 
 /**
- * Every wallet gets the public RPC and nothing else. Only the admin wallet
- * (ADMIN_PUBKEY, armed via setFailoverAdminMode) gets retries: 3 failed
- * attempts against the public endpoint, then a permanent switch to Helius
- * for the rest of the session. The Helius URL is fetched from
- * /api/rpc/helius on demand — the API key never reaches the client bundle.
+ * Connection wrapper used for every wallet.
+ *
+ * Mainnet primary endpoint is normally `NEXT_PUBLIC_HELIUS_RPC` (paid Helius
+ * exposed to the frontend so all users share the same RPC). Localhost uses
+ * the local validator and never fails over.
+ *
+ * Admin-only safety net: if the connected wallet is ADMIN_PUBKEY and the
+ * primary endpoint is *not* already Helius (e.g. env fell back to public
+ * mainnet-beta), after 3 failed attempts we fetch `/api/rpc/helius` and
+ * switch for the rest of the session. Server-only `HELIUS_API_KEY` never
+ * reaches the client bundle via that path.
  */
 const MAX_PUBLIC_ATTEMPTS = 3;
 
@@ -13,6 +19,10 @@ type RpcRequest = (method: string, args: unknown[]) => Promise<unknown>;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isHeliusEndpoint(url: string): boolean {
+  return url.includes('helius');
 }
 
 async function fetchHeliusEndpoint(network: string): Promise<string | null> {
@@ -45,6 +55,8 @@ export function createFailoverConnection(
   let adminMode = false;
   let usingHelius = false;
   let fallback: Connection | null = null;
+  // Localhost has no Helius host; mainnet already on Helius needs no failover.
+  const canFailoverToHelius = network === 'mainnet' && !isHeliusEndpoint(publicEndpoint);
 
   (primary as unknown as { setFailoverAdminMode: (on: boolean) => void }).setFailoverAdminMode = (
     on: boolean,
@@ -59,10 +71,8 @@ export function createFailoverConnection(
       return (fallback as unknown as { _rpcRequest: RpcRequest })._rpcRequest(method, args);
     }
 
-    // Non-admin: public RPC only, retried on its own (same 429 behavior
-    // web3.js used to give everyone for free before we disabled its
-    // built-in retry above) — but never fails over to Helius.
-    if (!adminMode) {
+    // Non-admin, or no Helius failover path: retry primary only.
+    if (!adminMode || !canFailoverToHelius) {
       let lastErr: unknown;
       for (let attempt = 1; attempt <= MAX_PUBLIC_ATTEMPTS; attempt += 1) {
         try {
@@ -85,8 +95,8 @@ export function createFailoverConnection(
       }
     }
 
-    // Public RPC failed 3 times in a row for the admin wallet — switch to
-    // Helius permanently for the rest of this session.
+    // Primary failed 3 times for the admin wallet — switch to Helius for the
+    // rest of this session (mainnet only, and only when primary was not Helius).
     const heliusEndpoint = await fetchHeliusEndpoint(network);
     if (!heliusEndpoint) throw lastErr;
 

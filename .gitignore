@@ -40,6 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# prisma generated client (regenerate with `npx prisma generate`)
+/lib/generated/prisma
+
 # sqlite feed store
 data/*.sqlite
 data/*.sqlite-*
