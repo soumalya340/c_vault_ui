@@ -17,7 +17,7 @@ import {
 } from '@/lib/cvault';
 import { USDC_DECIMALS } from '@/lib/constants';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
-import type { VaultRecord } from '@/lib/registryClient';
+import { updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
 import {
   btnGhostClass,
@@ -200,19 +200,41 @@ export function RedeemModal({
         network,
         (message) => setSteps((prev) => [...prev, message]),
       );
+      let altNote = '';
+      if (
+        r.altAddress &&
+        (r.altCreated || !vault.alt_address || vault.alt_address !== r.altAddress)
+      ) {
+        try {
+          await updateVaultAlts(network, vault.vault_id, {
+            deposit_alt_address: r.altAddress,
+            redeem_alt_address: r.altAddress,
+          });
+          altNote = r.altCreated
+            ? `\nALT created + saved: ${r.altAddress}`
+            : `\nALT saved: ${r.altAddress}`;
+        } catch (err) {
+          altNote =
+            `\nALT live (${r.altAddress}) but DB save failed: ` +
+            `${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
       if (r.phase === 'requested') {
         const unlock = r.unlockTime ? new Date(r.unlockTime * 1000).toLocaleString() : '—';
         setResult({
           type: 'success',
           text:
             `Shares burned for vault №${vault.vault_id}. Cooldown active — ` +
-            `press Redeem (swap) again after ${unlock} to run the outflow swap.`,
+            `press Redeem (swap) again after ${unlock} to run the outflow swap.` +
+            altNote,
           solscan: r.link || undefined,
         });
       } else {
         setResult({
           type: 'success',
-          text: `Outflow swap complete for vault №${vault.vault_id} (${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}). Press Claim to receive the payout.`,
+          text:
+            `Outflow swap complete for vault №${vault.vault_id} (${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}). Press Claim to receive the payout.` +
+            altNote,
           solscan: r.link,
         });
       }

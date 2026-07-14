@@ -36,8 +36,40 @@ import {
 } from '@/lib/cvault';
 import { WSOL_DECIMALS } from '@/lib/constants';
 import { assetNameForMint } from '@/lib/presets/canonical-data';
-import { fetchTokens, fetchAssetRegistry, saveAssetRegistryEntry, fetchVaults, FieldError } from '@/lib/registryClient';
+import {
+  fetchTokens,
+  fetchAssetRegistry,
+  saveAssetRegistryEntry,
+  fetchVaults,
+  updateVaultAlts,
+  FieldError,
+} from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
+
+/** Write ALT to Supabase/SQLite after on-chain create. Soft-fails with a note. */
+async function persistVaultAlt(
+  network: Network,
+  vaultId: number,
+  altAddress: string,
+  altCreated: boolean,
+): Promise<string> {
+  if (!altAddress) return '';
+  try {
+    await updateVaultAlts(network, vaultId, {
+      deposit_alt_address: altAddress,
+      redeem_alt_address: altAddress,
+    });
+    return altCreated
+      ? `\nALT created + saved: ${altAddress}`
+      : `\nALT confirmed + saved: ${altAddress}`;
+  } catch (err) {
+    return (
+      `\nALT is live on-chain (${altAddress}) but saving to DB failed: ` +
+      `${err instanceof Error ? err.message : String(err)}. ` +
+      `Paste it under Admin → Vaults ALT fields, or re-run genesis/deposit.`
+    );
+  }
+}
 
 function bn(v: string | undefined, fallback = '0'): BN {
   return new BN(v && v.length > 0 ? v : fallback);
@@ -237,13 +269,36 @@ export async function executeVaultFunction(
           'baseline_share_price',
         );
       }
-      // The vault's own Address Lookup Table (created alongside it in Create
-      // ETF) is applied automatically — genesis needs the same swap-leg
-      // accounts a deposit does, so there is nothing for the admin to look up.
+      // Reuse DB ALT if live; otherwise create one before signing. Multi-asset
+      // genesis cannot fit without an ALT — ensureVaultAlt hard-fails if build
+      // fails. Always re-persist the address to Supabase/SQLite after success.
       const vaults = await fetchVaults(net).catch(() => []);
-      const altAddress = vaults.find((row) => row.vault_id === id)?.alt_address ?? null;
-      const r = await genesisDepositAndDeploy(connection, anchorWallet, id, baselineSharePrice, altAddress, net);
-      return { tx: r.tx, solscan: r.link };
+      const row = vaults.find((vrow) => vrow.vault_id === id);
+      const altAddress = row?.alt_address ?? null;
+      const r = await genesisDepositAndDeploy(
+        connection,
+        anchorWallet,
+        id,
+        baselineSharePrice,
+        altAddress,
+        net,
+      );
+      // Always write ALT when we have one (created or reused but missing in DB).
+      const shouldSave =
+        Boolean(r.altAddress) &&
+        (r.altCreated || !altAddress || altAddress !== r.altAddress);
+      const altNote = shouldSave
+        ? await persistVaultAlt(net, id, r.altAddress, r.altCreated)
+        : r.altAddress
+          ? `\nALT: ${r.altAddress}`
+          : '';
+      return {
+        tx: r.tx,
+        solscan: r.link,
+        altAddress: r.altAddress,
+        altCreated: r.altCreated,
+        note: altNote.trim() || undefined,
+      };
     }
     case 'set_paused': {
       if (!anchorWallet) throw new Error('Wallet required');

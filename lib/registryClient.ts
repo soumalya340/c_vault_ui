@@ -194,6 +194,33 @@ export async function saveVault(row: Omit<VaultRecord, 'created_at'>): Promise<v
   await jsonOrThrow<{ ok: boolean }>(res);
 }
 
+/**
+ * Persist deposit/redeem ALT addresses after create_etf or genesis auto-create.
+ * Writes `deposit_alt_address`, `redeem_alt_address`, and legacy `alt_address`
+ * (API aliases deposit → alt_address for older clients).
+ */
+export async function updateVaultAlts(
+  network: string,
+  vaultId: number,
+  alts: {
+    deposit_alt_address: string | null;
+    redeem_alt_address: string | null;
+  },
+): Promise<VaultRecord> {
+  const res = await fetch('/api/vaults', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      network,
+      vault_id: vaultId,
+      deposit_alt_address: alts.deposit_alt_address,
+      redeem_alt_address: alts.redeem_alt_address,
+    }),
+  });
+  const { vault } = await jsonOrThrow<{ vault: VaultRecord }>(res);
+  return vault;
+}
+
 /** Pool for a mint pair (either order) from `orca_pools` — null when absent. */
 export async function fetchPool(
   mintA: string,

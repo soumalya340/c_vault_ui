@@ -40,12 +40,15 @@ export interface FunctionDef {
   submitLabel: string;
 }
 
+// vault_id / asset_id fields render as registry-backed dropdowns (see
+// accordion-item.tsx) — ids come from the DB, never hand-typed. The number
+// input only appears as a fallback when the registry fetch fails.
 const VAULT_ID_FIELD: FieldDef = {
   name: 'vault_id',
   label: 'Vault ID',
   type: 'number',
   placeholder: '0',
-  hint: '0-based on-chain id. First vault is 0. Valid range is 0 … totalVaults−1 (see Global state).',
+  hint: 'Loaded from the vault registry. 0-based on-chain id — first vault is 0.',
 };
 
 const ASSET_ID_FIELD: FieldDef = {
@@ -53,7 +56,7 @@ const ASSET_ID_FIELD: FieldDef = {
   label: 'Asset ID',
   type: 'number',
   placeholder: '0',
-  hint: '0-based on-chain id. Genesis wSOL is 0. Valid range is 0 … totalAssets−1 (see Global state).',
+  hint: 'Loaded from the asset registry. 0-based on-chain id — genesis wSOL is 0.',
 };
 
 export const VIEW_FUNCTIONS: FunctionDef[] = [
@@ -140,7 +143,7 @@ export const VAULT_OPS_FUNCTIONS: FunctionDef[] = [
     number: '01',
     title: 'Genesis deposit',
     description:
-      'One-time seed: admin or vault-manager-only, callable once per vault while total_shares == 0. Deposits a fixed 1 USDC and reverse-prices shares to pin the opening share price, then deploys the seed across the vault’s asset basket in the same transaction. Vault must already exist (Create ETF) with vault asset ATAs resolvable. The vault’s lookup table (if one was created with it) is applied automatically.',
+      'One-time seed: admin or vault-manager-only, callable once per vault while total_shares == 0. Deposits a fixed 1 USDC and reverse-prices shares to pin the opening share price, then deploys the seed across the vault’s asset basket in the same transaction. Vault must already exist (Create ETF) with vault asset ATAs resolvable. Address Lookup Table is required: reuses the vault ALT from the DB if live on-chain, otherwise creates a new ALT before signing, waits for activation, and saves deposit_alt + redeem_alt (and alt_address) to Supabase/SQLite. Genesis aborts if ALT create fails — no silent static-key fallback.',
     fields: [
       VAULT_ID_FIELD,
       {

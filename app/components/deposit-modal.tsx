@@ -19,7 +19,7 @@ import {
 import { PRICE_SCALE_DECIMALS } from '@/lib/constants';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
-import { fetchTokens, type VaultRecord } from '@/lib/registryClient';
+import { fetchTokens, updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
 import {
   btnGhostClass,
@@ -209,9 +209,32 @@ export function DepositModal({
         vault.alt_address,
         network,
       );
+      // If create_etf never saved an ALT (or it died), deposit just rebuilt it —
+      // persist so future deposits/redeems reuse the same table.
+      let altNote = '';
+      if (
+        r.altAddress &&
+        (r.altCreated || !vault.alt_address || vault.alt_address !== r.altAddress)
+      ) {
+        try {
+          await updateVaultAlts(network, vault.vault_id, {
+            deposit_alt_address: r.altAddress,
+            redeem_alt_address: r.altAddress,
+          });
+          altNote = r.altCreated
+            ? `\nALT created + saved: ${r.altAddress}`
+            : `\nALT saved: ${r.altAddress}`;
+        } catch (err) {
+          altNote =
+            `\nALT live (${r.altAddress}) but DB save failed: ` +
+            `${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
       setResult({
         type: 'success',
-        text: `Deposited into vault №${vault.vault_id} — swaps executed in the same transaction.`,
+        text:
+          `Deposited into vault №${vault.vault_id} — swaps executed in the same transaction.` +
+          altNote,
         solscan: r.link,
       });
       setAmount('');

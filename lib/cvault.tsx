@@ -6,7 +6,6 @@ if (typeof globalThis !== 'undefined' && !('Buffer' in globalThis)) {
 }
 
 import {
-  AddressLookupTableAccount,
   Connection,
   PublicKey,
   SystemProgram,
@@ -27,7 +26,8 @@ import type { AnchorWallet } from '@solana/wallet-adapter-react';
 
 import { solscanLink, type Network } from './solscanLink';
 import { createProgram, createDummyWallet } from './program';
-import { sendV0, fetchAlt } from './alt';
+import { sendV0 } from './alt';
+import { ensureVaultAlt } from './vaultAlt';
 import {
   deriveGlobalStatePda,
   deriveAssetInfoPda,
@@ -1597,17 +1597,10 @@ async function prepareLocalhostOracles(
   );
 }
 
-async function resolveVaultAlt(
-  connection: Connection,
-  altAddress: string | null | undefined,
-): Promise<AddressLookupTableAccount | null> {
-  if (!altAddress) return null;
-  try {
-    return await fetchAlt(connection, new PublicKey(altAddress));
-  } catch {
-    return null; // fall back to static keys — bigger tx, same behavior
-  }
-}
+export type VaultAltResult = {
+  altAddress: string;
+  altCreated: boolean;
+};
 
 /** Idempotent creates for the vault-authority ATAs the swap legs write to. */
 function ensureVaultAssetAtaIxs(payer: PublicKey, ctx: VaultChainCtx): TransactionInstruction[] {
@@ -1637,21 +1630,18 @@ function ensureVaultAssetAtaIxs(payer: PublicKey, ctx: VaultChainCtx): Transacti
   return ixs;
 }
 
-/**
- * Create any missing vault-authority ATAs (permissionless). NAV / preview /
- * deposit all require these accounts to exist — empty balance is fine, missing
- * is not. Mirrors c_vault_script `prepareLocalhostViews` ATA leg.
- */
-export async function ensureVaultAssetAtasExist(
-  connection: Connection,
-  wallet: AnchorWallet,
-  ctx: VaultChainCtx,
-): Promise<{ created: number }> {
-  const candidates = ctx.assets.map((a) => ({
+/** Vault-authority ATA the views may need, plus the wSOL ViaSol hop ATA. */
+type VaultAtaCandidate = {
+  key: PublicKey;
+  mint: PublicKey;
+  tokenProgramTag: number;
+};
+
+function vaultAtaCandidates(ctx: VaultChainCtx): VaultAtaCandidate[] {
+  const candidates: VaultAtaCandidate[] = ctx.assets.map((a) => ({
     key: a.vaultAssetAtaKey,
     mint: a.mint,
     tokenProgramTag: a.tokenProgramTag,
-    label: `asset ${a.assetId}`,
   }));
   if (
     ctx.assets.some((a) => a.route === 'ViaSol') &&
@@ -1661,42 +1651,36 @@ export async function ensureVaultAssetAtasExist(
       key: vaultAssetAta(ctx.vaultAuthority, WSOL_MINT),
       mint: WSOL_MINT,
       tokenProgramTag: TOKEN_PROGRAM_TAG_SPL,
-      label: 'wSOL (ViaSol hop)',
     });
   }
+  return candidates;
+}
 
+/** Subset of {@link vaultAtaCandidates} that does not exist on-chain yet. */
+async function findMissingVaultAtas(
+  connection: Connection,
+  ctx: VaultChainCtx,
+): Promise<VaultAtaCandidate[]> {
+  const candidates = vaultAtaCandidates(ctx);
   const infos = await connection.getMultipleAccountsInfo(candidates.map((c) => c.key));
-  const ixs: TransactionInstruction[] = [];
-  for (let i = 0; i < candidates.length; i++) {
-    if (infos[i]) continue;
-    const c = candidates[i];
-    ixs.push(
-      createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
-        c.key,
-        ctx.vaultAuthority,
-        c.mint,
-        tokenProgramForTag(c.tokenProgramTag),
-      ),
-    );
-  }
-  if (ixs.length === 0) return { created: 0 };
-  await sendV0(connection, wallet, ixs);
-  return { created: ixs.length };
+  return candidates.filter((_, i) => !infos[i]);
 }
 
 /** List missing accounts that cause NAV/preview AccountNotFound. */
 async function diagnoseMissingNavAccounts(
   connection: Connection,
   ctx: VaultChainCtx,
+  opts: { ignoreAtas?: boolean } = {},
 ): Promise<string[]> {
   const missing: string[] = [];
-  const ataInfos = await connection.getMultipleAccountsInfo(
-    ctx.assets.map((a) => a.vaultAssetAtaKey),
-  );
-  for (let i = 0; i < ctx.assets.length; i++) {
-    if (!ataInfos[i]) {
-      missing.push(`vault ATA for asset ${ctx.assets[i].assetId} (${ctx.assets[i].mint.toBase58().slice(0, 8)}…)`);
+  if (!opts.ignoreAtas) {
+    const ataInfos = await connection.getMultipleAccountsInfo(
+      ctx.assets.map((a) => a.vaultAssetAtaKey),
+    );
+    for (let i = 0; i < ctx.assets.length; i++) {
+      if (!ataInfos[i]) {
+        missing.push(`vault ATA for asset ${ctx.assets[i].assetId} (${ctx.assets[i].mint.toBase58().slice(0, 8)}…)`);
+      }
     }
   }
 
@@ -1734,9 +1718,13 @@ async function diagnoseMissingNavAccounts(
 }
 
 /**
- * Shared preflight for NAV / preview / redeem views:
- * 1) create missing vault ATAs when a wallet is connected
- * 2) localhost Pyth + Whirlpool clock refresh
+ * Shared preflight for NAV / preview / redeem views. Views are Anchor
+ * `.view()` simulations — nothing here may send a transaction or cost gas.
+ *
+ * Missing vault ATAs are handled by returning idempotent create instructions
+ * that the caller attaches as `preInstructions` to the simulation: the ATAs
+ * then exist inside the simulated state only, nothing lands on-chain. The
+ * connected wallet is used purely as the simulated rent payer.
  */
 async function prepareViewAccounts(
   connection: Connection,
@@ -1744,25 +1732,39 @@ async function prepareViewAccounts(
   ctx: VaultChainCtx,
   wallet?: AnchorWallet | null,
   onProgress?: ProgressFn,
-): Promise<void> {
-  if (wallet) {
-    onProgress?.('Ensuring vault asset ATAs…');
-    const { created } = await ensureVaultAssetAtasExist(connection, wallet, ctx);
-    if (created > 0) onProgress?.(`Created ${created} vault ATA(s)`);
-  }
+): Promise<TransactionInstruction[]> {
   await prepareLocalhostOracles(connection, network, ctx, onProgress);
 
-  // If ATAs/feeds are still missing (no wallet / setAccount failed), fail early
-  // with a precise list instead of Anchor's opaque AccountNotFound.
-  const missing = await diagnoseMissingNavAccounts(connection, ctx);
+  const missingAtas = await findMissingVaultAtas(connection, ctx);
+  const payer = wallet?.publicKey;
+  const preIxs =
+    payer && missingAtas.length > 0
+      ? missingAtas.map((c) =>
+          createAssociatedTokenAccountIdempotentInstruction(
+            payer,
+            c.key,
+            ctx.vaultAuthority,
+            c.mint,
+            tokenProgramForTag(c.tokenProgramTag),
+          ),
+        )
+      : [];
+
+  // Anything the simulation can't conjure — price feeds always, ATAs when
+  // there is no wallet to act as the simulated rent payer — fails early with
+  // a precise list instead of Anchor's opaque AccountNotFound.
+  const missing = await diagnoseMissingNavAccounts(connection, ctx, {
+    ignoreAtas: preIxs.length > 0,
+  });
   if (missing.length > 0) {
     const hint = wallet
-      ? 'Retry after the ATA create tx confirms.'
-      : 'Connect a wallet and retry — vault ATAs will be created automatically. Or deposit once.';
+      ? 'These accounts must exist on-chain before the view can run.'
+      : 'Connect a wallet and retry — the view simulates the ATA creation (gasless, nothing is sent on-chain).';
     throw new Error(
       `Missing on-chain accounts for NAV/preview: ${missing.join('; ')}. ${hint}`,
     );
   }
+  return preIxs;
 }
 
 /**
@@ -1808,11 +1810,12 @@ export async function depositAndDeploy(
   altAddress: string | null | undefined,
   network: Network,
   onProgress?: ProgressFn,
-) {
+): Promise<{ tx: string; link: string } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   await prepareLocalhostOracles(connection, network, ctx, onProgress);
-  const lut = await resolveVaultAlt(connection, altAddress);
+  // ALT is required — create on the fly if create_etf never saved one.
+  const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
 
   const ixs: TransactionInstruction[] = [
     ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
@@ -1820,8 +1823,13 @@ export async function depositAndDeploy(
     ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
   ];
 
-  const sig = await sendV0(connection, wallet, ixs, lut);
-  return { tx: sig, link: solscanLink(sig, network) };
+  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  return {
+    tx: sig,
+    link: solscanLink(sig, network),
+    altAddress: ensured.altAddress,
+    altCreated: ensured.altCreated,
+  };
 }
 
 // ─── Genesis deposit (one-time seed) ─────────────────────────────────────────
@@ -1899,11 +1907,13 @@ export async function genesisDepositAndDeploy(
   altAddress: string | null | undefined,
   network: Network,
   onProgress?: ProgressFn,
-) {
+): Promise<{ tx: string; link: string } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   await prepareLocalhostOracles(connection, network, ctx, onProgress);
-  const lut = await resolveVaultAlt(connection, altAddress);
+  // Hard guarantee: reuse live ALT or create a new one. Never send multi-leg
+  // genesis without a lookup table (static keys blow the tx size limit).
+  const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
 
   const ixs: TransactionInstruction[] = [
     ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
@@ -1912,8 +1922,13 @@ export async function genesisDepositAndDeploy(
     ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
   ];
 
-  const sig = await sendV0(connection, wallet, ixs, lut);
-  return { tx: sig, link: solscanLink(sig, network) };
+  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  return {
+    tx: sig,
+    link: solscanLink(sig, network),
+    altAddress: ensured.altAddress,
+    altCreated: ensured.altCreated,
+  };
 }
 
 /**
@@ -1927,7 +1942,7 @@ export async function deployPendingSwaps(
   altAddress: string | null | undefined,
   network: Network,
   onProgress?: ProgressFn,
-) {
+): Promise<{ tx: string; link: string; pendingUsdc: string; pendingSol: string } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   await prepareLocalhostOracles(connection, network, ctx, onProgress);
@@ -1941,7 +1956,7 @@ export async function deployPendingSwaps(
     throw new Error('Nothing pending to deploy — deposit first.');
   }
 
-  const lut = await resolveVaultAlt(connection, altAddress);
+  const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
   const ixs: TransactionInstruction[] = [
     ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
     // Skip the USDC→wSOL hop when only wSOL is left pending.
@@ -1950,8 +1965,15 @@ export async function deployPendingSwaps(
     })),
   ];
 
-  const sig = await sendV0(connection, wallet, ixs, lut);
-  return { tx: sig, link: solscanLink(sig, network) };
+  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  return {
+    tx: sig,
+    link: solscanLink(sig, network),
+    pendingUsdc: pendingUsdc.toString(),
+    pendingSol: pendingSol.toString(),
+    altAddress: ensured.altAddress,
+    altCreated: ensured.altCreated,
+  };
 }
 
 interface RawRedeemState {
@@ -1992,6 +2014,8 @@ export interface RedeemSwapResult {
   unlockTime?: number;
   signatures: string[];
   link: string;
+  altAddress?: string;
+  altCreated?: boolean;
 }
 
 /**
@@ -2018,7 +2042,8 @@ export async function redeemSwap(
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   await prepareLocalhostOracles(connection, network, ctx, onProgress);
-  const lut = await resolveVaultAlt(connection, altAddress);
+  const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
+  const lut = ensured.lut;
   const user = wallet.publicKey;
   const signatures: string[] = [];
 
@@ -2057,6 +2082,8 @@ export async function redeemSwap(
       unlockTime,
       signatures,
       link: last ? solscanLink(last, network) : '',
+      altAddress: ensured.altAddress,
+      altCreated: ensured.altCreated,
     };
   }
 
@@ -2103,6 +2130,8 @@ export async function redeemSwap(
     phase: 'swapped',
     signatures,
     link: solscanLink(signatures[signatures.length - 1], network),
+    altAddress: ensured.altAddress,
+    altCreated: ensured.altCreated,
   };
 }
 
@@ -2247,6 +2276,8 @@ export interface NavView {
   /** Raw share supply (Token-2022 base units). */
   totalShares: string;
   sharesDecimals: number;
+  /** Set when the vault is empty (NAV = 0) — explains the zero result. */
+  note?: string;
 }
 
 /** Read a field from an Anchor `.view()` result under camelCase or snake_case. */
@@ -2272,13 +2303,70 @@ function viewFieldToString(result: Record<string, unknown>, camel: string, snake
   return String(v);
 }
 
+/** Shares-mint decimals (Token-2022); falls back to 6 when unreadable. */
+async function fetchSharesDecimals(
+  connection: Connection,
+  ctx: VaultChainCtx,
+): Promise<number> {
+  try {
+    const mintInfo = await getMint(connection, ctx.sharesMint, undefined, TOKEN_2022_PROGRAM_ID);
+    return mintInfo.decimals;
+  } catch {
+    return 6;
+  }
+}
+
+/** True when `err` is the program's ZeroAmount (6000 / 0x1770) rejection. */
+function isZeroAmountError(err: unknown): boolean {
+  const anchorCode = (err as { error?: { errorCode?: { number?: number } } })?.error?.errorCode
+    ?.number;
+  if (anchorCode === 6000) return true;
+  if (/ZeroAmount/.test(parseTxError(err).code ?? '')) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /ZeroAmount|Error Number: 6000|custom program error: 0x1770/i.test(msg);
+}
+
+/**
+ * `get_total_nav_view` hard-rejects `total_nav == 0` with ZeroAmount — for an
+ * unfunded vault that is the expected state, not a failure. Surface it as a
+ * $0.00 result with the real on-chain share supply and a next-step note.
+ */
+async function emptyVaultNavView(
+  connection: Connection,
+  ctx: VaultChainCtx,
+  vaultId: number,
+): Promise<NavView> {
+  let totalShares = '0';
+  try {
+    const decoded = await fetchDecodedVault(connection, ctx.vaultPda);
+    if (decoded) totalShares = decoded.totalShares.toString();
+  } catch {
+    // keep '0'
+  }
+  const sharesDecimals = await fetchSharesDecimals(connection, ctx);
+  return {
+    totalNavUsd: '$0.00',
+    sharePriceUsd: '—',
+    totalSharesUi: formatUnits(totalShares, sharesDecimals),
+    totalNav: '0',
+    sharePrice: '0',
+    totalShares,
+    sharesDecimals,
+    note:
+      `Vault ${vaultId} is empty — no asset balances and no pending USDC, so NAV is $0 ` +
+      'and no share price exists yet. Fund it with Genesis deposit (Vault Ops №01).',
+  };
+}
+
 /**
  * Live NAV view — raw on-chain units plus human-readable USD / share strings.
  * Mirrors `c_vault_script/lib/sdk/views.js` `getTotalNavView` formatting so the
  * UI does not dump opaque raw integers (or empty) in the OUTPUT panel.
  *
- * Pass `wallet` when available so missing vault ATAs can be created first
- * (same as the CLI). Without a wallet, missing ATAs fail with a precise list.
+ * Gasless: runs entirely as an Anchor `.view()` simulation. Pass `wallet` so
+ * missing vault ATAs can be created *inside the simulation* (the wallet is
+ * only the simulated rent payer — nothing is signed or sent). Without a
+ * wallet, missing ATAs fail with a precise list.
  */
 export async function getTotalNavView(
   connection: Connection,
@@ -2288,7 +2376,7 @@ export async function getTotalNavView(
 ): Promise<NavView> {
   const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  await prepareViewAccounts(connection, network, ctx, wallet);
+  const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
   let raw: Record<string, unknown>;
   try {
@@ -2300,15 +2388,21 @@ export async function getTotalNavView(
         vaultAuthority: ctx.vaultAuthority,
       } as never)
       .remainingAccounts(await navRemainingAccounts(connection, ctx))
+      .preInstructions(preIxs)
       .view();
   } catch (err) {
-    const missing = await diagnoseMissingNavAccounts(connection, ctx).catch(() => [] as string[]);
+    if (isZeroAmountError(err)) {
+      return emptyVaultNavView(connection, ctx, vaultId);
+    }
+    const missing = await diagnoseMissingNavAccounts(connection, ctx, {
+      ignoreAtas: preIxs.length > 0,
+    }).catch(() => [] as string[]);
     if (missing.length > 0) {
       throw new Error(
         `Missing on-chain accounts for NAV: ${missing.join('; ')}. ` +
           (wallet
-            ? 'Retry after connecting a funded wallet.'
-            : 'Connect a wallet and retry so vault ATAs can be created.'),
+            ? 'These accounts must exist on-chain before the view can run.'
+            : 'Connect a wallet and retry — the view simulates the ATA creation (gasless, nothing is sent on-chain).'),
       );
     }
     throw new Error(describePreviewError(err));
@@ -2324,18 +2418,7 @@ export async function getTotalNavView(
   const sharePrice = viewFieldToString(raw, 'sharePrice', 'share_price');
   const totalShares = viewFieldToString(raw, 'totalShares', 'total_shares');
 
-  let sharesDecimals = 6;
-  try {
-    const mintInfo = await getMint(
-      connection,
-      ctx.sharesMint,
-      undefined,
-      TOKEN_2022_PROGRAM_ID,
-    );
-    sharesDecimals = mintInfo.decimals;
-  } catch {
-    // keep default
-  }
+  const sharesDecimals = await fetchSharesDecimals(connection, ctx);
 
   // totalNav = 6-dec USDC; sharePrice = USDC/share with PRICE_SCALE (1e9);
   // totalShares = Token-2022 raw amount.
@@ -2367,7 +2450,7 @@ export async function previewDeposit(
 ): Promise<PreviewDepositResult> {
   const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  await prepareViewAccounts(connection, network, ctx, wallet);
+  const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
   let result: Record<string, unknown>;
   try {
@@ -2379,6 +2462,7 @@ export async function previewDeposit(
         vaultAuthority: ctx.vaultAuthority,
       } as never)
       .remainingAccounts(await navRemainingAccounts(connection, ctx))
+      .preInstructions(preIxs)
       .view();
   } catch (err) {
     throw new Error(describePreviewError(err));
@@ -2408,7 +2492,7 @@ export async function previewRedeem(
 ): Promise<PreviewRedeemResult> {
   const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  await prepareViewAccounts(connection, network, ctx, wallet);
+  const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
   let result: Record<string, unknown>;
   try {
@@ -2420,6 +2504,7 @@ export async function previewRedeem(
         vaultAuthority: ctx.vaultAuthority,
       } as never)
       .remainingAccounts(await navRemainingAccounts(connection, ctx))
+      .preInstructions(preIxs)
       .view();
   } catch (err) {
     throw new Error(describePreviewError(err));
@@ -2619,7 +2704,8 @@ export function describePreviewError(err: unknown): string {
     if (!/Missing on-chain accounts for/i.test(parsed.raw)) {
       return (
         "Vault asset ATAs or price feeds aren't on-chain yet. Connect a wallet and retry — " +
-        'missing vault ATAs will be created. On localhost, also ensure Surfpool Pyth refresh works.'
+        'the view simulates the missing vault ATAs (gasless, nothing is sent on-chain). ' +
+        'On localhost, also ensure Surfpool Pyth refresh works.'
       );
     }
   }

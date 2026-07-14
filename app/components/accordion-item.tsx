@@ -7,7 +7,13 @@ import { PublicKey } from '@solana/web3.js';
 import type { Connection } from '@solana/web3.js';
 import { parseUnits, PRICE_SCALE_DECIMALS, type AssetRoute, type Network } from '@/lib/cvault';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
-import { fetchAssetRegistry, fetchAssetPresets, FieldError, type AssetPresetRecord } from '@/lib/registryClient';
+import {
+  fetchAssetRegistry,
+  fetchAssetPresets,
+  fetchVaults,
+  FieldError,
+  type AssetPresetRecord,
+} from '@/lib/registryClient';
 import { assetNameForMint } from '@/lib/presets/canonical-data';
 import { checkPoolExists } from '@/lib/poolExists';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
@@ -184,6 +190,80 @@ function useMintRegistryCheck(
   return state;
 }
 
+type IdOptionsState =
+  | { status: 'loading' }
+  | { status: 'ready'; options: { value: string; label: string }[] }
+  | { status: 'error'; message: string };
+
+/** Vault ids from the DB `vaults` table — vault_id fields render as a
+ *  registry-backed dropdown, never a hand-typed input. Refetches when the
+ *  accordion opens or the network changes. */
+function useVaultIdOptions(active: boolean, network: Network): IdOptionsState | null {
+  const [state, setState] = useState<IdOptionsState | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    setState({ status: 'loading' });
+    fetchVaults(network)
+      .then((rows) => {
+        if (cancelled) return;
+        const sorted = [...rows].sort((a, b) => a.vault_id - b.vault_id);
+        setState({
+          status: 'ready',
+          options: sorted.map((r) => ({
+            value: String(r.vault_id),
+            label: `№ ${String(r.vault_id).padStart(2, '0')} · ${r.name}${
+              r.symbol ? ` (${r.symbol})` : ''
+            }`,
+          })),
+        });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, network]);
+
+  return state;
+}
+
+/** Asset ids from `pre_approved_token_registry` — same contract as
+ *  {@link useVaultIdOptions} but for asset_id fields. */
+function useAssetIdOptions(active: boolean, network: Network): IdOptionsState | null {
+  const [state, setState] = useState<IdOptionsState | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    setState({ status: 'loading' });
+    fetchAssetRegistry(network)
+      .then((rows) => {
+        if (cancelled) return;
+        const sorted = [...rows].sort((a, b) => Number(a.asset_id) - Number(b.asset_id));
+        setState({
+          status: 'ready',
+          options: sorted.map((r) => ({
+            value: r.asset_id,
+            label: `#${r.asset_id} · ${r.asset_name}${r.active ? '' : ' (inactive)'}`,
+          })),
+        });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, network]);
+
+  return state;
+}
+
 type PresetPickerState =
   | { status: 'idle' | 'loading' }
   | { status: 'ready'; options: AssetPresetRecord[] }
@@ -263,6 +343,23 @@ export function AccordionItem({
   // Bumped after a successful create_asset so the preset dropdown and the
   // duplicate-mint check refetch the registry instead of serving stale data.
   const [registryVersion, setRegistryVersion] = useState(0);
+
+  const hasVaultIdField = fn.fields.some((f) => f.name === 'vault_id');
+  const hasAssetIdField = fn.fields.some((f) => f.name === 'asset_id');
+  const vaultIdOptions = useVaultIdOptions(open && hasVaultIdField, network);
+  const assetIdOptions = useAssetIdOptions(open && hasAssetIdField, network);
+
+  // Ids are per-network — drop any picked id when the cluster changes so a
+  // localhost vault id can never be submitted against mainnet (and vice versa).
+  useEffect(() => {
+    setValues((prev) => {
+      if (prev.vault_id === undefined && prev.asset_id === undefined) return prev;
+      const rest = { ...prev };
+      delete rest.vault_id;
+      delete rest.asset_id;
+      return rest;
+    });
+  }, [network]);
 
   const presetPicker = useUnlistedPresets(open && isCreateAsset, network, registryVersion);
   const fillFromPreset = (presetKey: string) => {
@@ -380,6 +477,44 @@ export function AccordionItem({
       submitValues = { ...values, asset_name: assetName };
       if (!typedName && fromPreset) {
         setValues((prev) => ({ ...prev, asset_name: fromPreset }));
+      }
+    }
+
+    // DB-backed id fields: submit exactly what the dropdown shows. Block when
+    // the registry has no rows (nothing valid to target) or is still loading;
+    // when the fetch failed the manual fallback input is active, so pass
+    // whatever was typed straight through.
+    const idFields: [string, IdOptionsState | null][] = [];
+    if (hasVaultIdField) idFields.push(['vault_id', vaultIdOptions]);
+    if (hasAssetIdField) idFields.push(['asset_id', assetIdOptions]);
+    for (const [name, opts] of idFields) {
+      if (opts?.status === 'error') continue;
+      if (!opts || opts.status === 'loading') {
+        setFieldErrors({ [name]: 'Still loading ids from the registry — wait a moment.' });
+        setLoading(false);
+        return;
+      }
+      if (opts.options.length === 0) {
+        setFieldErrors({
+          [name]:
+            name === 'vault_id'
+              ? `No vaults recorded on ${network} yet — create one under 02 VAULTS.`
+              : `No assets recorded on ${network} yet — list one via Admin № 05 Create asset.`,
+        });
+        setLoading(false);
+        return;
+      }
+      const current = submitValues[name];
+      if (!current || !opts.options.some((o) => o.value === current)) {
+        submitValues = { ...submitValues, [name]: opts.options[0].value };
+      }
+    }
+
+    // Untouched selects display options[0] — make sure the submit sends the
+    // same value instead of undefined.
+    for (const f of fn.fields) {
+      if (f.type === 'select' && !submitValues[f.name] && f.options?.length) {
+        submitValues = { ...submitValues, [f.name]: f.options[0].value };
       }
     }
 
@@ -565,6 +700,70 @@ export function AccordionItem({
                       <p className="break-all rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-[11px] text-foreground">
                         {resolveFixedValue(field, network)}
                       </p>
+                    ) : field.name === 'vault_id' || field.name === 'asset_id' ? (
+                      (() => {
+                        const opts = field.name === 'vault_id' ? vaultIdOptions : assetIdOptions;
+                        const noun = field.name === 'vault_id' ? 'vaults' : 'assets';
+                        if (opts?.status === 'error') {
+                          // Registry unreachable — manual entry is the only way
+                          // left to target an id, so fall back to the input.
+                          return (
+                            <>
+                              <input
+                                type="number"
+                                placeholder={field.placeholder}
+                                value={values[field.name] ?? ''}
+                                onChange={(e) => {
+                                  clearFieldError();
+                                  setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
+                                }}
+                                className={fieldInputClass}
+                              />
+                              <p className="mt-1.5 font-mono text-xs leading-relaxed text-destructive">
+                                Couldn&rsquo;t load {noun} from the registry ({opts.message}) —
+                                enter the id manually.
+                              </p>
+                            </>
+                          );
+                        }
+                        if (opts?.status === 'ready' && opts.options.length === 0) {
+                          return (
+                            <p className="rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-xs text-muted-foreground">
+                              No {noun} recorded on {network} yet.
+                            </p>
+                          );
+                        }
+                        const ready = opts?.status === 'ready';
+                        const selected =
+                          ready &&
+                          values[field.name] !== undefined &&
+                          opts.options.some((o) => o.value === values[field.name])
+                            ? values[field.name]
+                            : ready
+                              ? opts.options[0].value
+                              : '';
+                        return (
+                          <select
+                            value={selected}
+                            disabled={!ready}
+                            onChange={(e) => {
+                              clearFieldError();
+                              setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
+                            }}
+                            className={fieldInputClass}
+                          >
+                            {!ready ? (
+                              <option value="">Loading {noun}…</option>
+                            ) : (
+                              opts.options.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))
+                            )}
+                          </select>
+                        );
+                      })()
                     ) : field.type === 'select' ? (
                       <select
                         value={values[field.name] ?? field.options?.[0]?.value ?? ''}

@@ -258,9 +258,11 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         );
         altAddress = lut.toBase58();
       } catch (err) {
-        altNote = `\n\nALT creation failed (deposits fall back to static keys): ${
-          err instanceof Error ? err.message : String(err)
-        }`;
+        altNote =
+          `\n\nALT creation failed at create_etf: ${
+            err instanceof Error ? err.message : String(err)
+          }. ` +
+          `Vault is still on-chain — run Genesis deposit next; it will create the ALT, wait for activation, and save it to the DB before seeding.`;
       }
 
       setStatus('Recording vault…');
