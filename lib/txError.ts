@@ -36,7 +36,7 @@ export function isTwapRefreshableError(error: UserFacingError | null | undefined
   // code may be "LivePriceDiscrepancy · 0x17a4" style
   if (/\b6050\b|\b6051\b|\b6052\b|0x17a[234]/i.test(String(error.code ?? ''))) return true;
   const blob = `${error.title}\n${error.summary}\n${error.fix ?? ''}\n${error.details ?? ''}\n${error.raw}`;
-  return /TwapKeeperNotSet|UnauthorizedTwapKeeper|LivePriceDiscrepancy|Live price discrepancy|both stale|TWAP observation|No TWAP keeper|TWAP keeper|update_dex_twap|Update Dex Twap/i.test(
+  return /TwapKeeperNotSet|UnauthorizedTwapKeeper|LivePriceDiscrepancy|Live price discrepancy|both stale|TWAP observation|No TWAP keeper|TWAP keeper|update_dex_twap|Update Dex Twap|DEX TWAP is stale|past freshness window|Refresh Price in the error/i.test(
     blob,
   );
 }
@@ -421,6 +421,21 @@ export function parseTxError(err: unknown): UserFacingError {
   const instruction = extractInstruction(blob);
   const ixLabel = instructionHint(instruction);
   const details = blob.length > raw.length ? blob : raw;
+
+  // describePreviewError / legacy wraps — still surface Refresh Price in the modal.
+  if (/DEX TWAP is stale/i.test(raw)) {
+    const a = ANCHOR_ERRORS[6052];
+    return {
+      kind: 'error',
+      title: a.title,
+      summary: a.summary,
+      fix: a.fix,
+      instruction: ixLabel,
+      code: `${a.name} · 6052`,
+      details,
+      raw,
+    };
+  }
 
   if (isUserRejection(blob) || isUserRejection(raw)) {
     return {

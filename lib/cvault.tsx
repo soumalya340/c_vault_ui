@@ -6,6 +6,7 @@ if (typeof globalThis !== 'undefined' && !('Buffer' in globalThis)) {
 }
 
 import {
+  AddressLookupTableAccount,
   Connection,
   PublicKey,
   SystemProgram,
@@ -61,6 +62,9 @@ import {
   NETWORK_CONSTANTS,
   PRICE_SCALE,
   PRICE_SCALE_DECIMALS,
+  MULTI_TX_ASSET_THRESHOLD,
+  SWAP_LEGS_PER_TX,
+  VAULT_ATA_IXS_PER_TX,
   USDC_DECIMALS,
 } from './constants';
 import { formatUserFacingError, parseTxError } from './txError';
@@ -83,6 +87,9 @@ export {
   NETWORK_CONSTANTS,
   PRICE_SCALE,
   PRICE_SCALE_DECIMALS,
+  MULTI_TX_ASSET_THRESHOLD,
+  SWAP_LEGS_PER_TX,
+  VAULT_ATA_IXS_PER_TX,
 };
 export {
   deriveGlobalStatePda,
@@ -1563,9 +1570,9 @@ export async function swapAssetToUsdc(
 }
 
 // ─── Bundled flows (ALT-compressed v0 transactions — Plan.md §6-9) ────────────
-// Devnet has no bundle support, so the deposit legs are packed into a single
-// v0 transaction using the vault's Address Lookup Table (created alongside the
-// vault and stored in the Supabase `vaults.alt_address` column).
+// ≤4 assets: one v0 tx with the vault ALT. >4 assets: split setup vs swap legs
+// (see MULTI_TX_ASSET_THRESHOLD / c_vault_script/Rules.md). ALT is stored in
+// `vaults.alt_address` and used for swap-heavy transactions only when split.
 
 export type ProgressFn = (message: string) => void;
 
@@ -1635,6 +1642,86 @@ export type VaultAltResult = {
   altCreated: boolean;
 };
 
+/** True when the vault basket must be split across multiple v0 transactions. */
+function needsMultiTxBundle(ctx: Pick<VaultChainCtx, 'numAssets'>): boolean {
+  return ctx.numAssets > MULTI_TX_ASSET_THRESHOLD;
+}
+
+/**
+ * Genesis for >4 assets: vault ATAs → signer ATAs → genesis_deposit → swaps (ALT).
+ * ATA-create txs omit the ALT; genesis_deposit and swap legs use it (NAV/asset
+ * remaining accounts compress to LUT indices — static keys overflow tx size).
+ */
+async function sendGenesisBundle(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultAtaIxs: TransactionInstruction[],
+  signerAtaIxs: TransactionInstruction[],
+  genesisIx: TransactionInstruction,
+  swapIxs: TransactionInstruction[],
+  lut: AddressLookupTableAccount,
+  onProgress?: ProgressFn,
+): Promise<string[]> {
+  const sigs: string[] = [];
+  const vaultAtaBatches = Math.ceil(vaultAtaIxs.length / VAULT_ATA_IXS_PER_TX);
+  const swapBatches = Math.ceil(swapIxs.length / SWAP_LEGS_PER_TX);
+  const totalTxs = vaultAtaBatches + 2 + swapBatches;
+
+  onProgress?.(
+    `Genesis: ${vaultAtaIxs.length} vault ATA(s) + signer ATAs + seed + ${swapIxs.length} swap(s) → ${totalTxs} transactions…`,
+  );
+
+  if (vaultAtaIxs.length) {
+    sigs.push(
+      ...(await sendV0Chunks(
+        connection,
+        wallet,
+        vaultAtaIxs,
+        VAULT_ATA_IXS_PER_TX,
+        lut,
+        (b, t) => `Vault ATA batch ${b}/${t} (ALT)…`,
+        onProgress,
+      )),
+    );
+  }
+
+  onProgress?.('Tx — signer USDC + shares ATAs…');
+  sigs.push(await sendV0(connection, wallet, signerAtaIxs, null));
+
+  onProgress?.('Tx — genesis_deposit (ALT)…');
+  sigs.push(await sendV0(connection, wallet, [genesisIx], lut));
+
+  for (let i = 0; i < swapIxs.length; i += SWAP_LEGS_PER_TX) {
+    const chunk = swapIxs.slice(i, i + SWAP_LEGS_PER_TX);
+    const batchNum = i / SWAP_LEGS_PER_TX + 1;
+    onProgress?.(`Swap batch ${batchNum}/${swapBatches} (ALT)…`);
+    sigs.push(await sendV0(connection, wallet, chunk, lut));
+  }
+
+  return sigs;
+}
+
+/** Send `ixs` in fixed-size chunks; returns one signature per chunk. */
+async function sendV0Chunks(
+  connection: Connection,
+  wallet: AnchorWallet,
+  ixs: TransactionInstruction[],
+  perTx: number,
+  lut: AddressLookupTableAccount | null,
+  progress: (batch: number, total: number) => string,
+  onProgress?: ProgressFn,
+): Promise<string[]> {
+  if (!ixs.length) return [];
+  const total = Math.ceil(ixs.length / perTx);
+  const sigs: string[] = [];
+  for (let i = 0; i < ixs.length; i += perTx) {
+    const batch = i / perTx + 1;
+    onProgress?.(progress(batch, total));
+    sigs.push(await sendV0(connection, wallet, ixs.slice(i, i + perTx), lut));
+  }
+  return sigs;
+}
+
 /** Idempotent creates for the vault-authority ATAs the swap legs write to. */
 function ensureVaultAssetAtaIxs(payer: PublicKey, ctx: VaultChainCtx): TransactionInstruction[] {
   const ixs = ctx.assets.map((a) =>
@@ -1661,6 +1748,24 @@ function ensureVaultAssetAtaIxs(payer: PublicKey, ctx: VaultChainCtx): Transacti
     );
   }
   return ixs;
+}
+
+/** ATA creates for vault-authority token accounts that are not on-chain yet. */
+async function buildMissingVaultAtaIxs(
+  connection: Connection,
+  payer: PublicKey,
+  ctx: VaultChainCtx,
+): Promise<TransactionInstruction[]> {
+  const missing = await findMissingVaultAtas(connection, ctx);
+  return missing.map((c) =>
+    createAssociatedTokenAccountIdempotentInstruction(
+      payer,
+      c.key,
+      ctx.vaultAuthority,
+      c.mint,
+      tokenProgramForTag(c.tokenProgramTag),
+    ),
+  );
 }
 
 /** Vault-authority ATA the views may need, plus the wSOL ViaSol hop ATA. */
@@ -1851,23 +1956,93 @@ export async function depositAndDeploy(
   altAddress: string | null | undefined,
   network: Network,
   onProgress?: ProgressFn,
-): Promise<{ tx: string; link: string } & VaultAltResult> {
+): Promise<{ tx: string; link: string; signatures: string[] } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   await prepareSwapPreflight(connection, wallet, program, network, ctx, onProgress);
-  // ALT is required — create on the fly if create_etf never saved one.
+  // ALT is required for swap legs — create on the fly if create_etf never saved one.
   const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
 
-  const ixs: TransactionInstruction[] = [
-    ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
-    ...(await buildDepositIxs(connection, program, ctx, wallet.publicKey, usdcAmount, minSharesOut)),
-    ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
-  ];
+  const swapIxs = await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey);
 
-  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  let signatures: string[];
+  try {
+    if (needsMultiTxBundle(ctx)) {
+      const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
+      const depositIxs = await buildDepositIxs(
+        connection,
+        program,
+        ctx,
+        wallet.publicKey,
+        usdcAmount,
+        minSharesOut,
+      );
+      const userAtaIxs = depositIxs.slice(0, -1);
+      const depositOnlyIxs = depositIxs.slice(-1);
+      const vaultAtaBatches = Math.ceil(vaultAtaIxs.length / VAULT_ATA_IXS_PER_TX);
+      const swapBatches = Math.ceil(swapIxs.length / SWAP_LEGS_PER_TX);
+      const depositTxCount = (userAtaIxs.length ? 1 : 0) + 1;
+      onProgress?.(
+        `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — ` +
+          `${vaultAtaBatches} vault ATA batch(es) → ${depositTxCount} deposit tx(s) → ` +
+          `${swapBatches} swap batch(es) (ALT)…`,
+      );
+      signatures = await sendV0Chunks(
+        connection,
+        wallet,
+        vaultAtaIxs,
+        VAULT_ATA_IXS_PER_TX,
+        ensured.lut,
+        (b, t) => `Vault ATA batch ${b}/${t} (ALT)…`,
+        onProgress,
+      );
+      if (userAtaIxs.length) {
+        onProgress?.('User USDC + shares ATAs…');
+        signatures.push(await sendV0(connection, wallet, userAtaIxs, null));
+      }
+      onProgress?.('Deposit (ALT)…');
+      signatures.push(await sendV0(connection, wallet, depositOnlyIxs, ensured.lut));
+      for (let i = 0; i < swapIxs.length; i += SWAP_LEGS_PER_TX) {
+        const chunk = swapIxs.slice(i, i + SWAP_LEGS_PER_TX);
+        const batchNum = i / SWAP_LEGS_PER_TX + 1;
+        onProgress?.(`Swap batch ${batchNum}/${swapBatches} (ALT)…`);
+        signatures.push(await sendV0(connection, wallet, chunk, ensured.lut));
+      }
+    } else {
+      const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
+      const depositIxs = await buildDepositIxs(
+        connection,
+        program,
+        ctx,
+        wallet.publicKey,
+        usdcAmount,
+        minSharesOut,
+      );
+      const sig = await sendV0(
+        connection,
+        wallet,
+        [...vaultAtaIxs, ...depositIxs, ...swapIxs],
+        ensured.lut,
+      );
+      signatures = [sig];
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/encoding overruns|Transaction too large|too large|Wallet could not sign/i.test(msg)) {
+      throw new Error(
+        `${msg}\n` +
+          `Deposit+deploy packed too many accounts. Re-run with a vault ALT ` +
+          `(or leave blank to auto-create). Current ALT: ${ensured.altAddress || '(none)'}`,
+      );
+    }
+    throw err;
+  }
+
+  const tx = signatures[signatures.length - 1]!;
   return {
-    tx: sig,
-    link: solscanLink(sig, network),
+    tx,
+    link: solscanLink(tx, network),
+    signatures,
     altAddress: ensured.altAddress,
     altCreated: ensured.altCreated,
   };
@@ -1948,25 +2123,53 @@ export async function genesisDepositAndDeploy(
   altAddress: string | null | undefined,
   network: Network,
   onProgress?: ProgressFn,
-): Promise<{ tx: string; link: string } & VaultAltResult> {
+): Promise<{ tx: string; link: string; signatures: string[] } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   await prepareSwapPreflight(connection, wallet, program, network, ctx, onProgress);
-  // Hard guarantee: reuse live ALT or create a new one. Never send multi-leg
-  // genesis without a lookup table (static keys blow the tx size limit).
+  // Hard guarantee: reuse live ALT or create a new one. Swap legs and
+  // genesis_deposit need the LUT when split; ATA-create txs stay static-key.
   const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
 
-  const ixs: TransactionInstruction[] = [
-    ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
-    ...buildSignerAtaIxs(ctx, wallet.publicKey),
-    await buildGenesisDepositIx(program, ctx, wallet.publicKey, baselineSharePrice),
-    ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
-  ];
+  const signerAtaIxs = buildSignerAtaIxs(ctx, wallet.publicKey);
+  const genesisIx = await buildGenesisDepositIx(
+    program,
+    ctx,
+    wallet.publicKey,
+    baselineSharePrice,
+  );
+  const swapIxs = await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey);
 
-  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  let signatures: string[];
+  if (needsMultiTxBundle(ctx)) {
+    const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
+    signatures = await sendGenesisBundle(
+      connection,
+      wallet,
+      vaultAtaIxs,
+      signerAtaIxs,
+      genesisIx,
+      swapIxs,
+      ensured.lut,
+      onProgress,
+    );
+  } else {
+    const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
+    onProgress?.('Sending genesis_deposit transaction…');
+    const sig = await sendV0(
+      connection,
+      wallet,
+      [...vaultAtaIxs, ...signerAtaIxs, genesisIx, ...swapIxs],
+      ensured.lut,
+    );
+    signatures = [sig];
+  }
+
+  const tx = signatures[signatures.length - 1]!;
   return {
-    tx: sig,
-    link: solscanLink(sig, network),
+    tx,
+    link: solscanLink(tx, network),
+    signatures,
     altAddress: ensured.altAddress,
     altCreated: ensured.altCreated,
   };
@@ -1983,7 +2186,9 @@ export async function deployPendingSwaps(
   altAddress: string | null | undefined,
   network: Network,
   onProgress?: ProgressFn,
-): Promise<{ tx: string; link: string; pendingUsdc: string; pendingSol: string } & VaultAltResult> {
+): Promise<
+  { tx: string; link: string; signatures: string[]; pendingUsdc: string; pendingSol: string } & VaultAltResult
+> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   await prepareSwapPreflight(connection, wallet, program, network, ctx, onProgress);
@@ -1998,18 +2203,45 @@ export async function deployPendingSwaps(
   }
 
   const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
-  const ixs: TransactionInstruction[] = [
-    ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
-    // Skip the USDC→wSOL hop when only wSOL is left pending.
-    ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey, {
-      includeUsdcToSol: pendingUsdc > 0n,
-    })),
-  ];
+  const swapIxs = await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey, {
+    includeUsdcToSol: pendingUsdc > 0n,
+  });
 
-  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  let signatures: string[];
+  if (needsMultiTxBundle(ctx)) {
+    const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
+    const vaultAtaBatches = Math.ceil(vaultAtaIxs.length / VAULT_ATA_IXS_PER_TX);
+    const swapBatches = Math.ceil(swapIxs.length / SWAP_LEGS_PER_TX);
+    onProgress?.(
+      `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — ` +
+        `${vaultAtaBatches} vault ATA batch(es) → ${swapBatches} swap batch(es) (ALT)…`,
+    );
+    signatures = await sendV0Chunks(
+      connection,
+      wallet,
+      vaultAtaIxs,
+      VAULT_ATA_IXS_PER_TX,
+      ensured.lut,
+      (b, t) => `Vault ATA batch ${b}/${t} (ALT)…`,
+      onProgress,
+    );
+    for (let i = 0; i < swapIxs.length; i += SWAP_LEGS_PER_TX) {
+      const chunk = swapIxs.slice(i, i + SWAP_LEGS_PER_TX);
+      const batchNum = i / SWAP_LEGS_PER_TX + 1;
+      onProgress?.(`Swap batch ${batchNum}/${swapBatches} (ALT)…`);
+      signatures.push(await sendV0(connection, wallet, chunk, ensured.lut));
+    }
+  } else {
+    const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
+    const sig = await sendV0(connection, wallet, [...vaultAtaIxs, ...swapIxs], ensured.lut);
+    signatures = [sig];
+  }
+
+  const tx = signatures[signatures.length - 1]!;
   return {
-    tx: sig,
-    link: solscanLink(sig, network),
+    tx,
+    link: solscanLink(tx, network),
+    signatures,
     pendingUsdc: pendingUsdc.toString(),
     pendingSol: pendingSol.toString(),
     altAddress: ensured.altAddress,
@@ -2288,21 +2520,32 @@ export async function redeemSwap(
     redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
   }
 
-  // DirectUsdc legs (batch when small).
-  const directIxs: TransactionInstruction[] = [];
+  // DirectUsdc legs — one tx per asset when basket is large (>4); batched otherwise.
+  const directLegs: { index: number; ix: TransactionInstruction }[] = [];
   for (let i = 0; i < redeemState.numAssets; i++) {
     if (redeemState.assetSwapped[i]) continue;
     const amountIn = new BN(redeemState.assetAmountIn[i].toString());
     if (amountIn.isZero()) continue;
     const asset = assetAt(ctx, i);
     if (asset.route !== 'DirectUsdc') continue;
-    directIxs.push(
-      await buildSwapAssetToUsdcIx(connection, program, ctx, i, user, new BN(0)),
-    );
+    directLegs.push({
+      index: i,
+      ix: await buildSwapAssetToUsdcIx(connection, program, ctx, i, user, new BN(0)),
+    });
   }
-  if (directIxs.length > 0) {
-    onProgress?.('Converting DirectUsdc assets to base token…');
-    signatures.push(await sendV0(connection, wallet, directIxs, lut));
+  if (directLegs.length > 0) {
+    if (needsMultiTxBundle(ctx)) {
+      for (const { index, ix } of directLegs) {
+        onProgress?.(
+          `Converting DirectUsdc asset ${index + 1}/${redeemState.numAssets} → base token…`,
+        );
+        signatures.push(await sendV0(connection, wallet, [ix], lut));
+        redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
+      }
+    } else {
+      onProgress?.('Converting DirectUsdc assets to base token…');
+      signatures.push(await sendV0(connection, wallet, directLegs.map((l) => l.ix), lut));
+    }
   }
 
   // Hard check: claim requires pending_usdc > 0.
@@ -2611,7 +2854,7 @@ export async function getTotalNavView(
             : 'Connect a wallet and retry — the view simulates the ATA creation (gasless, nothing is sent on-chain).'),
       );
     }
-    throw new Error(describePreviewError(err));
+    throw err;
   }
 
   if (raw == null || typeof raw !== 'object') {
@@ -2671,7 +2914,7 @@ export async function previewDeposit(
       .preInstructions(preIxs)
       .view();
   } catch (err) {
-    throw new Error(describePreviewError(err));
+    throw err;
   }
 
   return {
@@ -2713,7 +2956,7 @@ export async function previewRedeem(
       .preInstructions(preIxs)
       .view();
   } catch (err) {
-    throw new Error(describePreviewError(err));
+    throw err;
   }
 
   const assetAmountsRaw = viewField(result, 'assetAmounts', 'asset_amounts');

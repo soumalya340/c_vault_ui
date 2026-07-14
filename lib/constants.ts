@@ -152,3 +152,26 @@ export const TOKEN_PROGRAM_TAG_TOKEN_2022 = 1;
 export const PRICE_SCALE = 1_000_000_000;
 /** Decimal places implied by `PRICE_SCALE` — for parseUnits/formatUnits on share prices. */
 export const PRICE_SCALE_DECIMALS = 9;
+
+/**
+ * Baskets with more than this many assets cannot fit deposit / redeem / genesis
+ * in one v0 transaction (trace depth + account limits). Split when `numAssets` exceeds
+ * this value — mirrors `c_vault_script/Rules.md` and `MULTI_TX_ASSET_THRESHOLD`.
+ */
+export const MULTI_TX_ASSET_THRESHOLD = 4;
+
+/**
+ * Max inflow swap legs (Whirlpool/DAMM v2) batched into one v0 transaction
+ * once a basket exceeds MULTI_TX_ASSET_THRESHOLD. Each leg locks ~10 unique
+ * accounts beyond the ~7-8 shared once per tx (vault, vaultAuthority, signer,
+ * programs) — 2 legs stays comfortably under Solana's 64-account lock cap
+ * even with an ALT (ALT shrinks message bytes, not the lock count).
+ */
+export const SWAP_LEGS_PER_TX = 2;
+
+/**
+ * Max vault-authority ATA create instructions per v0 tx when a basket exceeds
+ * MULTI_TX_ASSET_THRESHOLD. Each ix adds a unique mint + ATA pubkey to the
+ * message — batching keeps the serialized tx under the 1232-byte cap.
+ */
+export const VAULT_ATA_IXS_PER_TX = 4;

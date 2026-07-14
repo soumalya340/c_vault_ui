@@ -238,10 +238,13 @@ export function DepositModal({
             `${err instanceof Error ? err.message : String(err)}`;
         }
       }
+      const multiTx = r.signatures.length > 1;
       setResult({
         type: 'success',
         text:
-          `Deposited into vault №${vault.vault_id} — swaps executed in the same transaction.` +
+          (multiTx
+            ? `Deposited into vault №${vault.vault_id} — ${r.signatures.length} transactions (setup + swaps).`
+            : `Deposited into vault №${vault.vault_id} — swaps executed in the same transaction.`) +
           altNote,
         solscan: r.link,
       });
@@ -283,9 +286,9 @@ export function DepositModal({
         role="dialog"
         aria-modal="true"
         aria-label={`Deposit into ${vault.symbol}`}
-        className="cert-frame relative z-10 w-full max-w-[480px] overflow-hidden bg-background shadow-2xl"
+        className="cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
           <div>
             <div className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-accent">
               № {String(vault.vault_id).padStart(2, '0')} · deposit
@@ -299,7 +302,7 @@ export function DepositModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+        <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto px-6 py-5">
           {publicKey && (
             <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
               wallet balance:{' '}

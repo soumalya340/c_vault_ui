@@ -23,7 +23,7 @@ import {
   genesisDepositAndDeploy,
   getAssetState,
   fetchVaultCtx,
-  describePreviewError,
+
   parseUnits,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
@@ -148,49 +148,38 @@ export async function executeVaultFunction(
     case 'view_vault_state':
       return humanizeViewResult(fnId, await getVaultState(connection, id, net));
     case 'view_nav':
-      try {
-        // Pass wallet so missing vault ATAs can be created (CLI does this too).
-        return humanizeViewResult(
-          fnId,
-          await getTotalNavView(connection, id, net, anchorWallet),
-        );
-      } catch (err) {
-        throw new Error(describePreviewError(err));
-      }
+      // Pass wallet so missing vault ATAs can be simulated as preInstructions.
+      return humanizeViewResult(
+        fnId,
+        await getTotalNavView(connection, id, net, anchorWallet),
+      );
     case 'preview_deposit':
-      try {
-        return humanizeViewResult(
-          fnId,
-          await previewDeposit(connection, id, bn(v.usdc_amount), net, anchorWallet),
-        );
-      } catch (err) {
-        throw new Error(describePreviewError(err));
-      }
-    case 'preview_redeem':
-      try {
-        const [result, ctx] = await Promise.all([
-          previewRedeem(connection, id, bn(v.shares), net, anchorWallet),
-          fetchVaultCtx(connection, id, net).catch(() => null),
-        ]);
-        const assetLines: Record<string, string> = {};
-        result.assetAmounts.forEach((amt, i) => {
-          const asset = ctx?.assets[i];
-          const label = asset
-            ? (assetNameForMint(asset.mint.toBase58()) ||
-              `${asset.mint.toBase58().slice(0, 4)}…${asset.mint.toBase58().slice(-4)}`)
-            : `Asset ${i}`;
-          const decimals = asset?.decimals ?? 0;
-          assetLines[label] = formatTokenUi(amt, decimals);
-        });
-        return {
-          estimatedUsdcValue: formatUsdUi(result.estimatedUsdcValue, USDC_DECIMALS),
-          assetsToSwap: result.numAssets,
-          totalShares: formatTokenUi(result.totalShares, 6),
-          ...(Object.keys(assetLines).length > 0 ? { perAssetAmounts: assetLines } : {}),
-        };
-      } catch (err) {
-        throw new Error(describePreviewError(err));
-      }
+      return humanizeViewResult(
+        fnId,
+        await previewDeposit(connection, id, bn(v.usdc_amount), net, anchorWallet),
+      );
+    case 'preview_redeem': {
+      const [result, ctx] = await Promise.all([
+        previewRedeem(connection, id, bn(v.shares), net, anchorWallet),
+        fetchVaultCtx(connection, id, net).catch(() => null),
+      ]);
+      const assetLines: Record<string, string> = {};
+      result.assetAmounts.forEach((amt, i) => {
+        const asset = ctx?.assets[i];
+        const label = asset
+          ? (assetNameForMint(asset.mint.toBase58()) ||
+            `${asset.mint.toBase58().slice(0, 4)}…${asset.mint.toBase58().slice(-4)}`)
+          : `Asset ${i}`;
+        const decimals = asset?.decimals ?? 0;
+        assetLines[label] = formatTokenUi(amt, decimals);
+      });
+      return {
+        estimatedUsdcValue: formatUsdUi(result.estimatedUsdcValue, USDC_DECIMALS),
+        assetsToSwap: result.numAssets,
+        totalShares: formatTokenUi(result.totalShares, 6),
+        ...(Object.keys(assetLines).length > 0 ? { perAssetAmounts: assetLines } : {}),
+      };
+    }
     case 'view_vault_asset_balances': {
       const [balances, tokens, registry] = await Promise.all([
         getVaultAssetBalances(connection, id, net),
@@ -328,12 +317,18 @@ export async function executeVaultFunction(
         : r.altAddress
           ? `\nALT: ${r.altAddress}`
           : '';
+      const multiTxNote =
+        r.signatures.length > 1
+          ? `Sent in ${r.signatures.length} transactions (>4 assets).`
+          : '';
+      const note = [multiTxNote, altNote.trim()].filter(Boolean).join('') || undefined;
       return {
         tx: r.tx,
         solscan: r.link,
         altAddress: r.altAddress,
         altCreated: r.altCreated,
-        note: altNote.trim() || undefined,
+        signatures: r.signatures,
+        note,
       };
     }
     case 'set_paused': {

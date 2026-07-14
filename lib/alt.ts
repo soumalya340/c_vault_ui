@@ -1,8 +1,8 @@
 'use client';
 
 // Address Lookup Table helpers. Devnet has no bundle support, so deposit and
-// redeem swap legs are packed into single v0 transactions instead — the ALT
-// created at vault-creation time (Plan.md §6) is what makes those fit.
+// redeem swap legs use v0 transactions with the vault ALT. Baskets with >4
+// assets split across multiple txs (see MULTI_TX_ASSET_THRESHOLD / Rules.md).
 
 import {
   AddressLookupTableAccount,
@@ -223,7 +223,36 @@ export async function sendV0(
   }).compileToV0Message(lut ? [lut] : []);
 
   const tx = new VersionedTransaction(message);
-  const signed = (await wallet.signTransaction(tx)) as VersionedTransaction;
+  let txBytes: Uint8Array;
+  try {
+    txBytes = tx.serialize();
+  } catch (err) {
+    const hint = lut
+      ? `${ixs.length} instruction(s) — split into smaller batches.`
+      : `${ixs.length} instruction(s) — pass the vault ALT to compress account keys.`;
+    throw new Error(
+      `Transaction encoding failed (${err instanceof Error ? err.message : String(err)}). ${hint}`,
+    );
+  }
+  if (txBytes.length > 1232) {
+    throw new Error(
+      `Transaction too large (${txBytes.length} bytes, max 1232). ${ixs.length} instruction(s).` +
+        (lut ? ' Split into smaller batches.' : ' Use the vault ALT.'),
+    );
+  }
+
+  let signed: VersionedTransaction;
+  try {
+    signed = (await wallet.signTransaction(tx)) as VersionedTransaction;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const errName =
+      err instanceof Error && err.constructor?.name ? err.constructor.name : 'SignError';
+    throw new Error(
+      `Wallet could not sign transaction (${errName}): ${msg} ` +
+        `(${ixs.length} ix, ${txBytes.length} bytes${lut ? ', ALT' : ', no ALT'}).`,
+    );
+  }
   let sig: string;
   try {
     sig = await connection.sendTransaction(signed, {

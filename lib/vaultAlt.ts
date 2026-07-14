@@ -4,8 +4,10 @@
  * Build + create Address Lookup Tables for a vault (deposit/redeem packing).
  * Port of c_vault_script `lib/sdk/vaultAlt.js` — UI wallet signing.
  *
- * ALT is required for multi-asset deposit/genesis/redeem tx size. Callers must
- * not silently fall back to static keys when ensureVaultAlt fails.
+ * ALT is required for swap-heavy and NAV-heavy deposit/genesis/redeem legs.
+ * Baskets with >4 assets split ATA-create txs (no ALT) from deposit/genesis
+ * and swap txs (ALT). Callers must not silently fall back to static keys when
+ * ensureVaultAlt fails.
  */
 
 import { Buffer as NodeBuffer } from 'buffer';
