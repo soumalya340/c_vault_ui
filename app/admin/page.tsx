@@ -8,6 +8,7 @@ import {
   getRpcEndpoint,
   getStoredNetwork,
   setStoredNetwork,
+  isLocalOrigin,
   type Network,
 } from '@/app/providers';
 import { WalletButton } from '@/app/components/wallet-button';
@@ -25,9 +26,16 @@ function NetworkTabs({
   network: Network;
   onChange: (n: Network) => void;
 }) {
+  // Deployed hosts (Vercel) can never reach a local validator or the SQLite
+  // file on the laptop — only offer localhost when the page itself is local.
+  // Matches app/components/network-toggle.tsx.
+  const options = isLocalOrigin()
+    ? (['localhost', 'mainnet'] as const)
+    : (['mainnet'] as const);
+
   return (
     <div className="flex items-center gap-1 rounded-[2px] border border-border-strong p-1" role="tablist" aria-label="Network">
-      {(['localhost', 'mainnet'] as const).map((n) => {
+      {options.map((n) => {
         const active = network === n;
         return (
           <button
@@ -170,13 +178,18 @@ export default function AdminPage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    // getStoredNetwork() already rejects a persisted 'localhost' when the
+    // page is not served from a local origin (Vercel / production).
     setNetwork(getStoredNetwork());
     setReady(true);
   }, []);
 
   const handleNetworkChange = (next: Network) => {
-    setStoredNetwork(next);
-    setNetwork(next);
+    // Hard-block localhost on deployed hosts even if a caller tries to set it.
+    const resolved: Network =
+      next === 'localhost' && !isLocalOrigin() ? 'mainnet' : next;
+    setStoredNetwork(resolved);
+    setNetwork(resolved);
   };
 
   if (!ready) {
