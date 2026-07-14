@@ -21,6 +21,7 @@ import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { fetchTokens, updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
+import { LedgerOutput } from './ledger-output';
 import {
   btnGhostClass,
   btnPrimaryClass,
@@ -370,17 +371,8 @@ export function DepositModal({
               <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
                 OUTPUT
               </div>
-              <div
-                className={`whitespace-pre-wrap break-all px-4 py-3 font-mono text-xs leading-relaxed ${
-                  result.type === 'error'
-                    ? 'text-destructive'
-                    : result.type === 'success'
-                      ? 'text-foreground'
-                      : 'text-muted-foreground'
-                }`}
-              >
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                {result.text}
+              <div className="px-4 py-3">
+                <LedgerOutput text={result.text} tone={result.type} />
                 {result.type === 'error' && lastError && (
                   <div className="mt-2 border-t border-border pt-2">
                     <button

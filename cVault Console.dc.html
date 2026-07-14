@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #d6dac6; }
+  a { color: #2b4a34; text-decoration: none; }
+  a:hover { color: #a6392b; }
+  ::selection { background: #2b4a34; color: #eef0e2; }
+  @keyframes scanx { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+  @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+  @keyframes blink { 0%,49% { opacity: 1; } 50%,100% { opacity: 0.15; } }
+  @keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:linear-gradient(180deg,#dee1cf 0%,#d6dac6 100%);color:#1b2019;font-family:'Space Grotesk',sans-serif;position:relative;overflow:hidden;">
+
+  <!-- grain / registration overlay -->
+  <div style="position:absolute;inset:0;pointer-events:none;background-image:radial-gradient(rgba(27,32,25,0.035) 1px,transparent 1px);background-size:4px 4px;z-index:1;"></div>
+  <div style="position:absolute;top:22px;left:22px;width:14px;height:14px;border-left:1px solid rgba(27,32,25,0.35);border-top:1px solid rgba(27,32,25,0.35);z-index:2;"></div>
+  <div style="position:absolute;top:22px;right:22px;width:14px;height:14px;border-right:1px solid rgba(27,32,25,0.35);border-top:1px solid rgba(27,32,25,0.35);z-index:2;"></div>
+
+  <!-- ===== TOP NAV ===== -->
+  <header style="position:relative;z-index:5;display:flex;align-items:center;gap:28px;padding:22px 44px;border-bottom:1px solid rgba(27,32,25,0.16);backdrop-filter:blur(2px);">
+    <div style="display:flex;align-items:baseline;gap:14px;">
+      <div style="font-family:'Instrument Serif',serif;font-size:34px;line-height:1;letter-spacing:-0.5px;position:relative;">c<span style="font-style:italic;">Vault</span><span style="position:absolute;top:-6px;font-size:16px;color:#a6392b;">+</span></div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:#6e7567;">OPERATIONS&nbsp;CONSOLE</div>
+    </div>
+
+    <nav style="display:flex;gap:4px;margin-left:20px;">
+      <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="3">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:2px;padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;" onClick="{{ tab.select }}" style-hover="{ color: '#a6392b' }">
+          <span style="{{ tab.style }}">{{ tab.label }}</span>
+        </div>
+      </sc-for>
+    </nav>
+
+    <div style="flex:1;"></div>
+
+    <!-- network toggle -->
+    <div style="display:flex;border:1px solid rgba(27,32,25,0.22);border-radius:2px;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2px;">
+      <div style="{{ localStyle }}" onClick="{{ setLocal }}">LOCALHOST</div>
+      <div style="{{ mainnetStyle }}" onClick="{{ setMainnet }}">MAINNET</div>
+    </div>
+
+    <button style="display:flex;align-items:center;gap:8px;background:transparent;border:1px solid rgba(27,32,25,0.22);border-radius:2px;padding:9px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2px;color:#1b2019;cursor:pointer;" style-hover="{ borderColor: '#a6392b', color: '#a6392b' }">
+      <span style="width:6px;height:6px;border-radius:50%;background:#a6392b;display:inline-block;"></span>UNWRAP WSOL
+    </button>
+
+    <div style="display:flex;align-items:center;gap:10px;background:#eef0e2;border:1px solid rgba(27,32,25,0.22);border-radius:2px;padding:7px 12px 7px 8px;cursor:pointer;" style-hover="{ borderColor: '#2b4a34' }">
+      <span style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#2b4a34,#7a9b6e);display:flex;align-items:center;justify-content:center;font-family:'Instrument Serif',serif;color:#eef0e2;font-size:14px;">◇</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;">cyai…FkrF</span>
+      <span style="color:#6e7567;font-size:10px;">▾</span>
+    </div>
+  </header>
+
+  <!-- ===== HERO ===== -->
+  <section style="position:relative;z-index:4;padding:40px 44px 34px;border-bottom:1px solid rgba(27,32,25,0.16);">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:40px;flex-wrap:wrap;">
+      <div style="max-width:640px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;color:#a6392b;">№&nbsp;03</span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#2b4a34;animation:blink 1.6s steps(1) infinite;"></span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;color:#6e7567;">LIVE&nbsp;NAV&nbsp;·&nbsp;BLUE&nbsp;CHIP&nbsp;(BC)</span>
+        </div>
+        <div style="font-family:'Instrument Serif',serif;font-size:112px;line-height:0.86;letter-spacing:-2px;font-variant-numeric:tabular-nums;">{{ totalNav }}</div>
+        <div style="display:flex;gap:34px;margin-top:22px;">
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2.5px;color:#6e7567;margin-bottom:6px;">SHARE&nbsp;PRICE</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:600;">{{ sharePrice }}</div>
+          </div>
+          <div style="width:1px;background:rgba(27,32,25,0.16);"></div>
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2.5px;color:#6e7567;margin-bottom:6px;">SHARES&nbsp;OUTSTANDING</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:600;">{{ sharesOut }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- sparkline -->
+      <div style="flex:1;min-width:320px;max-width:560px;">
+        <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2.5px;color:#6e7567;margin-bottom:8px;">
+          <span>SHARE&nbsp;PRICE&nbsp;·&nbsp;24H</span><span style="color:#2b4a34;">+0.33%</span>
+        </div>
+        <div style="position:relative;border:1px solid rgba(27,32,25,0.16);background:rgba(238,240,226,0.4);border-radius:2px;overflow:hidden;">
+          <canvas ref="{{ setCanvas }}" style="display:block;width:100%;height:150px;"></canvas>
+          <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none;"><div style="position:absolute;top:0;left:0;width:22%;height:100%;background:linear-gradient(90deg,transparent,rgba(122,155,110,0.28),transparent);animation:scanx 4.2s linear infinite;"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SECTIONS ===== -->
+  <main style="position:relative;z-index:4;padding:8px 44px 0;">
+    <sc-for list="{{ sections }}" as="s" hint-placeholder-count="4">
+      <div style="border-bottom:1px solid rgba(27,32,25,0.16);">
+        <!-- header row -->
+        <div style="display:flex;align-items:center;gap:18px;padding:22px 4px;cursor:pointer;" onClick="{{ s.toggle }}" style-hover="{ background: 'rgba(238,240,226,0.35)' }">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:2px;color:#a6392b;min-width:52px;">№&nbsp;{{ s.num }}</span>
+          <span style="font-family:'Space Grotesk',sans-serif;font-size:19px;font-weight:500;">{{ s.title }}</span>
+          <span style="flex:1;border-bottom:1px dotted rgba(27,32,25,0.3);margin:0 6px;height:1px;"></span>
+          <span style="font-size:11px;color:#6e7567;">{{ s.chev }}</span>
+        </div>
+
+        <!-- body -->
+        <sc-if value="{{ s.open }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:6px 4px 40px;">
+            <div style="display:flex;gap:12px;padding:16px 20px;background:rgba(238,240,226,0.5);border-left:3px solid #2b4a34;border-radius:2px;margin-bottom:30px;max-width:900px;">
+              <p style="margin:0;font-size:15px;line-height:1.55;color:#38402f;">Calls <span style="font-family:'JetBrains Mono',monospace;font-size:13px;background:rgba(43,74,52,0.1);padding:1px 6px;border-radius:2px;">get_total_nav_view</span>. Asset ATAs and price sources (Pyth or DEX pool) are derived from the vault on-chain.</p>
+            </div>
+
+            <div style="display:grid;grid-template-columns:minmax(0,420px) 1fr;gap:48px;align-items:start;">
+              <!-- controls -->
+              <div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;color:#6e7567;margin-bottom:10px;">VAULT&nbsp;ID</div>
+                <div style="position:relative;">
+                  <select style="width:100%;appearance:none;background:#eef0e2;border:1px solid rgba(27,32,25,0.28);border-radius:2px;padding:16px 44px 16px 18px;font-family:'JetBrains Mono',monospace;font-size:17px;color:#1b2019;cursor:pointer;">
+                    <option>№ 00 · Blue Chip (BC)</option>
+                    <option>№ 01 · Stable Yield (SY)</option>
+                    <option>№ 02 · Degen Index (DGN)</option>
+                  </select>
+                  <span style="position:absolute;right:18px;top:50%;transform:translateY(-50%);pointer-events:none;color:#6e7567;">▾</span>
+                </div>
+                <div style="font-size:13px;color:#6e7567;margin-top:10px;line-height:1.5;">Loaded from the vault registry. 0-based on-chain id — first vault is 0.</div>
+
+                <button onClick="{{ getLiveNav }}" style="{{ btnStyle }}" style-hover="{ background: '#223a2a' }">
+                  <span style="position:relative;z-index:2;">{{ btnLabel }}</span>
+                  <sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
+                    <span style="position:absolute;top:0;left:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(238,240,226,0.35),transparent);animation:scanx 1s linear infinite;z-index:1;"></span>
+                  </sc-if>
+                </button>
+              </div>
+
+              <!-- output -->
+              <div style="border:1px solid rgba(27,32,25,0.2);border-radius:3px;overflow:hidden;background:rgba(238,240,226,0.35);">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(27,32,25,0.16);background:rgba(43,74,52,0.06);">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;color:#6e7567;">OUTPUT</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;color:#2b4a34;">✓ SETTLED</span>
+                </div>
+                <sc-for list="{{ rows }}" as="r" hint-placeholder-count="7">
+                  <div style="{{ r.rowStyle }}">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:2px;color:#6e7567;">{{ r.label }}</span>
+                    <span style="{{ r.valStyle }}">{{ r.value }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </main>
+
+  <!-- ===== TICKER ===== -->
+  <footer style="position:relative;z-index:5;margin-top:40px;background:#1b2019;color:#c9cdba;overflow:hidden;border-top:2px solid #2b4a34;">
+    <div style="display:flex;white-space:nowrap;animation:marquee 38s linear infinite;padding:12px 0;">
+      <div style="display:flex;">{{ tickerA }}</div>
+      <div style="display:flex;">{{ tickerB }}</div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { active: 'VIEW', network: 'MAINNET', open: '03', t: 0, loading: true };
+
+  base = { nav: 1.988756, price: 1.003316547, shares: 1.982182 };
+  targets = { ...this.base };
+
+  componentDidMount() {
+    this.animate();
+    this.spark = { pts: this.genPts(), phase: 0 };
+    this.drawLoop();
+  }
+  componentWillUnmount() { cancelAnimationFrame(this._raf); cancelAnimationFrame(this._sraf); }
+
+  genPts() {
+    const n = 64, out = []; let v = 0.4;
+    for (let i = 0; i < n; i++) { v += (Math.random() - 0.46) * 0.12; v = Math.max(0.12, Math.min(0.9, v)); out.push(v); }
+    // gentle uptrend
+    return out.map((p, i) => Math.min(0.92, p * 0.7 + (i / n) * 0.35));
+  }
+
+  animate() {
+    const dur = 1300, start = performance.now();
+    const step = (now) => {
+      let p = Math.min(1, (now - start) / dur);
+      p = 1 - Math.pow(1 - p, 3);
+      this.setState({ t: p });
+      if (p < 1) this._raf = requestAnimationFrame(step);
+      else this.setState({ loading: false });
+    };
+    this._raf = requestAnimationFrame(step);
+  }
+
+  getLiveNav = () => {
+    if (this.state.loading) return;
+    const j = () => 1 + (Math.random() - 0.5) * 0.0007;
+    this.targets = { nav: this.base.nav * j(), price: this.base.price * j(), shares: this.base.shares };
+    this.spark = { pts: this.genPts(), phase: 0 };
+    this.setState({ loading: true, t: 0 }, () => this.animate());
+  };
+
+  setCanvas = (el) => { this.canvas = el; };
+
+  drawLoop() {
+    const draw = () => {
+      const c = this.canvas;
+      if (c && this.spark) {
+        const dpr = window.devicePixelRatio || 1;
+        const w = c.clientWidth, h = c.clientHeight;
+        if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+        const ctx = c.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        const pts = this.spark.pts, n = pts.length, pad = 8;
+        const X = i => pad + (i / (n - 1)) * (w - pad * 2);
+        const Y = v => h - pad - v * (h - pad * 2);
+        // fill
+        ctx.beginPath(); ctx.moveTo(X(0), h);
+        pts.forEach((v, i) => ctx.lineTo(X(i), Y(v)));
+        ctx.lineTo(X(n - 1), h); ctx.closePath();
+        const g = ctx.createLinearGradient(0, 0, 0, h);
+        g.addColorStop(0, 'rgba(43,74,52,0.22)'); g.addColorStop(1, 'rgba(43,74,52,0)');
+        ctx.fillStyle = g; ctx.fill();
+        // line
+        ctx.beginPath();
+        pts.forEach((v, i) => i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)));
+        ctx.strokeStyle = '#2b4a34'; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.stroke();
+        // moving dot
+        this.spark.phase = (this.spark.phase + 0.004) % 1;
+        const fi = this.spark.phase * (n - 1), i0 = Math.floor(fi), fr = fi - i0;
+        const vv = pts[i0] + (pts[Math.min(n - 1, i0 + 1)] - pts[i0]) * fr;
+        const dx = X(fi), dy = Y(vv);
+        ctx.beginPath(); ctx.arc(dx, dy, 8, 0, 7); ctx.fillStyle = 'rgba(166,57,43,0.18)'; ctx.fill();
+        ctx.beginPath(); ctx.arc(dx, dy, 3, 0, 7); ctx.fillStyle = '#a6392b'; ctx.fill();
+      }
+      this._sraf = requestAnimationFrame(draw);
+    };
+    this._sraf = requestAnimationFrame(draw);
+  }
+
+  fmt(v, d) { return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); }
+
+  renderVals() {
+    const t = this.state.t, T = this.targets;
+    const nav = T.nav * t, price = T.price * t, shares = T.shares * t;
+
+    const tabs = ['VIEW', 'VAULTS', 'VAULT OPS'].map((name, i) => {
+      const on = this.state.active === name;
+      return {
+        label: (i < 9 ? '0' : '') + (i + 1) + ' ' + name,
+        select: () => this.setState({ active: name }),
+        style: `font-weight:${on ? 700 : 400};color:${on ? '#1b2019' : '#6e7567'};border-bottom:2px solid ${on ? '#2b4a34' : 'transparent'};padding-bottom:8px;`
+      };
+    });
+
+    const netBase = 'padding:9px 16px;cursor:pointer;transition:all .15s;';
+    const on = c => netBase + `background:#2b4a34;color:#eef0e2;`;
+    const off = c => netBase + `background:transparent;color:#6e7567;`;
+
+    const secDefs = [
+      { num: '02', title: 'Vault state' },
+      { num: '03', title: 'Live NAV and share price' },
+      { num: '04', title: 'Preview deposit' },
+      { num: '05', title: 'Preview redeem' },
+    ];
+    const sections = secDefs.map(s => {
+      const isOpen = this.state.open === s.num;
+      return {
+        num: s.num, title: s.title, open: isOpen, chev: isOpen ? '▲' : '▼',
+        toggle: () => this.setState({ open: isOpen ? '' : s.num })
+      };
+    });
+
+    const rowBase = (last) => `display:flex;align-items:center;justify-content:space-between;padding:15px 20px;${last ? '' : 'border-bottom:1px solid rgba(27,32,25,0.1);'}`;
+    const num = 'font-family:\'JetBrains Mono\',monospace;font-size:16px;font-weight:600;';
+    const big = 'font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:700;color:#2b4a34;';
+    const rowsDef = [
+      { label: 'TOTAL NAV', value: '$' + this.fmt(nav, 6), valStyle: big },
+      { label: 'SHARE PRICE', value: '$' + this.fmt(price, 9), valStyle: big },
+      { label: 'SHARES OUTSTANDING', value: this.fmt(shares, 6), valStyle: num },
+      { label: 'TOTAL NAV (RAW)', value: Math.round(1988756 * t).toString(), valStyle: num },
+      { label: 'SHARE PRICE (RAW)', value: Math.round(1003316547 * t).toString(), valStyle: num },
+      { label: 'SHARES OUTSTANDING (RAW)', value: Math.round(1982182 * t).toString(), valStyle: num },
+      { label: 'SHARE DECIMALS', value: '6', valStyle: num, last: true },
+    ];
+    const rows = rowsDef.map((r, i) => ({ ...r, rowStyle: rowBase(i === rowsDef.length - 1) }));
+
+    const swaps = [
+      'SWAP 70.60277 W2O → 0.30900 USDC · Meteora DAMM V2',
+      'DEPOSIT 12.5000 USDC · BLUE CHIP (BC)',
+      'REDEEM 8.20182 BC → 8.2287 USDC',
+      'NAV REFRESH · $1.988756 · +0.33%',
+      'SWAP 1,204.0 SOL → 201,338 USDC · Orca',
+    ];
+    const tick = swaps.map(s =>
+      `<span style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.5px;padding:0 26px;color:#c9cdba;">▸ ${s.replace('→', '<span style=\'color:#7a9b6e\'>→</span>')}</span>`
+    ).join('<span style="color:#a6392b;">·</span>');
+
+    return {
+      tabs, sections, rows,
+      totalNav: '$' + this.fmt(nav, 6),
+      sharePrice: '$' + this.fmt(price, 9),
+      sharesOut: this.fmt(shares, 6),
+      localStyle: this.state.network === 'LOCALHOST' ? on() : off(),
+      mainnetStyle: this.state.network === 'MAINNET' ? on() : off(),
+      setLocal: () => this.setState({ network: 'LOCALHOST' }),
+      setMainnet: () => this.setState({ network: 'MAINNET' }),
+      getLiveNav: this.getLiveNav,
+      loading: this.state.loading,
+      btnLabel: this.state.loading ? 'FETCHING…' : 'GET LIVE NAV',
+      btnStyle: `position:relative;overflow:hidden;margin-top:26px;width:100%;background:#2b4a34;color:#eef0e2;border:none;border-radius:2px;padding:18px;font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:4px;font-weight:600;cursor:${this.state.loading ? 'wait' : 'pointer'};`,
+      setCanvas: this.setCanvas,
+      tickerA: React.createElement('span', { dangerouslySetInnerHTML: { __html: tick } }),
+      tickerB: React.createElement('span', { dangerouslySetInnerHTML: { __html: tick } }),
+    };
+  }
+}
+</script>
+</body>
+</html>

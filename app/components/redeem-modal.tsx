@@ -19,6 +19,7 @@ import { USDC_DECIMALS } from '@/lib/constants';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
+import { LedgerOutput } from './ledger-output';
 import {
   btnGhostClass,
   btnPrimaryClass,
@@ -356,9 +357,11 @@ export function RedeemModal({
                   : ''}{' '}
                 · unlocks {unlockDate?.toLocaleString() ?? '—'}
                 {readyToClaim
-                  ? ' — USDC ready: press Claim (or Redeem to auto-claim)'
+                  ? ' — all legs swapped: press Claim (or Redeem to auto-claim)'
                   : unlocked
-                    ? ' — press Redeem (swap) to convert assets → USDC (then auto-claim)'
+                    ? pendingUsdc > 0n
+                      ? ' — partial USDC already pending; press Redeem (swap) to finish remaining legs, then claim (do not claim early)'
+                      : ' — press Redeem (swap) to convert assets → USDC (then auto-claim)'
                     : ' — waiting for unlock'}
               </p>
             </div>
@@ -461,17 +464,8 @@ export function RedeemModal({
               <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
                 OUTPUT
               </div>
-              <div
-                className={`whitespace-pre-wrap break-all px-4 py-3 font-mono text-xs leading-relaxed ${
-                  result.type === 'error'
-                    ? 'text-destructive'
-                    : result.type === 'success'
-                      ? 'text-foreground'
-                      : 'text-muted-foreground'
-                }`}
-              >
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                {result.text}
+              <div className="px-4 py-3">
+                <LedgerOutput text={result.text} tone={result.type} />
                 {result.solscan && (
                   <div className="mt-2 border-t border-border pt-2">
                     <a

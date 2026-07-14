@@ -22,6 +22,7 @@ import {
   getVaultAssetBalances,
   genesisDepositAndDeploy,
   getAssetState,
+  fetchVaultCtx,
   describePreviewError,
   parseUnits,
   PRICE_SOURCE_PYTH,
@@ -34,7 +35,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import { WSOL_DECIMALS } from '@/lib/constants';
+import { USDC_DECIMALS, WSOL_DECIMALS } from '@/lib/constants';
 import { assetNameForMint } from '@/lib/presets/canonical-data';
 import {
   fetchTokens,
@@ -45,6 +46,7 @@ import {
   FieldError,
 } from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
+import { formatTokenUi, formatUsdUi, humanizeViewResult, withCommas } from './view-display';
 
 /** Write ALT to Supabase/SQLite after on-chain create. Soft-fails with a note. */
 async function persistVaultAlt(
@@ -142,25 +144,50 @@ export async function executeVaultFunction(
 
   switch (fnId) {
     case 'view_global_state':
-      return getGlobalState(connection);
+      return humanizeViewResult(fnId, await getGlobalState(connection));
     case 'view_vault_state':
-      return getVaultState(connection, id, net);
+      return humanizeViewResult(fnId, await getVaultState(connection, id, net));
     case 'view_nav':
       try {
         // Pass wallet so missing vault ATAs can be created (CLI does this too).
-        return await getTotalNavView(connection, id, net, anchorWallet);
+        return humanizeViewResult(
+          fnId,
+          await getTotalNavView(connection, id, net, anchorWallet),
+        );
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
     case 'preview_deposit':
       try {
-        return await previewDeposit(connection, id, bn(v.usdc_amount), net, anchorWallet);
+        return humanizeViewResult(
+          fnId,
+          await previewDeposit(connection, id, bn(v.usdc_amount), net, anchorWallet),
+        );
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
     case 'preview_redeem':
       try {
-        return await previewRedeem(connection, id, bn(v.shares), net, anchorWallet);
+        const [result, ctx] = await Promise.all([
+          previewRedeem(connection, id, bn(v.shares), net, anchorWallet),
+          fetchVaultCtx(connection, id, net).catch(() => null),
+        ]);
+        const assetLines: Record<string, string> = {};
+        result.assetAmounts.forEach((amt, i) => {
+          const asset = ctx?.assets[i];
+          const label = asset
+            ? (assetNameForMint(asset.mint.toBase58()) ||
+              `${asset.mint.toBase58().slice(0, 4)}…${asset.mint.toBase58().slice(-4)}`)
+            : `Asset ${i}`;
+          const decimals = asset?.decimals ?? 0;
+          assetLines[label] = formatTokenUi(amt, decimals);
+        });
+        return {
+          estimatedUsdcValue: formatUsdUi(result.estimatedUsdcValue, USDC_DECIMALS),
+          assetsToSwap: result.numAssets,
+          totalShares: formatTokenUi(result.totalShares, 6),
+          ...(Object.keys(assetLines).length > 0 ? { perAssetAmounts: assetLines } : {}),
+        };
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
@@ -176,16 +203,25 @@ export async function executeVaultFunction(
           symbolByMint.set(entry.mint, entry.asset_name);
         }
       }
-      return balances.map((b) => ({
-        asset: symbolByMint.get(b.mint) ?? b.mint,
-        balance: b.uiAmount,
-      }));
+      if (balances.length === 0) {
+        return { note: 'No vault asset balances on-chain yet.' };
+      }
+      // Flat map asset → human amount so LedgerOutput renders certificate rows.
+      const out: Record<string, string> = {};
+      for (const b of balances) {
+        const label =
+          symbolByMint.get(b.mint) ||
+          assetNameForMint(b.mint) ||
+          `${b.mint.slice(0, 4)}…${b.mint.slice(-4)}`;
+        out[label] = withCommas(b.uiAmount);
+      }
+      return out;
     }
     case 'view_my_position':
       if (!publicKey) throw new Error('Connect wallet');
-      return getUserPosition(connection, id, publicKey, net);
+      return humanizeViewResult(fnId, await getUserPosition(connection, id, publicKey, net));
     case 'view_asset_state':
-      return getAssetState(connection, assetId(v));
+      return humanizeViewResult(fnId, await getAssetState(connection, assetId(v)));
     case 'init_global_state': {
       if (!anchorWallet) throw new Error('Wallet required');
       // Nothing is read from the form — the genesis wSOL asset is fully

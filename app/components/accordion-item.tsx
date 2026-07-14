@@ -25,6 +25,7 @@ import {
   type SectionId,
 } from './function-defs';
 import { ErrorModal } from './error-modal';
+import { LedgerOutput } from './ledger-output';
 import {
   btnPrimaryClass,
   fieldLabelClass,
@@ -906,17 +907,8 @@ export function AccordionItem({
                 <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground md:px-5">
                   OUTPUT
                 </div>
-                <div
-                  className={`whitespace-pre-wrap break-all px-4 py-3 font-mono text-xs leading-relaxed md:px-5 ${
-                    result.type === 'error'
-                      ? 'text-destructive'
-                      : result.type === 'success'
-                        ? 'text-foreground'
-                        : 'text-muted-foreground'
-                  }`}
-                >
-                  <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                  {result.text}
+                <div className="px-4 py-3 md:px-5">
+                  <LedgerOutput text={result.text} tone={result.type} />
                   {result.type === 'error' && lastError && (
                     <div className="mt-2 border-t border-border pt-2">
                       <button
