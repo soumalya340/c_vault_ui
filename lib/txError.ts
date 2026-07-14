@@ -25,6 +25,27 @@ export interface UserFacingError {
   raw: string;
 }
 
+/**
+ * TWAP recovery UX (Refresh Asset button).
+ * 6050 keeper unset · 6051 wrong keeper · 6052 dual-stale · message fallbacks.
+ */
+export function isTwapRefreshableError(error: UserFacingError | null | undefined): boolean {
+  if (!error) return false;
+  const codeNum = Number(String(error.code ?? '').replace(/[^\d]/g, '') || NaN);
+  if (codeNum === 6050 || codeNum === 6051 || codeNum === 6052) return true;
+  // code may be "LivePriceDiscrepancy · 0x17a4" style
+  if (/\b6050\b|\b6051\b|\b6052\b|0x17a[234]/i.test(String(error.code ?? ''))) return true;
+  const blob = `${error.title}\n${error.summary}\n${error.fix ?? ''}\n${error.details ?? ''}\n${error.raw}`;
+  return /TwapKeeperNotSet|UnauthorizedTwapKeeper|LivePriceDiscrepancy|Live price discrepancy|both stale|TWAP observation|No TWAP keeper|TWAP keeper|update_dex_twap|Update Dex Twap/i.test(
+    blob,
+  );
+}
+
+/** @deprecated use isTwapRefreshableError */
+export function isLivePriceDiscrepancyError(error: UserFacingError | null | undefined): boolean {
+  return isTwapRefreshableError(error);
+}
+
 /** Anchor `#[error_code]` codes start at 6000; keep in sync with vault errors.rs. */
 const ANCHOR_ERRORS: Record<
   number,
@@ -254,11 +275,28 @@ const ANCHOR_ERRORS: Record<
     summary: 'There is not enough TWAP history to mint or redeem against this asset yet.',
     fix: 'Wait for keepers to record more observations, then retry.',
   },
+  6050: {
+    name: 'TwapKeeperNotSet',
+    title: 'TWAP keeper not set',
+    summary: 'No TWAP keeper is assigned on global_state yet.',
+    fix: 'Click Refresh Price (admin assigns the canonical keeper, then refreshes spots).',
+  },
   6051: {
+    name: 'UnauthorizedTwapKeeper',
+    title: 'Unauthorized TWAP keeper',
+    summary: 'The signer is not the assigned TWAP keeper.',
+    fix: 'Click Refresh Price to use the server keeper cosign, or re-set twap_keeper via admin.',
+  },
+  6052: {
     name: 'LivePriceDiscrepancy',
     title: 'Live price unreliable',
     summary: 'TWAP observation and keeper stamp are both too stale.',
-    fix: 'Have the TWAP keeper update, then retry.',
+    fix: 'Click Refresh Price — you pay one multi-ix tx; the keeper cosigns.',
+  },
+  6053: {
+    name: 'NotDexPricedAsset',
+    title: 'Not a DEX-priced asset',
+    summary: 'update_dex_twap only applies to DEX-priced AssetInfo slots.',
   },
   6054: {
     name: 'InvalidPoolPair',

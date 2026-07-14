@@ -10,7 +10,9 @@ export {
 } from './spot';
 export { isObservationStale, formatAge } from './staleness';
 export {
+  assertVaultDexTwapReadyForSwap,
   ensureVaultDexTwapFresh,
+  refreshAllStaleDexTwaps,
   type TwapRefreshResult,
   type ProgressFn as TwapProgressFn,
 } from './refresh';

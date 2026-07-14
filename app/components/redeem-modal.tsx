@@ -16,7 +16,7 @@ import {
   type Network,
 } from '@/lib/cvault';
 import { USDC_DECIMALS } from '@/lib/constants';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { isTwapRefreshableError, parseTxError, type UserFacingError } from '@/lib/txError';
 import { updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
@@ -172,7 +172,12 @@ export function RedeemModal({
       const usdcUi = formatTokenUi(r.estimatedUsdcValue, USDC_DECIMALS);
       setPreview(`≈ ${usdcUi} USDC · ${r.numAssets} assets to swap`);
     } catch (err) {
-      setPreview(describePreviewError(err));
+      const parsed = parseTxError(err);
+      if (isTwapRefreshableError(parsed)) {
+        setErrorModal(parsed);
+      } else {
+        setPreview(describePreviewError(err));
+      }
     } finally {
       setPreviewing(false);
     }
@@ -295,7 +300,19 @@ export function RedeemModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {errorModal && (
-        <ErrorModal error={errorModal} onClose={() => setErrorModal(null)} />
+        <ErrorModal
+          error={errorModal}
+          onClose={() => setErrorModal(null)}
+          network={network}
+          vaultId={vault.vault_id}
+          onRefreshSuccess={() => {
+            setErrorModal(null);
+            setResult({
+              type: 'info',
+              text: 'DEX TWAP refreshed — try Redeem again.',
+            });
+          }}
+        />
       )}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div

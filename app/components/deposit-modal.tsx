@@ -17,7 +17,7 @@ import {
   type Network,
 } from '@/lib/cvault';
 import { PRICE_SCALE_DECIMALS } from '@/lib/constants';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { isTwapRefreshableError, parseTxError, type UserFacingError } from '@/lib/txError';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { fetchTokens, updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
@@ -57,6 +57,7 @@ export function DepositModal({
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [steps, setSteps] = useState<string[]>([]);
   const [result, setResult] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -178,7 +179,13 @@ export function DepositModal({
         `≈ ${sharesUi} ${vault.symbol} shares · vault NAV $${navUi} · price $${priceUi}/share`,
       );
     } catch (err) {
-      setPreview(describePreviewError(err));
+      const parsed = parseTxError(err);
+      if (isTwapRefreshableError(parsed)) {
+        setLastError(parsed);
+        setErrorOpen(true);
+      } else {
+        setPreview(describePreviewError(err));
+      }
     } finally {
       setPreviewing(false);
     }
@@ -193,14 +200,13 @@ export function DepositModal({
     }
     setLoading(true);
     setResult(null);
+    setSteps([]);
     try {
       if (!amount.trim()) throw new Error('Enter an amount.');
       const rawAmount = parseUnits(amount, baseDecimals);
       const rawMinShares = minSharesOut.trim()
         ? parseUnits(minSharesOut.trim(), sharesDecimals ?? 6)
         : new BN(0);
-      // One v0 transaction via the vault's ALT: deposit + all inflow swap
-      // legs. No pre-checks — the program enforces everything (Plan.md §9).
       const r = await depositAndDeploy(
         connection,
         anchorWallet,
@@ -209,6 +215,7 @@ export function DepositModal({
         rawMinShares,
         vault.alt_address,
         network,
+        (message) => setSteps((prev) => [...prev, message]),
       );
       // If create_etf never saved an ALT (or it died), deposit just rebuilt it —
       // persist so future deposits/redeems reuse the same table.
@@ -257,7 +264,19 @@ export function DepositModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {errorOpen && lastError && (
-        <ErrorModal error={lastError} onClose={() => setErrorOpen(false)} />
+        <ErrorModal
+          error={lastError}
+          onClose={() => setErrorOpen(false)}
+          network={network}
+          vaultId={vault.vault_id}
+          onRefreshSuccess={() => {
+            setErrorOpen(false);
+            setResult({
+              type: 'info',
+              text: 'DEX TWAP refreshed — try Deposit again.',
+            });
+          }}
+        />
       )}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
@@ -365,6 +384,17 @@ export function DepositModal({
           >
             {loading ? 'Processing…' : anchorWallet ? 'Deposit' : 'Connect wallet'}
           </button>
+
+          {steps.length > 0 && (
+            <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
+              {steps.map((step, i) => (
+                <p key={i}>
+                  <span className="mr-2 text-muted-foreground/50">&gt;</span>
+                  {step}
+                </p>
+              ))}
+            </div>
+          )}
 
           {result && (
             <div className={outputPanelClass}>

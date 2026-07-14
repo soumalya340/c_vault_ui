@@ -562,7 +562,23 @@ export function AccordionItem({
       }`}
     >
       {errorOpen && lastError && (
-        <ErrorModal error={lastError} onClose={() => setErrorOpen(false)} />
+        <ErrorModal
+          error={lastError}
+          onClose={() => setErrorOpen(false)}
+          network={network}
+          vaultId={
+            values.vault_id != null && values.vault_id !== ''
+              ? Number(values.vault_id)
+              : null
+          }
+          onRefreshSuccess={() => {
+            setErrorOpen(false);
+            setResult({
+              type: 'info',
+              text: 'DEX TWAP refreshed — run the action again (e.g. Get Total NAV View).',
+            });
+          }}
+        />
       )}
       <button
         type="button"

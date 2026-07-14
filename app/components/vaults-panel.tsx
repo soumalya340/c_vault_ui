@@ -102,7 +102,18 @@ function PendingClaimButton({ vault, network }: { vault: VaultRecord; network: N
 
   return (
     <>
-      {errorOpen && lastError && <ErrorModal error={lastError} onClose={() => setErrorOpen(false)} />}
+      {errorOpen && lastError && (
+        <ErrorModal
+          error={lastError}
+          onClose={() => setErrorOpen(false)}
+          network={network}
+          vaultId={vault.vault_id}
+          onRefreshSuccess={() => {
+            setErrorOpen(false);
+            setState({ status: 'none' });
+          }}
+        />
+      )}
       {(state.status === 'idle' || state.status === 'checking') && (
         <button
           type="button"

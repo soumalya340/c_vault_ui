@@ -39,7 +39,7 @@ import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
 import { fetchPoolCtx, ownerAccountsFor, type PoolCtx } from './whirlpool';
 import { fetchDammPoolCtx, type DammPoolCtx } from './damm';
 import { ensureLocalhostSwapPreflight } from './localhost';
-import { ensureVaultDexTwapFresh } from './twap';
+import { assertVaultDexTwapReadyForSwap, ensureVaultDexTwapFresh } from './twap';
 import {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
@@ -1571,11 +1571,9 @@ export type ProgressFn = (message: string) => void;
 
 /**
  * Preflight before mutative deposit / redeem / genesis:
- * 1. DEX TWAP — all networks: for vault basket DEX assets older than 45m,
- *    push Orca/DAMM **spot** via `update_dex_twap` (user pays, keeper cosigns).
+ * 1. DEX TWAP — auto-refresh stale observations (user pays, keeper cosigns).
+ *    No confirmation step; refresh runs before the main tx is built.
  * 2. Localhost only — synthetic Pyth + Whirlpool clock (Surfpool).
- *
- * Views/NAV must not call the DEX TWAP leg (it sends a transaction).
  */
 async function prepareSwapPreflight(
   connection: Connection,
@@ -1753,13 +1751,15 @@ async function diagnoseMissingNavAccounts(
 }
 
 /**
- * Shared preflight for NAV / preview / redeem views. Views are Anchor
- * `.view()` simulations — nothing here may send a transaction or cost gas.
+ * Shared preflight for NAV / preview views.
  *
- * Missing vault ATAs are handled by returning idempotent create instructions
- * that the caller attaches as `preInstructions` to the simulation: the ATAs
- * then exist inside the simulated state only, nothing lands on-chain. The
- * connected wallet is used purely as the simulated rent payer.
+ * 1. DEX TWAP (all networks): on-chain pricing for DEX assets still runs
+ *    `record_observation` inside `.view()` sims — if observation + keeper are
+ *    both stale, the sim fails with LivePriceDiscrepancy (6052). Probe only;
+ *    the UI ErrorModal offers **Refresh Price** when the user opts in to pay.
+ * 2. Localhost: synthetic Pyth + Whirlpool clock.
+ * 3. Missing vault ATAs → idempotent create ixs as `preInstructions` only
+ *    (simulated rent payer; not sent for the view itself).
  */
 async function prepareViewAccounts(
   connection: Connection,
@@ -1768,6 +1768,12 @@ async function prepareViewAccounts(
   wallet?: AnchorWallet | null,
   onProgress?: ProgressFn,
 ): Promise<TransactionInstruction[]> {
+  const hasDex = ctx.assets.some((a) => a.priceSourceTag === PRICE_SOURCE_DEX);
+  if (hasDex) {
+    const program = createProgram(wallet ?? createDummyWallet(), connection);
+    await assertVaultDexTwapReadyForSwap(program, ctx, onProgress);
+  }
+
   await prepareLocalhostOracles(connection, network, ctx, onProgress);
 
   const missingAtas = await findMissingVaultAtas(connection, ctx);
@@ -2564,10 +2570,9 @@ async function emptyVaultNavView(
  * Mirrors `c_vault_script/lib/sdk/views.js` `getTotalNavView` formatting so the
  * UI does not dump opaque raw integers (or empty) in the OUTPUT panel.
  *
- * Gasless: runs entirely as an Anchor `.view()` simulation. Pass `wallet` so
- * missing vault ATAs can be created *inside the simulation* (the wallet is
- * only the simulated rent payer — nothing is signed or sent). Without a
- * wallet, missing ATAs fail with a precise list.
+ * Pass `wallet` when available: missing vault ATAs are simulated as
+ * preInstructions. Stale DEX TWAP (6050 / 6052) is probed first — use
+ * ErrorModal → Refresh Price before retrying (never auto-charged).
  */
 export async function getTotalNavView(
   connection: Connection,
@@ -2920,6 +2925,16 @@ export function describePreviewError(err: unknown): string {
         'On localhost, also ensure Surfpool Pyth refresh works.'
       );
     }
+  }
+  if (
+    Number(parsed.code) === 6052 ||
+    /LivePriceDiscrepancy|Live price discrepancy|both stale/i.test(blob + parsed.raw)
+  ) {
+    return (
+      'DEX TWAP is stale (observation and keeper stamp both past freshness window). ' +
+      'Use Refresh Price in the error dialog to push pool spots (you pay, keeper cosigns), ' +
+      'then retry. Or: yarn refresh-stale-twap'
+    );
   }
   return formatUserFacingError(err);
 }

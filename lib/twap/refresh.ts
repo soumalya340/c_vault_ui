@@ -13,12 +13,13 @@
  */
 
 import BN from 'bn.js';
-import type { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey, type Connection } from '@solana/web3.js';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
 import type { Program } from '@coral-xyz/anchor';
 import {
   PRICE_SOURCE_DEX,
   TWAP_KEEPER_PUBKEY,
+  TWAP_KEEPER_MAX_STALE_SECS,
   TWAP_OBSERVATION_MAX_STALE_SECS,
 } from '../constants';
 import { deriveAssetInfoPda, deriveGlobalStatePda } from '../pda';
@@ -55,8 +56,83 @@ type AssetInfoTwap = {
   active: boolean;
   twap: {
     lastUpdateTs: BN | number | { toString(): string };
+    lastUpdateTwapKeeperTs?: BN | number | { toString(): string };
   };
 };
+
+/** Throw shape that {@link parseTxError} maps to a known Anchor code. */
+function throwAnchorProgramError(code: number, name: string, message: string): never {
+  throw new Error(
+    `AnchorError occurred. Error Code: ${name}. Error Number: ${code}. Error Message: ${message}`,
+  );
+}
+
+function isKeeperStampStale(
+  lastUpdateTwapKeeperTs: number,
+  now: number,
+  maxAgeSecs: number = TWAP_KEEPER_MAX_STALE_SECS,
+): boolean {
+  if (!Number.isFinite(lastUpdateTwapKeeperTs) || lastUpdateTwapKeeperTs <= 0) return true;
+  return now - lastUpdateTwapKeeperTs > maxAgeSecs;
+}
+
+/**
+ * Read-only preflight for deposit / redeem / genesis — never sends a transaction.
+ * Fails before any wallet signature when the on-chain dual-stale guard (6052)
+ * or unset keeper (6050) would reject the swap path.
+ */
+export async function assertVaultDexTwapReadyForSwap(
+  program: Program,
+  ctx: TwapVaultCtx,
+  onProgress?: ProgressFn,
+): Promise<void> {
+  const dexAssets = ctx.assets.filter((a) => a.priceSourceTag === PRICE_SOURCE_DEX);
+  if (dexAssets.length === 0) return;
+
+  onProgress?.(`Checking DEX TWAP freshness for ${dexAssets.length} vault asset(s)…`);
+
+  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
+  const keeper = gs.twapKeeper as PublicKey;
+  if (keeper.equals(PublicKey.default)) {
+    throwAnchorProgramError(6050, 'TwapKeeperNotSet', 'No TWAP keeper has been assigned yet');
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const dualStaleIds: number[] = [];
+
+  for (const asset of dexAssets) {
+    let info: AssetInfoTwap;
+    try {
+      info = (await (program.account as any).assetInfo.fetch(
+        asset.assetInfoPda,
+      )) as AssetInfoTwap;
+    } catch {
+      dualStaleIds.push(asset.assetId);
+      continue;
+    }
+    if (info.active === false) continue;
+
+    const lastUpdateTs = Number(info.twap.lastUpdateTs.toString());
+    const keeperTs = Number(info.twap.lastUpdateTwapKeeperTs?.toString?.() ?? 0);
+    const observationStale = isObservationStale(lastUpdateTs, now);
+    const keeperStale = isKeeperStampStale(keeperTs, now);
+
+    if (observationStale && keeperStale) {
+      dualStaleIds.push(asset.assetId);
+    }
+  }
+
+  if (dualStaleIds.length > 0) {
+    throwAnchorProgramError(
+      6052,
+      'LivePriceDiscrepancy',
+      'Live price discrepancy — source not reliable (TWAP observation and keeper stamp both stale). ' +
+        `Asset id(s): ${dualStaleIds.join(', ')}.`,
+    );
+  }
+
+  onProgress?.('DEX TWAP observations fresh.');
+}
 
 /**
  * Refresh stale DEX TWAP observations for assets in this vault basket only.
@@ -103,21 +179,23 @@ export async function ensureVaultDexTwapFresh(
     return { refreshed: 0, signature: null, skipped: dexAssets.length };
   }
 
-  // Hard cap: vault basket is at most 9 assets → at most 9 update_dex_twap ixs.
+  // Packet-safe batch: at most 9 update_dex_twap ixs per tx (vault max / CU comfort).
+  // Extra stale assets need another click of Refresh Asset.
+  const batch = targets.slice(0, 9);
   if (targets.length > 9) {
-    throw new Error(
-      `Internal: ${targets.length} stale DEX TWAPs exceeds vault max of 9 assets`,
+    onProgress?.(
+      `${targets.length} stale — refreshing first 9 in this transaction; run again for the rest.`,
     );
   }
 
   onProgress?.(
-    `Refreshing ${targets.length} stale DEX TWAP(s) in one transaction ` +
-      `(${targets.length} instruction(s); pool spot; you pay, keeper cosigns)…`,
+    `Refreshing ${batch.length} stale DEX TWAP(s) in one transaction ` +
+      `(${batch.length} instruction(s); pool spot; you pay, keeper cosigns)…`,
   );
 
   // Build N small ixs, then send as ONE multi-ix transaction (not N txs).
   const ixs = [];
-  for (const asset of targets) {
+  for (const asset of batch) {
     const spot = await computeSpotPriceX64(connection, {
       mint: asset.mint,
       priceDexKind: asset.priceDexKind,
@@ -145,8 +223,57 @@ export async function ensureVaultDexTwapFresh(
   // Single VersionedTransaction: compute budget + all update_dex_twap ixs.
   const signature = await sendV0WithTwapKeeperCosign(connection, wallet, ixs);
   onProgress?.(
-    `Refreshed ${targets.length} DEX TWAP observation(s) in 1 tx / ${ixs.length} ix(s) ` +
+    `Refreshed ${batch.length} DEX TWAP observation(s) in 1 tx / ${ixs.length} ix(s) ` +
       `(sig ${signature.slice(0, 8)}…).`,
   );
-  return { refreshed: targets.length, signature, skipped: 0 };
+  return { refreshed: batch.length, signature, skipped: 0 };
+}
+
+/**
+ * Global scan: every listed DEX-priced AssetInfo (not vault-scoped).
+ * Used by the error-modal "Refresh Asset" button when no vault id is known.
+ * Still batches into one multi-ix tx (capped at 9 for packet safety).
+ */
+export async function refreshAllStaleDexTwaps(
+  connection: Connection,
+  wallet: AnchorWallet,
+  program: Program,
+  onProgress?: ProgressFn,
+  maxAgeSecs: number = TWAP_OBSERVATION_MAX_STALE_SECS,
+): Promise<TwapRefreshResult> {
+  const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
+  const totalAssets = Number(gs.totalAssets?.toString?.() ?? gs.totalAssets ?? 0);
+  const assets: TwapVaultAsset[] = [];
+
+  for (let id = 0; id < totalAssets; id++) {
+    const pda = deriveAssetInfoPda(id);
+    let account: any;
+    try {
+      account = await (program.account as any).assetInfo.fetch(pda);
+    } catch {
+      continue;
+    }
+    if (account.priceSourceTag !== PRICE_SOURCE_DEX) continue;
+    if (account.active === false) continue;
+    assets.push({
+      assetId: id,
+      assetInfoPda: pda,
+      mint: account.mint,
+      priceSourceTag: account.priceSourceTag,
+      priceDexKind: Number(account.priceDexKind ?? 0),
+      pricePoolAddress: account.pricePoolAddress,
+      route: account.route?.viaSol ? 'ViaSol' : 'DirectUsdc',
+      decimals: Number(account.decimals ?? 0),
+    });
+  }
+
+  onProgress?.(`Scanning ${assets.length} global DEX-priced asset(s)…`);
+  return ensureVaultDexTwapFresh(
+    connection,
+    wallet,
+    program,
+    { numAssets: assets.length, assets },
+    onProgress,
+    maxAgeSecs,
+  );
 }
