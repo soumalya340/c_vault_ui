@@ -1,5 +1,5 @@
 import { ADMIN_PUBKEY, SOL_USD_PYTH_FEED_ID_HEX, type Network } from '@/lib/cvault';
-import { WSOL_USDC_POOL, WSOL_USDC_POOL_DEVNET } from '@/lib/constants';
+import { WSOL_USDC_POOL } from '@/lib/constants';
 
 export type SectionId = 'view' | 'vaults' | 'vault-ops' | 'admin';
 
@@ -7,10 +7,17 @@ export interface FieldDef {
   name: string;
   label: string;
   placeholder?: string;
-  type?: 'text' | 'number' | 'select';
+  type?: 'text' | 'number' | 'select' | 'usd';
   options?: { label: string; value: string }[];
   hint?: string;
   wide?: boolean;
+  /**
+   * Rendered next to the label as a small "i" mark; click reveals `info` as a
+   * note beneath the field instead of a plain always-visible hint. Use for
+   * detail that rewards a deliberate look (unit conversions, on-chain
+   * mechanics) without cluttering the form by default.
+   */
+  info?: string;
   /**
    * Fixed value rendered read-only instead of an input — informational for
    * the admin; the executor reads the same constant itself. A record picks
@@ -33,12 +40,15 @@ export interface FunctionDef {
   submitLabel: string;
 }
 
+// vault_id / asset_id fields render as registry-backed dropdowns (see
+// accordion-item.tsx) — ids come from the DB, never hand-typed. The number
+// input only appears as a fallback when the registry fetch fails.
 const VAULT_ID_FIELD: FieldDef = {
   name: 'vault_id',
   label: 'Vault ID',
   type: 'number',
   placeholder: '0',
-  hint: '0-based on-chain id. First vault is 0. Valid range is 0 … totalVaults−1 (see Global state).',
+  hint: 'Loaded from the vault registry. 0-based on-chain id — first vault is 0.',
 };
 
 const ASSET_ID_FIELD: FieldDef = {
@@ -46,7 +56,7 @@ const ASSET_ID_FIELD: FieldDef = {
   label: 'Asset ID',
   type: 'number',
   placeholder: '0',
-  hint: '0-based on-chain id. Genesis wSOL is 0. Valid range is 0 … totalAssets−1 (see Global state).',
+  hint: 'Loaded from the asset registry. 0-based on-chain id — genesis wSOL is 0.',
 };
 
 export const VIEW_FUNCTIONS: FunctionDef[] = [
@@ -126,8 +136,27 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   },
 ];
 
-/** Vault Ops №02+ — every non-create vault operation comes from vault_ops.rs. */
+/** Vault Ops №01+ — every non-create vault operation comes from vault_ops.rs. */
 export const VAULT_OPS_FUNCTIONS: FunctionDef[] = [
+  {
+    id: 'genesis_deposit',
+    number: '01',
+    title: 'Genesis deposit',
+    description:
+      'One-time seed: admin or vault-manager-only, callable once per vault while total_shares == 0. Deposits a fixed 1 USDC and reverse-prices shares to pin the opening share price, then deploys the seed across the vault’s asset basket in the same transaction. Vault must already exist (Create ETF) with vault asset ATAs resolvable. Address Lookup Table is required: reuses the vault ALT from the DB if live on-chain, otherwise creates a new ALT before signing, waits for activation, and saves deposit_alt + redeem_alt (and alt_address) to Supabase/SQLite. Genesis aborts if ALT create fails — no silent static-key fallback.',
+    fields: [
+      VAULT_ID_FIELD,
+      {
+        name: 'baseline_share_price',
+        label: 'Opening share price',
+        type: 'usd',
+        placeholder: '1.00',
+        info:
+          'Stored on-chain as an integer in PRICE_SCALE units (1e9 per $1) — Solana programs can’t do floating-point math, so every price is a whole number of billionths of a dollar. $1.00 becomes 1,000,000,000. This is the price the first share is minted at; every later share price is computed from it. Valid range: $0.00001–$100,000.',
+      },
+    ],
+    submitLabel: 'Genesis deposit',
+  },
   {
     id: 'set_paused',
     number: '02',
@@ -173,18 +202,18 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
         name: 'pool_address',
         label: 'USDC/wSOL Whirlpool pool',
         fixed: {
-          devnet: WSOL_USDC_POOL_DEVNET.toBase58(),
+          localhost: WSOL_USDC_POOL.toBase58(),
           mainnet: WSOL_USDC_POOL.toBase58(),
         },
         wide: true,
-        hint: 'Canonical USDC↔wSOL Orca Whirlpool for the selected network — every ViaSol swap leg is validated against it on-chain.',
+        hint: 'Canonical USDC↔wSOL Orca Whirlpool — every ViaSol swap leg is validated against it on-chain. Same address on localhost and mainnet.',
       },
       {
         name: 'pyth_feed_id',
         label: 'Pyth feed ID (SOL/USD)',
         fixed: SOL_USD_PYTH_FEED_ID_HEX,
         wide: true,
-        hint: 'The genesis asset is Pyth-priced. Same feed id on devnet and mainnet (pull oracle).',
+        hint: 'The genesis asset is Pyth-priced. Same feed id on every cluster (pull oracle).',
       },
     ],
     submitLabel: 'Initialize',
@@ -228,10 +257,27 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
     number: '05',
     title: 'Create asset',
     description:
-      'List a new global asset. Runs pool/TVL/ownership validation once at listing time; vaults reference it by id afterward.',
+      'List a new global asset. Pool address is verified live with the Orca Whirlpools SDK or Meteora DAMM v2 (CpAmm) SDK — pick DEX Type to match the pool. The pool must be this mint paired with wSOL (ViaSol) or network USDC (DirectUsdc).',
     fields: [
-      { name: 'mint', label: 'Mint', wide: true },
-      { name: 'pool_address', label: 'Pool address', wide: true },
+      {
+        name: 'asset_name',
+        label: 'Asset name',
+        placeholder: 'e.g. Wrapped BTC',
+        wide: true,
+        hint: 'Display name stored in the registry. Free text — if you pick a preset (or paste a known mint), this is filled from the preset catalog.',
+      },
+      {
+        name: 'mint',
+        label: 'Mint',
+        wide: true,
+        hint: 'Token mint being listed. Must be one leg of the pool (with wSOL or USDC).',
+      },
+      {
+        name: 'pool_address',
+        label: 'Pool address',
+        wide: true,
+        hint: 'Whirlpool or DAMM v2 pool. ViaSol → mint/wSOL. DirectUsdc → mint/USDC. Verified via Orca / Meteora SDK before submit.',
+      },
       {
         name: 'pyth_feed_id',
         label: 'Pyth feed ID (64-char hex, blank = zero feed)',

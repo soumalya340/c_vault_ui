@@ -20,10 +20,13 @@ import {
   previewRedeem,
   getUserPosition,
   getVaultAssetBalances,
+  genesisDepositAndDeploy,
   getAssetState,
   describePreviewError,
+  parseUnits,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
+  PRICE_SCALE_DECIMALS,
   DEFAULT_VAULT_ID,
   WSOL_MINT,
   WSOL_ASSET_ID,
@@ -32,8 +35,41 @@ import {
   type Network,
 } from '@/lib/cvault';
 import { WSOL_DECIMALS } from '@/lib/constants';
-import { fetchTokens, fetchAssetRegistry, saveAssetRegistryEntry, FieldError } from '@/lib/registryClient';
+import { assetNameForMint } from '@/lib/presets/canonical-data';
+import {
+  fetchTokens,
+  fetchAssetRegistry,
+  saveAssetRegistryEntry,
+  fetchVaults,
+  updateVaultAlts,
+  FieldError,
+} from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
+
+/** Write ALT to Supabase/SQLite after on-chain create. Soft-fails with a note. */
+async function persistVaultAlt(
+  network: Network,
+  vaultId: number,
+  altAddress: string,
+  altCreated: boolean,
+): Promise<string> {
+  if (!altAddress) return '';
+  try {
+    await updateVaultAlts(network, vaultId, {
+      deposit_alt_address: altAddress,
+      redeem_alt_address: altAddress,
+    });
+    return altCreated
+      ? `\nALT created + saved: ${altAddress}`
+      : `\nALT confirmed + saved: ${altAddress}`;
+  } catch (err) {
+    return (
+      `\nALT is live on-chain (${altAddress}) but saving to DB failed: ` +
+      `${err instanceof Error ? err.message : String(err)}. ` +
+      `Paste it under Admin → Vaults ALT fields, or re-run genesis/deposit.`
+    );
+  }
+}
 
 function bn(v: string | undefined, fallback = '0'): BN {
   return new BN(v && v.length > 0 ? v : fallback);
@@ -110,31 +146,39 @@ export async function executeVaultFunction(
     case 'view_vault_state':
       return getVaultState(connection, id, net);
     case 'view_nav':
-      return getTotalNavView(connection, id, net);
+      try {
+        // Pass wallet so missing vault ATAs can be created (CLI does this too).
+        return await getTotalNavView(connection, id, net, anchorWallet);
+      } catch (err) {
+        throw new Error(describePreviewError(err));
+      }
     case 'preview_deposit':
       try {
-        return await previewDeposit(connection, id, bn(v.usdc_amount), net);
+        return await previewDeposit(connection, id, bn(v.usdc_amount), net, anchorWallet);
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
     case 'preview_redeem':
       try {
-        return await previewRedeem(connection, id, bn(v.shares), net);
+        return await previewRedeem(connection, id, bn(v.shares), net, anchorWallet);
       } catch (err) {
         throw new Error(describePreviewError(err));
       }
     case 'view_vault_asset_balances': {
-      const [balances, tokens] = await Promise.all([
+      const [balances, tokens, registry] = await Promise.all([
         getVaultAssetBalances(connection, id, net),
         fetchTokens().catch(() => []),
+        fetchAssetRegistry(net).catch(() => []),
       ]);
       const symbolByMint = new Map(tokens.map((t) => [t.mint, t.symbol]));
+      for (const entry of registry) {
+        if (entry.asset_name && !symbolByMint.has(entry.mint)) {
+          symbolByMint.set(entry.mint, entry.asset_name);
+        }
+      }
       return balances.map((b) => ({
         asset: symbolByMint.get(b.mint) ?? b.mint,
         balance: b.uiAmount,
-        raw: b.raw,
-        decimals: b.decimals,
-        mint: b.mint,
       }));
     }
     case 'view_my_position':
@@ -183,6 +227,7 @@ export async function executeVaultFunction(
         await saveAssetRegistryEntry({
           network: net,
           asset_id: String(WSOL_ASSET_ID),
+          asset_name: 'Wrapped SOL',
           mint: WSOL_MINT.toBase58(),
           pool_address: poolAddress.toBase58(),
           pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
@@ -213,6 +258,48 @@ export async function executeVaultFunction(
       const r = await setEmergency(connection, anchorWallet, v.is_emergency === 'true', net);
       return { tx: r.tx, solscan: r.link };
     }
+    case 'genesis_deposit': {
+      if (!anchorWallet) throw new Error('Wallet required');
+      let baselineSharePrice: BN;
+      try {
+        baselineSharePrice = parseUnits(v.baseline_share_price || '0', PRICE_SCALE_DECIMALS);
+      } catch (err) {
+        throw new FieldError(
+          err instanceof Error ? err.message : String(err),
+          'baseline_share_price',
+        );
+      }
+      // Reuse DB ALT if live; otherwise create one before signing. Multi-asset
+      // genesis cannot fit without an ALT — ensureVaultAlt hard-fails if build
+      // fails. Always re-persist the address to Supabase/SQLite after success.
+      const vaults = await fetchVaults(net).catch(() => []);
+      const row = vaults.find((vrow) => vrow.vault_id === id);
+      const altAddress = row?.alt_address ?? null;
+      const r = await genesisDepositAndDeploy(
+        connection,
+        anchorWallet,
+        id,
+        baselineSharePrice,
+        altAddress,
+        net,
+      );
+      // Always write ALT when we have one (created or reused but missing in DB).
+      const shouldSave =
+        Boolean(r.altAddress) &&
+        (r.altCreated || !altAddress || altAddress !== r.altAddress);
+      const altNote = shouldSave
+        ? await persistVaultAlt(net, id, r.altAddress, r.altCreated)
+        : r.altAddress
+          ? `\nALT: ${r.altAddress}`
+          : '';
+      return {
+        tx: r.tx,
+        solscan: r.link,
+        altAddress: r.altAddress,
+        altCreated: r.altCreated,
+        note: altNote.trim() || undefined,
+      };
+    }
     case 'set_paused': {
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await setPaused(connection, anchorWallet, id, v.paused === 'true', net);
@@ -241,6 +328,23 @@ export async function executeVaultFunction(
         throw new FieldError(`Mint already listed as asset #${dupe.asset_id}.`, 'mint');
       }
 
+      // Display name for pre_approved_token_registry — resolve before signing
+      // so we never land an on-chain asset without a registry label ready.
+      const tokens = await fetchTokens().catch(() => []);
+      const token = tokens.find((t) => t.mint === mint.toBase58());
+      const assetName =
+        v.asset_name?.trim() ||
+        assetNameForMint(mint.toBase58()) ||
+        token?.name?.trim() ||
+        token?.symbol?.trim() ||
+        '';
+      if (!assetName) {
+        throw new FieldError(
+          'Asset name is required — enter a name or use a preset mint.',
+          'asset_name',
+        );
+      }
+
       const route = v.route === 'directUsdc' ? { directUsdc: {} } : { viaSol: {} };
       const priceSourceTag = Number(v.price_source_tag || 0);
       const priceDexKind = Number(v.price_dex_kind || 0);
@@ -254,10 +358,9 @@ export async function executeVaultFunction(
       const pythFeedId = pythFeedIdBytes(v.pyth_feed_id);
       const tokenProgramTag = Number(v.token_program_tag || 0);
 
-      // Guard before signing: verify the swap pool actually exists, decodes
-      // as the selected DEX Type, and includes the mint the chosen route
-      // requires — so a typo'd, wrong-venue, or wrong-route address fails
-      // here (next to the field) instead of as an on-chain rejection.
+      // Guard before signing: pool exists (Orca Whirlpools SDK or Meteora
+      // CpAmm SDK), correct venue, route quote leg, and asset mint is a pool
+      // leg (required for swaps even when Price source = Pyth).
       try {
         await assertPoolExists(
           connection,
@@ -265,6 +368,7 @@ export async function executeVaultFunction(
           priceDexKind === 1 ? 'dammV2' : 'whirlpool',
           v.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
           net,
+          mint,
         );
       } catch (err) {
         throw new FieldError(
@@ -294,6 +398,7 @@ export async function executeVaultFunction(
         await saveAssetRegistryEntry({
           network: net,
           asset_id: String(r.assetId),
+          asset_name: assetName,
           mint: mint.toBase58(),
           pool_address: poolAddress.toBase58(),
           pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
@@ -358,6 +463,17 @@ export async function executeVaultFunction(
 }
 
 export function formatResult(data: unknown): string {
+  if (data == null) return String(data);
   if (typeof data === 'string') return data;
-  return JSON.stringify(data, null, 2);
+  try {
+    const s = JSON.stringify(
+      data,
+      (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
+      2,
+    );
+    // JSON.stringify(undefined) → undefined; never hand React an empty text.
+    return s ?? String(data);
+  } catch {
+    return String(data);
+  }
 }

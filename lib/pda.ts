@@ -48,7 +48,7 @@ export interface VaultPdas {
 /**
  * PDAs use C_VAULT_PROGRAM_ID (matches IDL / on-chain declare_id).
  * usdc_vault is also seeded with the network USDC mint — pass `network` (or
- * an explicit `usdcMint`) so devnet vaults derive against the devnet mint.
+ * an explicit `usdcMint`) so PDAs match the cluster's quote mint.
  */
 export function deriveVaultPdas(
   vaultId: number,

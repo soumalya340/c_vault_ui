@@ -2,9 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import { BN } from '@coral-xyz/anchor';
+import { getMint, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
-import { getUserPosition, previewRedeem, redeemSwap, claim, type Network } from '@/lib/cvault';
-import type { VaultRecord } from '@/lib/registryClient';
+import {
+  getUserPosition,
+  previewRedeem,
+  redeemSwap,
+  claim,
+  describePreviewError,
+  deriveVaultPdas,
+  parseUnits,
+  formatUnits,
+  type Network,
+} from '@/lib/cvault';
+import { USDC_DECIMALS } from '@/lib/constants';
+import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
+import { ErrorModal } from './error-modal';
 import {
   btnGhostClass,
   btnPrimaryClass,
@@ -23,6 +37,14 @@ import {
 // Nothing is stored off-chain per user — both actions check on-chain state.
 // The vault's ALT compresses every swap
 // transaction.
+
+/** Human-readable token amount with thousands separators; exact string math. */
+function formatTokenUi(raw: string, decimals: number): string {
+  const ui = formatUnits(raw, decimals);
+  const [whole, frac] = ui.split('.');
+  const wholeFmt = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return frac ? `${wholeFmt}.${frac}` : wholeFmt;
+}
 
 export function RedeemModal({
   vault,
@@ -47,14 +69,41 @@ export function RedeemModal({
     text: string;
     solscan?: string;
   } | null>(null);
+  const [errorModal, setErrorModal] = useState<UserFacingError | null>(null);
 
   const [pending, setPending] = useState<{
     redeemableShares: string;
     unlockTime: string;
     pendingUsdc: string;
   } | null>(null);
+  /** Raw share-token base units (Token-2022 amount). */
   const [shareBalance, setShareBalance] = useState<string>('0');
+  const [sharesDecimals, setSharesDecimals] = useState<number | null>(null);
   const [checkingPosition, setCheckingPosition] = useState(false);
+
+  // Shares mint decimals (authoritative from Token-2022 mint). Needed to show
+  // balance / burn amounts in human units instead of raw base units.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { sharesMint } = deriveVaultPdas(vault.vault_id, network);
+        const mintInfo = await getMint(
+          connection,
+          sharesMint,
+          undefined,
+          TOKEN_2022_PROGRAM_ID,
+        );
+        if (!cancelled) setSharesDecimals(mintInfo.decimals);
+      } catch {
+        // Fall back to the vault default (6) so the form still works offline.
+        if (!cancelled) setSharesDecimals(6);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, vault.vault_id, network]);
 
   const refreshPosition = async () => {
     if (!publicKey) return;
@@ -86,14 +135,43 @@ export function RedeemModal({
   const unlockDate = pending ? new Date(Number(pending.unlockTime) * 1000) : null;
   const unlocked = unlockDate ? unlockDate.getTime() <= Date.now() : false;
 
+  const shareBalanceUi =
+    sharesDecimals !== null ? formatTokenUi(shareBalance, sharesDecimals) : null;
+
+  // Live raw-unit echo under the burn field (mirrors deposit modal).
+  let rawShares: string | null = null;
+  if (sharesDecimals !== null && shares.trim()) {
+    try {
+      rawShares = parseUnits(shares, sharesDecimals).toString();
+    } catch {
+      rawShares = null;
+    }
+  }
+
+  const parseSharesInput = (): BN => {
+    if (sharesDecimals === null) {
+      throw new Error('Share token decimals not loaded yet — try again in a moment.');
+    }
+    if (!shares.trim()) throw new Error('Enter a share amount to burn.');
+    return parseUnits(shares.trim(), sharesDecimals);
+  };
+
   const handlePreview = async () => {
     setPreviewing(true);
     setPreview(null);
     try {
-      const r = await previewRedeem(connection, vault.vault_id, new BN(shares || '0'), network);
-      setPreview(`≈ ${r.estimatedUsdcValue} base units · ${r.numAssets} assets to swap`);
+      const raw = parseSharesInput();
+      const r = await previewRedeem(
+        connection,
+        vault.vault_id,
+        raw,
+        network,
+        anchorWallet,
+      );
+      const usdcUi = formatTokenUi(r.estimatedUsdcValue, USDC_DECIMALS);
+      setPreview(`≈ ${usdcUi} USDC · ${r.numAssets} assets to swap`);
     } catch (err) {
-      setPreview(err instanceof Error ? err.message : String(err));
+      setPreview(describePreviewError(err));
     } finally {
       setPreviewing(false);
     }
@@ -109,38 +187,66 @@ export function RedeemModal({
     setResult(null);
     setSteps([]);
     try {
+      let sharesBn: BN | null = null;
+      if (shares.trim()) {
+        sharesBn = parseSharesInput();
+      }
       const r = await redeemSwap(
         connection,
         anchorWallet,
         vault.vault_id,
-        shares.trim() ? new BN(shares.trim()) : null,
+        sharesBn,
         vault.alt_address,
         network,
         (message) => setSteps((prev) => [...prev, message]),
       );
+      let altNote = '';
+      if (
+        r.altAddress &&
+        (r.altCreated || !vault.alt_address || vault.alt_address !== r.altAddress)
+      ) {
+        try {
+          await updateVaultAlts(network, vault.vault_id, {
+            deposit_alt_address: r.altAddress,
+            redeem_alt_address: r.altAddress,
+          });
+          altNote = r.altCreated
+            ? `\nALT created + saved: ${r.altAddress}`
+            : `\nALT saved: ${r.altAddress}`;
+        } catch (err) {
+          altNote =
+            `\nALT live (${r.altAddress}) but DB save failed: ` +
+            `${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
       if (r.phase === 'requested') {
         const unlock = r.unlockTime ? new Date(r.unlockTime * 1000).toLocaleString() : '—';
         setResult({
           type: 'success',
           text:
             `Shares burned for vault №${vault.vault_id}. Cooldown active — ` +
-            `press Redeem (swap) again after ${unlock} to run the outflow swap.`,
+            `press Redeem (swap) again after ${unlock} to run the outflow swap.` +
+            altNote,
           solscan: r.link || undefined,
         });
       } else {
         setResult({
           type: 'success',
-          text: `Outflow swap complete for vault №${vault.vault_id} (${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}). Press Claim to receive the payout.`,
+          text:
+            `Outflow swap complete for vault №${vault.vault_id} (${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}). Press Claim to receive the payout.` +
+            altNote,
           solscan: r.link,
         });
       }
       setShares('');
       await refreshPosition();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isRejection =
-        msg.toLowerCase().includes('user rejected') || msg.toLowerCase().includes('rejected the request');
-      setResult({ type: isRejection ? 'info' : 'error', text: isRejection ? 'Transaction cancelled.' : msg });
+      const parsed = parseTxError(err);
+      setErrorModal(parsed);
+      setResult({
+        type: parsed.kind === 'info' ? 'info' : 'error',
+        text: parsed.title,
+      });
       await refreshPosition();
     } finally {
       setLoading(false);
@@ -161,10 +267,12 @@ export function RedeemModal({
       });
       await refreshPosition();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isRejection =
-        msg.toLowerCase().includes('user rejected') || msg.toLowerCase().includes('rejected the request');
-      setResult({ type: isRejection ? 'info' : 'error', text: isRejection ? 'Transaction cancelled.' : msg });
+      const parsed = parseTxError(err);
+      setErrorModal(parsed);
+      setResult({
+        type: parsed.kind === 'info' ? 'info' : 'error',
+        text: parsed.title,
+      });
       await refreshPosition();
     } finally {
       setLoading(false);
@@ -173,6 +281,9 @@ export function RedeemModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {errorModal && (
+        <ErrorModal error={errorModal} onClose={() => setErrorModal(null)} />
+      )}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
         role="dialog"
@@ -200,8 +311,21 @@ export function RedeemModal({
           )}
 
           {!checkingPosition && (
-            <p className="font-mono text-[11px] text-muted-foreground">
-              share balance: <span className="text-foreground">{shareBalance}</span>
+            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              share balance:{' '}
+              <span className="text-foreground">
+                {shareBalanceUi !== null ? (
+                  <>
+                    {shareBalanceUi} {vault.symbol}
+                    <span className="text-muted-foreground/70">
+                      {' '}
+                      ({shareBalance} raw)
+                    </span>
+                  </>
+                ) : (
+                  '…'
+                )}
+              </span>
             </p>
           )}
 
@@ -210,9 +334,15 @@ export function RedeemModal({
               <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-seal">
                 Pending redeem
               </p>
-              <p className="mt-1.5 font-mono text-xs leading-relaxed text-foreground">
-                {pending.redeemableShares} shares burned · unlocks{' '}
-                {unlockDate?.toLocaleString() ?? '—'}
+              <p className="mt-1.5 font-mono text-xs tabular-nums leading-relaxed text-foreground">
+                {sharesDecimals !== null
+                  ? formatTokenUi(pending.redeemableShares, sharesDecimals)
+                  : pending.redeemableShares}{' '}
+                {vault.symbol} burned
+                {pendingUsdc > 0n
+                  ? ` · ${formatTokenUi(pending.pendingUsdc, USDC_DECIMALS)} USDC pending`
+                  : ''}{' '}
+                · unlocks {unlockDate?.toLocaleString() ?? '—'}
                 {readyToClaim
                   ? ' — swapped: ready to Claim'
                   : unlocked
@@ -226,28 +356,59 @@ export function RedeemModal({
             {!pending && (
               <>
                 <div>
-                  <label className={fieldLabelClass}>Shares to burn</label>
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <label className={fieldLabelClass}>Shares to burn</label>
+                    {shareBalanceUi !== null && shareBalance !== '0' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          sharesDecimals !== null &&
+                          setShares(formatUnits(shareBalance, sharesDecimals))
+                        }
+                        className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent transition-colors hover:text-foreground"
+                      >
+                        Max {shareBalanceUi}
+                      </button>
+                    )}
+                  </div>
                   <input
-                    className={inputClass}
-                    type="number"
+                    className={`${inputClass} tabular-nums`}
+                    type="text"
+                    inputMode="decimal"
                     value={shares}
                     onChange={(e) => setShares(e.target.value)}
-                    placeholder="1000"
+                    placeholder={
+                      sharesDecimals === null
+                        ? 'loading…'
+                        : shareBalanceUi && shareBalance !== '0'
+                          ? shareBalanceUi
+                          : '1.0'
+                    }
+                    disabled={sharesDecimals === null}
                     required={!pending}
                   />
+                  <p className="mt-1.5 font-mono text-[11px] tabular-nums text-muted-foreground/70">
+                    {sharesDecimals === null
+                      ? 'Resolving share token decimals…'
+                      : rawShares
+                        ? `= ${rawShares} raw units (${sharesDecimals} decimals)`
+                        : `Enter a ${vault.symbol} amount (e.g. 1.5)`}
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
                     onClick={handlePreview}
-                    disabled={previewing || !shares.trim()}
+                    disabled={previewing || !shares.trim() || sharesDecimals === null}
                     className={btnSecondaryClass}
                   >
                     {previewing ? 'Previewing…' : 'Preview'}
                   </button>
                   {preview && (
-                    <span className="font-mono text-[11px] text-muted-foreground">{preview}</span>
+                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {preview}
+                    </span>
                   )}
                 </div>
               </>
@@ -256,7 +417,7 @@ export function RedeemModal({
             <div className="flex items-center gap-3">
               <button
                 type="submit"
-                disabled={loading || !anchorWallet || readyToClaim}
+                disabled={loading || !anchorWallet || readyToClaim || sharesDecimals === null}
                 className={btnPrimaryClass}
               >
                 {loading ? 'Processing…' : anchorWallet ? 'Redeem (swap)' : 'Connect wallet'}

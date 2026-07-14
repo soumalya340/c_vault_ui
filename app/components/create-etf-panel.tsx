@@ -26,7 +26,9 @@ import {
   saveVault,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
+import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { SECTION_STYLE } from './function-defs';
+import { ErrorModal } from './error-modal';
 import {
   btnGhostClass,
   btnPrimaryClass,
@@ -91,9 +93,15 @@ export function CreateEtfPanel({ network }: { network: Network }) {
     text: string;
     solscan?: string;
   } | null>(null);
+  const [lastError, setLastError] = useState<UserFacingError | null>(null);
+  const [errorOpen, setErrorOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    // Network switch → reload this cluster's registry and clear the basket so
+    // asset ids from the previous network can't be submitted by mistake.
+    setRows([{ ...EMPTY_ROW }]);
+    setActiveRowIndex(0);
     fetchAssetRegistry(network)
       .then((rows) => {
         if (cancelled) return;
@@ -110,8 +118,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   }, [network]);
 
   const activeAssets = useMemo(
-    () => (network === 'devnet' ? registry.filter((a) => a.active) : []),
-    [registry, network],
+    () => registry.filter((a) => a.active),
+    [registry],
   );
 
   const assetById = useMemo(
@@ -250,9 +258,11 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         );
         altAddress = lut.toBase58();
       } catch (err) {
-        altNote = `\n\nALT creation failed (deposits fall back to static keys): ${
-          err instanceof Error ? err.message : String(err)
-        }`;
+        altNote =
+          `\n\nALT creation failed at create_etf: ${
+            err instanceof Error ? err.message : String(err)
+          }. ` +
+          `Vault is still on-chain — run Genesis deposit next; it will create the ALT, wait for activation, and save it to the DB before seeding.`;
       }
 
       setStatus('Recording vault…');
@@ -302,13 +312,12 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         solscan: created.tx ? created.link : undefined,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isRejection =
-        msg.toLowerCase().includes('user rejected') ||
-        msg.toLowerCase().includes('rejected the request');
+      const parsed = parseTxError(err);
+      setLastError(parsed);
+      setErrorOpen(true);
       setResult({
-        type: isRejection ? 'info' : 'error',
-        text: isRejection ? 'Transaction cancelled.' : msg,
+        type: parsed.kind === 'info' ? 'info' : 'error',
+        text: parsed.title,
       });
     } finally {
       setStatus(null);
@@ -318,6 +327,9 @@ export function CreateEtfPanel({ network }: { network: Network }) {
 
   return (
     <section aria-label="Create ETF vault" className={`${panelClass} overflow-hidden`}>
+      {errorOpen && lastError && (
+        <ErrorModal error={lastError} onClose={() => setErrorOpen(false)} />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">
         <span
           className="font-display text-base font-semibold uppercase tracking-[0.18em]"
@@ -379,7 +391,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             <label className={fieldLabelClass}>Base / quote mint</label>
             <input className={inputClass} value={`USDC · ${usdcBase58}`} readOnly />
             <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-              Program constant — {network} USDC only
+              Program constant — Circle USDC (EPjF…) on every network
             </p>
           </div>
           <div>
@@ -447,16 +459,16 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             </span>
           </div>
 
-          {network !== 'devnet' && (
-            <p className="px-4 py-3 font-mono text-xs text-muted-foreground">
-              <span className="mr-1 text-muted-foreground/50">&gt;</span>
-              asset picker is devnet-only for now — switch network to pick assets
-            </p>
-          )}
-          {network === 'devnet' && registryError && (
+          {registryError && (
             <p className="px-4 py-3 font-mono text-xs text-destructive">
               <span className="mr-1 text-muted-foreground/50">&gt;</span>
               asset registry unavailable — {registryError}
+            </p>
+          )}
+          {!registryError && activeAssets.length === 0 && (
+            <p className="px-4 py-3 font-mono text-xs text-muted-foreground">
+              <span className="mr-1 text-muted-foreground/50">&gt;</span>
+              no active assets on {network} — list some under Admin → Create asset (same network)
             </p>
           )}
 
@@ -472,7 +484,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               const tabColorClass = active
                 ? 'text-background'
                 : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground';
-              const label = entry ? shortMint(entry.mint) : row.assetId ? '…' : '—';
+              const label = entry ? assetLabel(entry) : row.assetId ? '…' : '—';
 
               return (
                 <button
@@ -515,7 +527,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-mono text-xs font-bold tracking-[0.08em] text-seal">
                       ASSET {String(i + 1).padStart(2, '0')}
-                      {entry ? ` · ${shortMint(entry.mint)}` : ''}
+                      {entry ? ` · ${assetLabel(entry)}` : ''}
                     </span>
                     {rows.length > 1 && (
                       <button
@@ -542,12 +554,12 @@ export function CreateEtfPanel({ network }: { network: Network }) {
                         value={row.assetId}
                         onChange={(e) => updateRow(i, { assetId: e.target.value })}
                         required
-                        disabled={network !== 'devnet'}
+                        disabled={!!registryError || activeAssets.length === 0}
                       >
                         <option value="">— pick token —</option>
                         {activeAssets.map((a) => (
                           <option key={a.asset_id} value={a.asset_id}>
-                            #{a.asset_id} · {shortMint(a.mint)} ({a.decimals} dec, {a.route})
+                            {formatAssetOption(a)}
                           </option>
                         ))}
                       </select>
@@ -605,6 +617,17 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             >
               <span className="mr-2 text-muted-foreground/50">&gt;</span>
               {result.text}
+              {result.type === 'error' && lastError && (
+                <div className="mt-2 border-t border-border pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setErrorOpen(true)}
+                    className="font-mono text-[11px] text-accent underline transition-colors hover:text-foreground"
+                  >
+                    View error details
+                  </button>
+                </div>
+              )}
               {result.solscan && (
                 <div className="mt-2 border-t border-border pt-2">
                   <a
@@ -627,4 +650,17 @@ export function CreateEtfPanel({ network }: { network: Network }) {
 
 function shortMint(mint: string): string {
   return mint.length > 8 ? `${mint.slice(0, 4)}…${mint.slice(-4)}` : mint;
+}
+
+/** Human-readable name from the asset registry, with mint fallback when unset. */
+function assetLabel(entry: Pick<AssetRegistryEntry, 'asset_name' | 'mint'>): string {
+  const name = entry.asset_name?.trim();
+  return name || shortMint(entry.mint);
+}
+
+function formatAssetOption(a: AssetRegistryEntry): string {
+  const name = a.asset_name?.trim();
+  const mint = shortMint(a.mint);
+  const title = name ? `${name} · ${mint}` : mint;
+  return `#${a.asset_id} · ${title} (${a.decimals} dec, ${a.route})`;
 }

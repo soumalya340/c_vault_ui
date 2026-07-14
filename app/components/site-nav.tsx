@@ -4,12 +4,14 @@ import type { Network } from '@/app/providers';
 import { NetworkToggle } from './network-toggle';
 import { UnwrapWsolButton } from './unwrap-wsol-button';
 import { WalletButton } from './wallet-button';
+import { ClusterStatusBanner, ClusterStatusChip } from './cluster-status';
 import { SECTION_STYLE, type SectionId } from './function-defs';
 import { SECTION_META } from './section-header';
 
 export type ActiveView = 'home' | SectionId;
 
-const SECTION_IDS: SectionId[] = ['view', 'vaults', 'vault-ops', 'admin'];
+// Admin lives at the gated /admin dashboard now, not as a main-console tab.
+const SECTION_IDS: SectionId[] = ['view', 'vaults', 'vault-ops'];
 
 function NavTabs({
   active,
@@ -95,6 +97,7 @@ export function SiteNav({
         />
 
         <div className="ml-auto flex shrink-0 items-center gap-2 py-2 md:gap-3">
+          <ClusterStatusChip />
           <NetworkToggle network={network} onChange={onNetworkChange} />
           <div className="hidden sm:block">
             <UnwrapWsolButton network={network} />
@@ -109,6 +112,8 @@ export function SiteNav({
         onNavigate={onNavigate}
         className="flex divide-x divide-border border-t border-border lg:hidden"
       />
+
+      <ClusterStatusBanner />
     </header>
   );
 }

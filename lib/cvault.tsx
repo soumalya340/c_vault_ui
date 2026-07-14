@@ -6,7 +6,6 @@ if (typeof globalThis !== 'undefined' && !('Buffer' in globalThis)) {
 }
 
 import {
-  AddressLookupTableAccount,
   Connection,
   PublicKey,
   SystemProgram,
@@ -27,7 +26,8 @@ import type { AnchorWallet } from '@solana/wallet-adapter-react';
 
 import { solscanLink, type Network } from './solscanLink';
 import { createProgram, createDummyWallet } from './program';
-import { sendV0, fetchAlt } from './alt';
+import { sendV0 } from './alt';
+import { ensureVaultAlt } from './vaultAlt';
 import {
   deriveGlobalStatePda,
   deriveAssetInfoPda,
@@ -38,11 +38,11 @@ import {
 import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
 import { fetchPoolCtx, ownerAccountsFor, type PoolCtx } from './whirlpool';
 import { fetchDammPoolCtx, type DammPoolCtx } from './damm';
+import { ensureLocalhostSwapPreflight } from './localhost';
 import {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
   DEFAULT_VAULT_ID,
-  USDC_MINT,
   WSOL_MINT,
   WSOL_ASSET_ID,
   SOL_USD_PYTH_FEED_ID,
@@ -58,13 +58,17 @@ import {
   TOKEN_PROGRAM_TAG_SPL,
   TOKEN_PROGRAM_TAG_TOKEN_2022,
   NETWORK_CONSTANTS,
+  PRICE_SCALE,
+  PRICE_SCALE_DECIMALS,
+  USDC_DECIMALS,
 } from './constants';
+import { formatUserFacingError, parseTxError } from './txError';
+export { parseTxError, formatUserFacingError, type UserFacingError } from './txError';
 
 export {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
   DEFAULT_VAULT_ID,
-  USDC_MINT,
   WSOL_MINT,
   WSOL_ASSET_ID,
   SOL_USD_PYTH_FEED_ID,
@@ -76,6 +80,8 @@ export {
   DAMM_V2_PROGRAM_ID,
   WHIRLPOOL_PROGRAM_ID,
   NETWORK_CONSTANTS,
+  PRICE_SCALE,
+  PRICE_SCALE_DECIMALS,
 };
 export {
   deriveGlobalStatePda,
@@ -471,7 +477,7 @@ function assetAtaRemainingAccounts(ctx: VaultChainCtx): AccountMeta[] {
   ];
 }
 
-function baseAta(owner: PublicKey, baseMint: PublicKey = USDC_MINT): PublicKey {
+function baseAta(owner: PublicKey, baseMint: PublicKey): PublicKey {
   return getAssociatedTokenAddressSync(baseMint, owner, false, TOKEN_PROGRAM_ID);
 }
 
@@ -1562,17 +1568,39 @@ export async function swapAssetToUsdc(
 
 export type ProgressFn = (message: string) => void;
 
-async function resolveVaultAlt(
+/**
+ * Surfpool-only: rewrite stale Pyth feeds + sync Whirlpool clocks.
+ * No-op on mainnet. Mirrors c_vault_script `ensureSwapPreflight` (Pyth + clock
+ * legs; DEX TWAP keeper refresh remains CLI/admin — needs keeper keypair).
+ */
+async function prepareLocalhostOracles(
   connection: Connection,
-  altAddress: string | null | undefined,
-): Promise<AddressLookupTableAccount | null> {
-  if (!altAddress) return null;
-  try {
-    return await fetchAlt(connection, new PublicKey(altAddress));
-  } catch {
-    return null; // fall back to static keys — bigger tx, same behavior
-  }
+  network: Network,
+  ctx: VaultChainCtx,
+  onProgress?: ProgressFn,
+): Promise<void> {
+  await ensureLocalhostSwapPreflight(
+    connection,
+    network,
+    {
+      assets: ctx.assets.map((a) => ({
+        priceSourceTag: a.priceSourceTag,
+        pythFeedId: a.pythFeedId,
+        mint: a.mint,
+        poolAddress: a.poolAddress,
+        decimals: a.decimals,
+        swapKind: a.swapKind,
+      })),
+      usdcSolPool: ctx.usdcSolPool,
+    },
+    onProgress,
+  );
 }
+
+export type VaultAltResult = {
+  altAddress: string;
+  altCreated: boolean;
+};
 
 /** Idempotent creates for the vault-authority ATAs the swap legs write to. */
 function ensureVaultAssetAtaIxs(payer: PublicKey, ctx: VaultChainCtx): TransactionInstruction[] {
@@ -1600,6 +1628,143 @@ function ensureVaultAssetAtaIxs(payer: PublicKey, ctx: VaultChainCtx): Transacti
     );
   }
   return ixs;
+}
+
+/** Vault-authority ATA the views may need, plus the wSOL ViaSol hop ATA. */
+type VaultAtaCandidate = {
+  key: PublicKey;
+  mint: PublicKey;
+  tokenProgramTag: number;
+};
+
+function vaultAtaCandidates(ctx: VaultChainCtx): VaultAtaCandidate[] {
+  const candidates: VaultAtaCandidate[] = ctx.assets.map((a) => ({
+    key: a.vaultAssetAtaKey,
+    mint: a.mint,
+    tokenProgramTag: a.tokenProgramTag,
+  }));
+  if (
+    ctx.assets.some((a) => a.route === 'ViaSol') &&
+    !ctx.assets.some((a) => a.mint.equals(WSOL_MINT))
+  ) {
+    candidates.push({
+      key: vaultAssetAta(ctx.vaultAuthority, WSOL_MINT),
+      mint: WSOL_MINT,
+      tokenProgramTag: TOKEN_PROGRAM_TAG_SPL,
+    });
+  }
+  return candidates;
+}
+
+/** Subset of {@link vaultAtaCandidates} that does not exist on-chain yet. */
+async function findMissingVaultAtas(
+  connection: Connection,
+  ctx: VaultChainCtx,
+): Promise<VaultAtaCandidate[]> {
+  const candidates = vaultAtaCandidates(ctx);
+  const infos = await connection.getMultipleAccountsInfo(candidates.map((c) => c.key));
+  return candidates.filter((_, i) => !infos[i]);
+}
+
+/** List missing accounts that cause NAV/preview AccountNotFound. */
+async function diagnoseMissingNavAccounts(
+  connection: Connection,
+  ctx: VaultChainCtx,
+  opts: { ignoreAtas?: boolean } = {},
+): Promise<string[]> {
+  const missing: string[] = [];
+  if (!opts.ignoreAtas) {
+    const ataInfos = await connection.getMultipleAccountsInfo(
+      ctx.assets.map((a) => a.vaultAssetAtaKey),
+    );
+    for (let i = 0; i < ctx.assets.length; i++) {
+      if (!ataInfos[i]) {
+        missing.push(`vault ATA for asset ${ctx.assets[i].assetId} (${ctx.assets[i].mint.toBase58().slice(0, 8)}…)`);
+      }
+    }
+  }
+
+  const feedKeys: { key: PublicKey; label: string }[] = [];
+  for (const asset of ctx.assets) {
+    if (asset.priceSourceTag === PRICE_SOURCE_DEX) {
+      if (asset.route === 'ViaSol') {
+        feedKeys.push({
+          key: pythFeedAccount(SOL_USD_PYTH_FEED_ID),
+          label: 'SOL/USD Pyth feed',
+        });
+      }
+    } else {
+      feedKeys.push({
+        key: pythFeedAccount(asset.pythFeedId),
+        label: `Pyth feed for asset ${asset.assetId}`,
+      });
+    }
+  }
+  // Dedupe by base58
+  const seen = new Set<string>();
+  const unique = feedKeys.filter((f) => {
+    const k = f.key.toBase58();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (unique.length > 0) {
+    const feedInfos = await connection.getMultipleAccountsInfo(unique.map((f) => f.key));
+    for (let i = 0; i < unique.length; i++) {
+      if (!feedInfos[i]) missing.push(unique[i].label);
+    }
+  }
+  return missing;
+}
+
+/**
+ * Shared preflight for NAV / preview / redeem views. Views are Anchor
+ * `.view()` simulations — nothing here may send a transaction or cost gas.
+ *
+ * Missing vault ATAs are handled by returning idempotent create instructions
+ * that the caller attaches as `preInstructions` to the simulation: the ATAs
+ * then exist inside the simulated state only, nothing lands on-chain. The
+ * connected wallet is used purely as the simulated rent payer.
+ */
+async function prepareViewAccounts(
+  connection: Connection,
+  network: Network,
+  ctx: VaultChainCtx,
+  wallet?: AnchorWallet | null,
+  onProgress?: ProgressFn,
+): Promise<TransactionInstruction[]> {
+  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+
+  const missingAtas = await findMissingVaultAtas(connection, ctx);
+  const payer = wallet?.publicKey;
+  const preIxs =
+    payer && missingAtas.length > 0
+      ? missingAtas.map((c) =>
+          createAssociatedTokenAccountIdempotentInstruction(
+            payer,
+            c.key,
+            ctx.vaultAuthority,
+            c.mint,
+            tokenProgramForTag(c.tokenProgramTag),
+          ),
+        )
+      : [];
+
+  // Anything the simulation can't conjure — price feeds always, ATAs when
+  // there is no wallet to act as the simulated rent payer — fails early with
+  // a precise list instead of Anchor's opaque AccountNotFound.
+  const missing = await diagnoseMissingNavAccounts(connection, ctx, {
+    ignoreAtas: preIxs.length > 0,
+  });
+  if (missing.length > 0) {
+    const hint = wallet
+      ? 'These accounts must exist on-chain before the view can run.'
+      : 'Connect a wallet and retry — the view simulates the ATA creation (gasless, nothing is sent on-chain).';
+    throw new Error(
+      `Missing on-chain accounts for NAV/preview: ${missing.join('; ')}. ${hint}`,
+    );
+  }
+  return preIxs;
 }
 
 /**
@@ -1644,10 +1809,13 @@ export async function depositAndDeploy(
   minSharesOut: BN,
   altAddress: string | null | undefined,
   network: Network,
-) {
+  onProgress?: ProgressFn,
+): Promise<{ tx: string; link: string } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const lut = await resolveVaultAlt(connection, altAddress);
+  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+  // ALT is required — create on the fly if create_etf never saved one.
+  const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
 
   const ixs: TransactionInstruction[] = [
     ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
@@ -1655,8 +1823,112 @@ export async function depositAndDeploy(
     ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
   ];
 
-  const sig = await sendV0(connection, wallet, ixs, lut);
-  return { tx: sig, link: solscanLink(sig, network) };
+  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  return {
+    tx: sig,
+    link: solscanLink(sig, network),
+    altAddress: ensured.altAddress,
+    altCreated: ensured.altCreated,
+  };
+}
+
+// ─── Genesis deposit (one-time seed) ─────────────────────────────────────────
+
+/** Idempotent USDC + shares ATAs for the genesis signer. */
+function buildSignerAtaIxs(ctx: VaultChainCtx, authority: PublicKey): TransactionInstruction[] {
+  const authorityUsdc = baseAta(authority, ctx.baseMint);
+  const authorityShares = getAssociatedTokenAddressSync(
+    ctx.sharesMint, authority, false, TOKEN_2022_PROGRAM_ID,
+  );
+  return [
+    createAssociatedTokenAccountIdempotentInstruction(
+      authority, authorityUsdc, authority, ctx.baseMint, TOKEN_PROGRAM_ID,
+    ),
+    createAssociatedTokenAccountIdempotentInstruction(
+      authority, authorityShares, authority, ctx.sharesMint, TOKEN_2022_PROGRAM_ID,
+    ),
+  ];
+}
+
+/**
+ * `genesis_deposit` only — signer ATAs must already exist (built separately
+ * by `buildSignerAtaIxs`). remaining_accounts = AssetInfo PDAs in slot order.
+ */
+async function buildGenesisDepositIx(
+  program: ReturnType<typeof createProgram>,
+  ctx: VaultChainCtx,
+  authority: PublicKey,
+  baselineSharePrice: BN,
+): Promise<TransactionInstruction> {
+  const authorityUsdc = baseAta(authority, ctx.baseMint);
+  const authorityShares = getAssociatedTokenAddressSync(
+    ctx.sharesMint, authority, false, TOKEN_2022_PROGRAM_ID,
+  );
+
+  return (program.methods as any)
+    .genesisDeposit(new BN(ctx.vaultId), baselineSharePrice)
+    .accounts({
+      globalState: deriveGlobalStatePda(),
+      vault: ctx.vaultPda,
+      usdcMint: ctx.baseMint,
+      vaultAuthority: ctx.vaultAuthority,
+      usdcVault: ctx.usdcVault,
+      shareMint: ctx.sharesMint,
+      authorityUsdcAccount: authorityUsdc,
+      authorityShareAccount: authorityShares,
+      authority,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+      baseTokenProgram: TOKEN_PROGRAM_ID,
+      userInfo: deriveUserInfoPda(ctx.vaultPda, authority),
+      systemProgram: SystemProgram.programId,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    } as never)
+    .remainingAccounts(
+      ctx.assets.map((a) => ({
+        pubkey: a.assetInfoPda,
+        isSigner: false,
+        isWritable: false,
+      })),
+    )
+    .instruction();
+}
+
+/**
+ * One-time genesis seed + inflow deploy in ONE v0 transaction (mirrors
+ * `depositAndDeploy`): `[ensure vault ATAs, ensure signer ATAs, genesis_deposit,
+ * swap legs]`. Admin or vault manager only (enforced on-chain); callable once
+ * per vault while `total_shares == 0`.
+ */
+export async function genesisDepositAndDeploy(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  baselineSharePrice: BN,
+  altAddress: string | null | undefined,
+  network: Network,
+  onProgress?: ProgressFn,
+): Promise<{ tx: string; link: string } & VaultAltResult> {
+  const program = createProgram(wallet, connection);
+  const ctx = await fetchVaultCtx(connection, vaultId, network);
+  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+  // Hard guarantee: reuse live ALT or create a new one. Never send multi-leg
+  // genesis without a lookup table (static keys blow the tx size limit).
+  const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
+
+  const ixs: TransactionInstruction[] = [
+    ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
+    ...buildSignerAtaIxs(ctx, wallet.publicKey),
+    await buildGenesisDepositIx(program, ctx, wallet.publicKey, baselineSharePrice),
+    ...(await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey)),
+  ];
+
+  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  return {
+    tx: sig,
+    link: solscanLink(sig, network),
+    altAddress: ensured.altAddress,
+    altCreated: ensured.altCreated,
+  };
 }
 
 /**
@@ -1669,9 +1941,11 @@ export async function deployPendingSwaps(
   vaultId: number,
   altAddress: string | null | undefined,
   network: Network,
-) {
+  onProgress?: ProgressFn,
+): Promise<{ tx: string; link: string; pendingUsdc: string; pendingSol: string } & VaultAltResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
+  await prepareLocalhostOracles(connection, network, ctx, onProgress);
   const vault = await fetchDecodedVault(connection, ctx.vaultPda);
   if (!vault) {
     throw await formatVaultMissingError(connection, vaultId, ctx.vaultPda);
@@ -1682,7 +1956,7 @@ export async function deployPendingSwaps(
     throw new Error('Nothing pending to deploy — deposit first.');
   }
 
-  const lut = await resolveVaultAlt(connection, altAddress);
+  const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
   const ixs: TransactionInstruction[] = [
     ...ensureVaultAssetAtaIxs(wallet.publicKey, ctx),
     // Skip the USDC→wSOL hop when only wSOL is left pending.
@@ -1691,8 +1965,15 @@ export async function deployPendingSwaps(
     })),
   ];
 
-  const sig = await sendV0(connection, wallet, ixs, lut);
-  return { tx: sig, link: solscanLink(sig, network) };
+  const sig = await sendV0(connection, wallet, ixs, ensured.lut);
+  return {
+    tx: sig,
+    link: solscanLink(sig, network),
+    pendingUsdc: pendingUsdc.toString(),
+    pendingSol: pendingSol.toString(),
+    altAddress: ensured.altAddress,
+    altCreated: ensured.altCreated,
+  };
 }
 
 interface RawRedeemState {
@@ -1733,6 +2014,8 @@ export interface RedeemSwapResult {
   unlockTime?: number;
   signatures: string[];
   link: string;
+  altAddress?: string;
+  altCreated?: boolean;
 }
 
 /**
@@ -1758,7 +2041,9 @@ export async function redeemSwap(
 ): Promise<RedeemSwapResult> {
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
-  const lut = await resolveVaultAlt(connection, altAddress);
+  await prepareLocalhostOracles(connection, network, ctx, onProgress);
+  const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
+  const lut = ensured.lut;
   const user = wallet.publicKey;
   const signatures: string[] = [];
 
@@ -1797,6 +2082,8 @@ export async function redeemSwap(
       unlockTime,
       signatures,
       link: last ? solscanLink(last, network) : '',
+      altAddress: ensured.altAddress,
+      altCreated: ensured.altCreated,
     };
   }
 
@@ -1843,6 +2130,8 @@ export async function redeemSwap(
     phase: 'swapped',
     signatures,
     link: solscanLink(signatures[signatures.length - 1], network),
+    altAddress: ensured.altAddress,
+    altCreated: ensured.altCreated,
   };
 }
 
@@ -1974,29 +2263,174 @@ export async function getVaultState(
 }
 
 export interface NavView {
+  /** Human-readable portfolio value, e.g. `$12.34`. */
+  totalNavUsd: string;
+  /** Human-readable USDC per share, e.g. `$1.00`. */
+  sharePriceUsd: string;
+  /** Human-readable outstanding share supply. */
+  totalSharesUi: string;
+  /** Raw total NAV in USDC base units (6 decimals). */
   totalNav: string;
+  /** Raw share price in PRICE_SCALE units (1e9). */
   sharePrice: string;
+  /** Raw share supply (Token-2022 base units). */
   totalShares: string;
+  sharesDecimals: number;
+  /** Set when the vault is empty (NAV = 0) — explains the zero result. */
+  note?: string;
 }
 
+/** Read a field from an Anchor `.view()` result under camelCase or snake_case. */
+function viewField(result: Record<string, unknown>, camel: string, snake: string): unknown {
+  if (result[camel] != null) return result[camel];
+  if (result[snake] != null) return result[snake];
+  return undefined;
+}
+
+function viewFieldToString(result: Record<string, unknown>, camel: string, snake: string): string {
+  const v = viewField(result, camel, snake);
+  if (v == null) {
+    throw new Error(
+      `NAV view missing field ${camel}/${snake}. Got: ${JSON.stringify(result, (_k, val) =>
+        typeof val === 'bigint' ? val.toString() : val,
+      )}`,
+    );
+  }
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint') return String(v);
+  if (typeof v === 'object' && v !== null && 'toString' in v) {
+    return (v as { toString: () => string }).toString();
+  }
+  return String(v);
+}
+
+/** Shares-mint decimals (Token-2022); falls back to 6 when unreadable. */
+async function fetchSharesDecimals(
+  connection: Connection,
+  ctx: VaultChainCtx,
+): Promise<number> {
+  try {
+    const mintInfo = await getMint(connection, ctx.sharesMint, undefined, TOKEN_2022_PROGRAM_ID);
+    return mintInfo.decimals;
+  } catch {
+    return 6;
+  }
+}
+
+/** True when `err` is the program's ZeroAmount (6000 / 0x1770) rejection. */
+function isZeroAmountError(err: unknown): boolean {
+  const anchorCode = (err as { error?: { errorCode?: { number?: number } } })?.error?.errorCode
+    ?.number;
+  if (anchorCode === 6000) return true;
+  if (/ZeroAmount/.test(parseTxError(err).code ?? '')) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /ZeroAmount|Error Number: 6000|custom program error: 0x1770/i.test(msg);
+}
+
+/**
+ * `get_total_nav_view` hard-rejects `total_nav == 0` with ZeroAmount — for an
+ * unfunded vault that is the expected state, not a failure. Surface it as a
+ * $0.00 result with the real on-chain share supply and a next-step note.
+ */
+async function emptyVaultNavView(
+  connection: Connection,
+  ctx: VaultChainCtx,
+  vaultId: number,
+): Promise<NavView> {
+  let totalShares = '0';
+  try {
+    const decoded = await fetchDecodedVault(connection, ctx.vaultPda);
+    if (decoded) totalShares = decoded.totalShares.toString();
+  } catch {
+    // keep '0'
+  }
+  const sharesDecimals = await fetchSharesDecimals(connection, ctx);
+  return {
+    totalNavUsd: '$0.00',
+    sharePriceUsd: '—',
+    totalSharesUi: formatUnits(totalShares, sharesDecimals),
+    totalNav: '0',
+    sharePrice: '0',
+    totalShares,
+    sharesDecimals,
+    note:
+      `Vault ${vaultId} is empty — no asset balances and no pending USDC, so NAV is $0 ` +
+      'and no share price exists yet. Fund it with Genesis deposit (Vault Ops №01).',
+  };
+}
+
+/**
+ * Live NAV view — raw on-chain units plus human-readable USD / share strings.
+ * Mirrors `c_vault_script/lib/sdk/views.js` `getTotalNavView` formatting so the
+ * UI does not dump opaque raw integers (or empty) in the OUTPUT panel.
+ *
+ * Gasless: runs entirely as an Anchor `.view()` simulation. Pass `wallet` so
+ * missing vault ATAs can be created *inside the simulation* (the wallet is
+ * only the simulated rent payer — nothing is signed or sent). Without a
+ * wallet, missing ATAs fail with a precise list.
+ */
 export async function getTotalNavView(
   connection: Connection,
   vaultId: number = DEFAULT_VAULT_ID,
   network: Network = 'mainnet',
+  wallet?: AnchorWallet | null,
 ): Promise<NavView> {
-  const program = createProgram(createDummyWallet(), connection);
+  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
+  const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
-  const result = await (program.methods as any)
-    .getTotalNavView(new BN(vaultId))
-    .accounts({ vault: ctx.vaultPda } as never)
-    .remainingAccounts(await navRemainingAccounts(connection, ctx))
-    .view();
+  let raw: Record<string, unknown>;
+  try {
+    raw = await (program.methods as any)
+      .getTotalNavView(new BN(vaultId))
+      .accounts({
+        globalState: deriveGlobalStatePda(),
+        vault: ctx.vaultPda,
+        vaultAuthority: ctx.vaultAuthority,
+      } as never)
+      .remainingAccounts(await navRemainingAccounts(connection, ctx))
+      .preInstructions(preIxs)
+      .view();
+  } catch (err) {
+    if (isZeroAmountError(err)) {
+      return emptyVaultNavView(connection, ctx, vaultId);
+    }
+    const missing = await diagnoseMissingNavAccounts(connection, ctx, {
+      ignoreAtas: preIxs.length > 0,
+    }).catch(() => [] as string[]);
+    if (missing.length > 0) {
+      throw new Error(
+        `Missing on-chain accounts for NAV: ${missing.join('; ')}. ` +
+          (wallet
+            ? 'These accounts must exist on-chain before the view can run.'
+            : 'Connect a wallet and retry — the view simulates the ATA creation (gasless, nothing is sent on-chain).'),
+      );
+    }
+    throw new Error(describePreviewError(err));
+  }
 
+  if (raw == null || typeof raw !== 'object') {
+    throw new Error(
+      `Live NAV returned no data (got ${String(raw)}). Check vault ${vaultId} exists and oracles are fresh.`,
+    );
+  }
+
+  const totalNav = viewFieldToString(raw, 'totalNav', 'total_nav');
+  const sharePrice = viewFieldToString(raw, 'sharePrice', 'share_price');
+  const totalShares = viewFieldToString(raw, 'totalShares', 'total_shares');
+
+  const sharesDecimals = await fetchSharesDecimals(connection, ctx);
+
+  // totalNav = 6-dec USDC; sharePrice = USDC/share with PRICE_SCALE (1e9);
+  // totalShares = Token-2022 raw amount.
+  const priceDecimals = Math.log10(PRICE_SCALE);
   return {
-    totalNav: result.totalNav.toString(),
-    sharePrice: result.sharePrice.toString(),
-    totalShares: result.totalShares.toString(),
+    totalNavUsd: `$${formatUnits(totalNav, USDC_DECIMALS)}`,
+    sharePriceUsd: `$${formatUnits(sharePrice, priceDecimals)}`,
+    totalSharesUi: formatUnits(totalShares, sharesDecimals),
+    totalNav,
+    sharePrice,
+    totalShares,
+    sharesDecimals,
   };
 }
 
@@ -2012,21 +2446,33 @@ export async function previewDeposit(
   vaultId: number = DEFAULT_VAULT_ID,
   usdcAmount: BN,
   network: Network = 'mainnet',
+  wallet?: AnchorWallet | null,
 ): Promise<PreviewDepositResult> {
-  const program = createProgram(createDummyWallet(), connection);
+  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
+  const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
-  const result = await (program.methods as any)
-    .previewDeposit(new BN(vaultId), usdcAmount)
-    .accounts({ globalState: deriveGlobalStatePda(), vault: ctx.vaultPda } as never)
-    .remainingAccounts(await navRemainingAccounts(connection, ctx))
-    .view();
+  let result: Record<string, unknown>;
+  try {
+    result = await (program.methods as any)
+      .previewDeposit(new BN(vaultId), usdcAmount)
+      .accounts({
+        globalState: deriveGlobalStatePda(),
+        vault: ctx.vaultPda,
+        vaultAuthority: ctx.vaultAuthority,
+      } as never)
+      .remainingAccounts(await navRemainingAccounts(connection, ctx))
+      .preInstructions(preIxs)
+      .view();
+  } catch (err) {
+    throw new Error(describePreviewError(err));
+  }
 
   return {
-    sharesToMint: result.sharesToMint.toString(),
-    totalNav: result.totalNav.toString(),
-    sharePrice: result.sharePrice.toString(),
-    totalShares: result.totalShares.toString(),
+    sharesToMint: viewFieldToString(result, 'sharesToMint', 'shares_to_mint'),
+    totalNav: viewFieldToString(result, 'totalNav', 'total_nav'),
+    sharePrice: viewFieldToString(result, 'sharePrice', 'share_price'),
+    totalShares: viewFieldToString(result, 'totalShares', 'total_shares'),
   };
 }
 
@@ -2042,21 +2488,46 @@ export async function previewRedeem(
   vaultId: number = DEFAULT_VAULT_ID,
   shares: BN,
   network: Network = 'mainnet',
+  wallet?: AnchorWallet | null,
 ): Promise<PreviewRedeemResult> {
-  const program = createProgram(createDummyWallet(), connection);
+  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
+  const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
-  const result = await (program.methods as any)
-    .previewRedeem(new BN(vaultId), shares)
-    .accounts({ globalState: deriveGlobalStatePda(), vault: ctx.vaultPda } as never)
-    .remainingAccounts(await navRemainingAccounts(connection, ctx))
-    .view();
+  let result: Record<string, unknown>;
+  try {
+    result = await (program.methods as any)
+      .previewRedeem(new BN(vaultId), shares)
+      .accounts({
+        globalState: deriveGlobalStatePda(),
+        vault: ctx.vaultPda,
+        vaultAuthority: ctx.vaultAuthority,
+      } as never)
+      .remainingAccounts(await navRemainingAccounts(connection, ctx))
+      .preInstructions(preIxs)
+      .view();
+  } catch (err) {
+    throw new Error(describePreviewError(err));
+  }
 
+  const assetAmountsRaw = viewField(result, 'assetAmounts', 'asset_amounts');
+  const amounts = Array.isArray(assetAmountsRaw)
+    ? assetAmountsRaw.map((a) =>
+        typeof a === 'object' && a !== null && 'toString' in a
+          ? (a as { toString: () => string }).toString()
+          : String(a),
+      )
+    : [];
+
+  const numAssetsRaw = viewField(result, 'numAssets', 'num_assets');
   return {
-    numAssets: result.numAssets,
-    assetAmounts: (result.assetAmounts as BN[]).map((a) => a.toString()),
-    estimatedUsdcValue: result.estimatedUsdcValue.toString(),
-    totalShares: result.totalShares.toString(),
+    numAssets:
+      typeof numAssetsRaw === 'number'
+        ? numAssetsRaw
+        : Number(numAssetsRaw ?? amounts.length),
+    assetAmounts: amounts,
+    estimatedUsdcValue: viewFieldToString(result, 'estimatedUsdcValue', 'estimated_usdc_value'),
+    totalShares: viewFieldToString(result, 'totalShares', 'total_shares'),
   };
 }
 
@@ -2137,6 +2608,26 @@ export async function getUserPosition(
   };
 }
 
+/** Raw USDC base units held in the user's wallet (network's canonical USDC ATA). */
+export async function getUserUsdcBalance(
+  connection: Connection,
+  user: PublicKey,
+  network: Network = 'mainnet',
+): Promise<string> {
+  const usdcAta = getAssociatedTokenAddressSync(
+    NETWORK_CONSTANTS[network].usdcMint,
+    user,
+    false,
+    TOKEN_PROGRAM_ID,
+  );
+  try {
+    const bal = await connection.getTokenAccountBalance(usdcAta);
+    return bal.value.amount;
+  } catch {
+    return '0'; // ata may not exist
+  }
+}
+
 /** Raw wSOL balance of the vault's wSOL ATA — used to measure ViaSol leg output. */
 export async function vaultWsolBalance(
   connection: Connection,
@@ -2201,19 +2692,28 @@ export async function fetchMintDecimals(
 }
 
 /**
- * Turn a preview `.view()` failure into a legible message. When a vault's
- * asset ATAs or Pyth feed accounts don't exist yet on-chain, the simulation
- * fails with `AccountNotFound` and an empty error message — surface that
- * instead of a blank string.
+ * Turn a preview / NAV / send failure into a short operator-facing string.
+ * Prefer {@link parseTxError} + ErrorModal for interactive UI.
  */
 export function describePreviewError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err ?? '');
-  const blob = `${raw} ${JSON.stringify((err as { simulationResponse?: unknown })?.simulationResponse ?? '')}`;
-  if (!raw.trim() || blob.includes('AccountNotFound')) {
-    return "Preview unavailable — the vault's asset accounts or price feeds aren't initialized on-chain yet.";
+  const parsed = parseTxError(err);
+  // AccountNotFound previews are common before first deposit — keep the older
+  // softer copy when the structured parser only has a raw simulation line.
+  const blob = parsed.details || parsed.raw;
+  if (/AccountNotFound|Account does not exist/i.test(blob) && !/insufficient funds/i.test(blob)) {
+    if (!/Missing on-chain accounts for/i.test(parsed.raw)) {
+      return (
+        "Vault asset ATAs or price feeds aren't on-chain yet. Connect a wallet and retry — " +
+        'the view simulates the missing vault ATAs (gasless, nothing is sent on-chain). ' +
+        'On localhost, also ensure Surfpool Pyth refresh works.'
+      );
+    }
   }
-  return raw;
+  return formatUserFacingError(err);
 }
+
+/** Same legibility helpers for send/preflight failures (deposit, redeem, admin txs). */
+export const describeSimulationError = describePreviewError;
 
 // ─── Live per-asset vault balances ───────────────────────────────────────────
 

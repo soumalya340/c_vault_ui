@@ -2,6 +2,7 @@
 
 import type { Network } from '@/app/providers';
 import { btnPrimaryClass, btnSecondaryClass } from '@/app/components/ui-classes';
+import { ClusterLiveLabel, LocalhostStamp } from './cluster-status';
 import { SECTION_STYLE, type SectionId } from './function-defs';
 import { SECTION_META } from './section-header';
 
@@ -16,7 +17,8 @@ const TICKER_ITEMS = [
   'PYTH · Oracle',
 ] as const;
 
-const SECTION_IDS: SectionId[] = ['view', 'vaults', 'vault-ops', 'admin'];
+// Admin lives at the gated /admin dashboard now, not as a main-console card.
+const SECTION_IDS: SectionId[] = ['view', 'vaults', 'vault-ops'];
 
 export function GuillocheRosette({ className }: { className?: string }) {
   const petals = Array.from({ length: 18 }, (_, i) => i * 10);
@@ -88,7 +90,6 @@ export function HeroSection({
   programShort: string;
   onNavigate: (section: SectionId) => void;
 }) {
-  const isDevnet = network === 'devnet';
   const tickerRun = [...TICKER_ITEMS, ...TICKER_ITEMS];
 
   return (
@@ -111,15 +112,7 @@ export function HeroSection({
               <span className="type-engraved block">Operations</span>
             </h1>
 
-            {isDevnet && (
-              <div
-                className="stamp absolute -right-2 -top-4 font-mono text-[10px] sm:-right-8 sm:top-0 motion-safe:animate-[cert-fadeup_0.8s_ease_0.5s_both]"
-                role="status"
-                aria-label="Devnet specimen network"
-              >
-                Specimen · Devnet
-              </div>
-            )}
+            <LocalhostStamp />
           </div>
 
           <p className="m-0 max-w-[46ch] text-[clamp(14px,1.2vw,17px)] leading-[1.65] text-muted-foreground">
@@ -172,13 +165,7 @@ export function HeroSection({
           <span className="tabular-nums">
             &#8470; CVLT-{vaultId} · {vaultShort}
           </span>
-          <span className="inline-flex items-center gap-1.5 font-normal tracking-[0.14em] text-accent">
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-accent motion-safe:animate-[cert-blink_1.6s_ease_infinite]"
-              aria-hidden
-            />
-            {network} live
-          </span>
+          <ClusterLiveLabel />
           <span className="tabular-nums">PROGRAM · {programShort}</span>
         </div>
       </div>
@@ -186,7 +173,7 @@ export function HeroSection({
       {/* Plate index — one cell per section */}
       <nav
         aria-label="Section index"
-        className="grid grid-cols-2 gap-px border border-border-strong bg-border md:grid-cols-4 motion-safe:animate-[cert-fadeup_0.9s_ease_0.35s_both]"
+        className="grid grid-cols-2 gap-px border border-border-strong bg-border md:grid-cols-3 motion-safe:animate-[cert-fadeup_0.9s_ease_0.35s_both]"
       >
         {SECTION_IDS.map((id) => {
           const meta = SECTION_META[id];

@@ -1,8 +1,12 @@
-export type Network = 'devnet' | 'mainnet';
+export type Network = 'localhost' | 'mainnet';
 
 export function solscanLink(sig: string, network: Network): string {
   if (network === 'mainnet') {
     return `https://solscan.io/tx/${sig}`;
   }
-  return `https://solscan.io/tx/${sig}?cluster=devnet`;
+  // Local validator — Solana Explorer custom cluster pointing at default RPC.
+  const customUrl = encodeURIComponent(
+    process.env.NEXT_PUBLIC_LOCALHOST_RPC ?? 'http://127.0.0.1:8899',
+  );
+  return `https://explorer.solana.com/tx/${sig}?cluster=custom&customUrl=${customUrl}`;
 }

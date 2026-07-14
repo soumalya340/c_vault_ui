@@ -14,10 +14,10 @@ import { SectionHeader } from '@/app/components/section-header';
 import { VaultsPanel } from '@/app/components/vaults-panel';
 import { CreateEtfPanel } from '@/app/components/create-etf-panel';
 import { HeroSection } from '@/app/components/hero-section';
+import { ClusterHealthProvider } from '@/app/components/cluster-status';
 import {
   VIEW_FUNCTIONS,
   VAULT_OPS_FUNCTIONS,
-  ADMIN_FUNCTIONS,
   type SectionId,
 } from '@/app/components/function-defs';
 import {
@@ -88,14 +88,7 @@ function SectionView({
           />
         </div>
       )}
-      {section === 'admin' && (
-        <SectionBlock
-          id="admin"
-          label="Admin operations"
-          functions={ADMIN_FUNCTIONS}
-          network={network}
-        />
-      )}
+      {/* Admin lives at the gated /admin dashboard now — see app/admin/page.tsx. */}
     </div>
   );
 }
@@ -120,44 +113,46 @@ function HomeInner({
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-background text-foreground">
-      <SiteNav
-        network={network}
-        onNetworkChange={onNetworkChange}
-        active={view}
-        onNavigate={navigate}
-      />
+    <ClusterHealthProvider network={network}>
+      <main className="flex min-h-screen flex-col bg-background text-foreground">
+        <SiteNav
+          network={network}
+          onNetworkChange={onNetworkChange}
+          active={view}
+          onNavigate={navigate}
+        />
 
-      <div className="flex flex-1 flex-col p-3 md:p-6">
-        <div className="cert-frame relative flex flex-1 flex-col overflow-hidden bg-background px-4 py-6 md:px-12 md:py-9">
-          <div className="microprint border-y border-border py-1" aria-hidden>
-            {MICROPRINT}
-          </div>
+        <div className="flex flex-1 flex-col p-3 md:p-6">
+          <div className="cert-frame relative flex flex-1 flex-col overflow-hidden bg-background px-4 py-6 md:px-12 md:py-9">
+            <div className="microprint border-y border-border py-1" aria-hidden>
+              {MICROPRINT}
+            </div>
 
-          <div className="mt-8 flex flex-1 flex-col gap-8 pb-8 md:mt-10">
-            {view === 'home' ? (
-              <HeroSection
-                network={network}
-                vaultId={DEFAULT_VAULT_ID}
-                vaultShort={vaultShort}
-                programShort={programShort}
-                onNavigate={navigate}
-              />
-            ) : (
-              <SectionView key={view} section={view} network={network} />
-            )}
+            <div className="mt-8 flex flex-1 flex-col gap-8 pb-8 md:mt-10">
+              {view === 'home' ? (
+                <HeroSection
+                  network={network}
+                  vaultId={DEFAULT_VAULT_ID}
+                  vaultShort={vaultShort}
+                  programShort={programShort}
+                  onNavigate={navigate}
+                />
+              ) : (
+                <SectionView key={view} section={view} network={network} />
+              )}
 
-            <footer className="mt-auto">
-              <div className="microprint border-y border-border py-1" aria-hidden>
-                {MICROPRINT}
-              </div>
-              <p className="pt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                cVault series 2026 · {network} · one instruction per control
-              </p>
-            </footer>
+              <footer className="mt-auto">
+                <div className="microprint border-y border-border py-1" aria-hidden>
+                  {MICROPRINT}
+                </div>
+                <p className="pt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                  cVault series 2026 · {network} · one instruction per control
+                </p>
+              </footer>
+            </div>
           </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </ClusterHealthProvider>
   );
 }

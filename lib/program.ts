@@ -5,7 +5,7 @@ import { AnchorProvider, Program, Idl } from '@coral-xyz/anchor';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
 import idlJson from '@/idl/c_vault.json';
 
-/** Program address comes from the IDL (`7wcJ…`) — must match C_VAULT_PROGRAM_ID / PDA seeds. */
+/** Program address comes from the IDL's `address` field — same source `lib/constants.ts`'s C_VAULT_PROGRAM_ID reads. */
 function loadIdl(): Idl {
   return idlJson as unknown as Idl;
 }

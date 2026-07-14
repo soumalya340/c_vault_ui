@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { fetchVaultCtx, NETWORK_CONSTANTS, type Network, type VaultChainAsset } from '@/lib/cvault';
-import { fetchVaults, fetchTokens, type VaultRecord, type TokenOption } from '@/lib/registryClient';
+import {
+  fetchVaults,
+  fetchAssetRegistry,
+  type VaultRecord,
+  type AssetRegistryEntry,
+} from '@/lib/registryClient';
+import { assetNameForMint } from '@/lib/presets/canonical-data';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { SECTION_STYLE } from './function-defs';
@@ -18,6 +24,30 @@ function shorten(addr: string): string {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
 }
 
+/** Display label for a vault basket leg — registry name first, then presets. */
+function resolveAssetLabel(
+  mint: string,
+  assetId: number,
+  byMint: Map<string, AssetRegistryEntry>,
+  byId: Map<number, AssetRegistryEntry>,
+): { title: string; subtitle: string | null } {
+  const fromDb = byMint.get(mint) ?? byId.get(assetId);
+  const name =
+    fromDb?.asset_name?.trim() ||
+    assetNameForMint(mint) ||
+    '';
+  if (name) {
+    return {
+      title: name,
+      subtitle: fromDb ? `#${fromDb.asset_id}` : assetId >= 0 ? `#${assetId}` : null,
+    };
+  }
+  return {
+    title: shorten(mint),
+    subtitle: assetId >= 0 ? `asset #${assetId}` : null,
+  };
+}
+
 // NAV is intentionally not fetched here — getTotalNavView() is an Anchor
 // .view() call (simulateTransaction under the hood) per row, which burns
 // RPC quota on every mount. Disabled until we have a cached/manual-refresh
@@ -28,15 +58,17 @@ function VaultNav() {
 
 // Per-row asset inspector. The ⓘ button toggles an inline panel that reads the
 // vault's asset basket fresh from on-chain (fetchVaultCtx) at click time — no
-// websockets, no cached Supabase assets. Symbol/name resolve via the shared
-// token_registry map, falling back to a shortened mint.
+// websockets. Names resolve via pre_approved_token_registry (network-scoped),
+// then the Pools.md preset catalog, then a shortened mint.
 function VaultAssetsView({
   vaultId,
-  tokenMap,
+  byMint,
+  byId,
   network,
 }: {
   vaultId: number;
-  tokenMap: Map<string, TokenOption>;
+  byMint: Map<string, AssetRegistryEntry>;
+  byId: Map<number, AssetRegistryEntry>;
   network: Network;
 }) {
   const { connection } = useConnection();
@@ -116,19 +148,23 @@ function VaultAssetsView({
               <ul className="divide-y divide-border">
                 {assets.map((asset, i) => {
                   const mint = asset.mint.toBase58();
-                  const token = tokenMap.get(mint);
-                  const label = token ? token.symbol : shorten(mint);
+                  const { title, subtitle } = resolveAssetLabel(
+                    mint,
+                    asset.assetId,
+                    byMint,
+                    byId,
+                  );
                   const pct = (asset.allocationBps / 100).toFixed(2);
                   return (
                     <li key={`${mint}-${i}`} className="flex flex-col gap-2 px-4 py-3">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <div className="flex items-baseline gap-2">
                           <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
-                            {label}
+                            {title}
                           </span>
-                          {token?.name && (
+                          {subtitle && (
                             <span className="font-mono text-[11px] text-muted-foreground">
-                              {token.name}
+                              {subtitle}
                             </span>
                           )}
                           <span className="rounded-[2px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
@@ -166,7 +202,10 @@ export function VaultsPanel({ network }: { network: Network }) {
   const [error, setError] = useState<string | null>(null);
   const [depositTarget, setDepositTarget] = useState<VaultRecord | null>(null);
   const [redeemTarget, setRedeemTarget] = useState<VaultRecord | null>(null);
-  const [tokenMap, setTokenMap] = useState<Map<string, TokenOption>>(new Map());
+  // pre_approved_token_registry — the table that actually stores asset_name.
+  // (The old token_registry path is a separate, often-empty forge table.)
+  const [byMint, setByMint] = useState<Map<string, AssetRegistryEntry>>(new Map());
+  const [byId, setById] = useState<Map<number, AssetRegistryEntry>>(new Map());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -185,23 +224,32 @@ export function VaultsPanel({ network }: { network: Network }) {
     load();
   }, [load]);
 
-  // Token registry is fetched once and shared with every row's asset view so
-  // mints resolve to symbol/name. Failure is non-fatal — the asset view falls
-  // back to shortened mints.
+  // Network-scoped asset registry so mints resolve to asset_name. Failure is
+  // non-fatal — resolveAssetLabel still falls back to Pools.md presets.
   useEffect(() => {
     let cancelled = false;
-    fetchTokens()
-      .then((tokens) => {
+    fetchAssetRegistry(network)
+      .then((assets) => {
         if (cancelled) return;
-        setTokenMap(new Map(tokens.map((t) => [t.mint, t])));
+        const mintMap = new Map<string, AssetRegistryEntry>();
+        const idMap = new Map<number, AssetRegistryEntry>();
+        for (const a of assets) {
+          mintMap.set(a.mint, a);
+          const id = Number(a.asset_id);
+          if (Number.isFinite(id)) idMap.set(id, a);
+        }
+        setByMint(mintMap);
+        setById(idMap);
       })
       .catch(() => {
-        // Registry unavailable — asset view falls back to shortened mints.
+        if (cancelled) return;
+        setByMint(new Map());
+        setById(new Map());
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [network]);
 
   return (
     <section aria-label="Vaults" className="flex flex-col gap-4">
@@ -285,7 +333,12 @@ export function VaultsPanel({ network }: { network: Network }) {
                   </div>
                 </div>
 
-                <VaultAssetsView vaultId={vault.vault_id} tokenMap={tokenMap} network={network} />
+                <VaultAssetsView
+                  vaultId={vault.vault_id}
+                  byMint={byMint}
+                  byId={byId}
+                  network={network}
+                />
               </div>
             ))}
           </div>

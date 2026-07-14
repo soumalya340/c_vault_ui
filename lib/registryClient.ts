@@ -17,6 +17,7 @@ export interface TokenOption {
 /** One row from `pre_approved_token_registry` — mirrors the on-chain AssetInfo shape. */
 export interface AssetRegistryEntry {
   asset_id: string;
+  asset_name: string;
   mint: string;
   pool_address: string;
   pyth_feed_id: string;
@@ -58,6 +59,22 @@ export interface VaultRecord {
   asset_allocation_bps: number[];
   num_assets: number;
   created_at?: string;
+}
+
+/** One row from `asset_presets` (Pools.md) — the catalogue `create_asset` can fill from. */
+export interface AssetPresetRecord {
+  preset_key: string;
+  asset_name: string;
+  mint: string;
+  pool_address: string;
+  pyth_feed_id: string;
+  decimals: number;
+  route: 'ViaSol' | 'DirectUsdc';
+  price_source_tag: number;
+  price_dex_kind: number;
+  swap_kind: 'Whirlpool' | 'DammV2';
+  token_program_tag: number;
+  aliases: string[];
 }
 
 export interface PoolRecord {
@@ -136,6 +153,13 @@ export async function saveAssetRegistryEntry(
   await jsonOrThrow<{ ok: boolean }>(res);
 }
 
+/** Catalogue of known assets (Pools.md), seeded identically on every network. */
+export async function fetchAssetPresets(network: string): Promise<AssetPresetRecord[]> {
+  const res = await fetch(`/api/presets?network=${encodeURIComponent(network)}`);
+  const { assetPresets } = await jsonOrThrow<{ assetPresets: AssetPresetRecord[] }>(res);
+  return assetPresets;
+}
+
 /** Insert (or return existing) mint in `token_registry` when a new token is used. */
 export async function saveToken(row: {
   mint: string;
@@ -168,6 +192,33 @@ export async function saveVault(row: Omit<VaultRecord, 'created_at'>): Promise<v
     body: JSON.stringify(row),
   });
   await jsonOrThrow<{ ok: boolean }>(res);
+}
+
+/**
+ * Persist deposit/redeem ALT addresses after create_etf or genesis auto-create.
+ * Writes `deposit_alt_address`, `redeem_alt_address`, and legacy `alt_address`
+ * (API aliases deposit → alt_address for older clients).
+ */
+export async function updateVaultAlts(
+  network: string,
+  vaultId: number,
+  alts: {
+    deposit_alt_address: string | null;
+    redeem_alt_address: string | null;
+  },
+): Promise<VaultRecord> {
+  const res = await fetch('/api/vaults', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      network,
+      vault_id: vaultId,
+      deposit_alt_address: alts.deposit_alt_address,
+      redeem_alt_address: alts.redeem_alt_address,
+    }),
+  });
+  const { vault } = await jsonOrThrow<{ vault: VaultRecord }>(res);
+  return vault;
 }
 
 /** Pool for a mint pair (either order) from `orca_pools` — null when absent. */
