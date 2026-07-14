@@ -26,7 +26,7 @@ import { ErrorModal } from './error-modal';
 import { SECTION_STYLE } from './function-defs';
 import { btnGhostClass, btnPrimaryClass, btnSecondaryClass, panelClass, sectionLabelClass } from './ui-classes';
 
-const VAULTS_PER_PAGE = 8;
+const VAULTS_PER_PAGE = 6;
 
 /** Human-readable token amount with thousands separators; exact string math. */
 function formatTokenUi(raw: string, decimals: number): string {
