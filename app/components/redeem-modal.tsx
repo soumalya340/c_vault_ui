@@ -224,20 +224,29 @@ export function RedeemModal({
         setResult({
           type: 'success',
           text:
-            `Shares burned for vault №${vault.vault_id}. Cooldown active — ` +
-            `press Redeem (swap) again after ${unlock} to run the outflow swap.` +
+            `Shares burned for vault №${vault.vault_id}. Unlock at ${unlock} — ` +
+            `press Redeem (swap) again after that time to convert assets → USDC, then claim.` +
             altNote,
           solscan: r.link || undefined,
         });
-      } else {
-        setResult({
-          type: 'success',
-          text:
-            `Outflow swap complete for vault №${vault.vault_id} (${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}). Press Claim to receive the payout.` +
-            altNote,
-          solscan: r.link,
-        });
+        setShares('');
+        await refreshPosition();
+        return;
       }
+
+      // Outflow done (pending_usdc > 0 on-chain). Claim immediately so USDC
+      // actually lands in the wallet — the greyed Claim button was easy to
+      // miss / stay disabled when refresh lagged.
+      setSteps((prev) => [...prev, 'Claiming USDC payout…']);
+      const claimResult = await claim(connection, anchorWallet, vault.vault_id, network);
+      setResult({
+        type: 'success',
+        text:
+          `Redeem complete for vault №${vault.vault_id}: shares burned, assets swapped, USDC claimed ` +
+          `(${r.signatures.length + 1} transaction${r.signatures.length + 1 === 1 ? '' : 's'}).` +
+          altNote,
+        solscan: claimResult.link || r.link,
+      });
       setShares('');
       await refreshPosition();
     } catch (err) {
@@ -247,6 +256,8 @@ export function RedeemModal({
         type: parsed.kind === 'info' ? 'info' : 'error',
         text: parsed.title,
       });
+      // Always re-read RedeemState — burn may have succeeded even if a later
+      // swap/claim leg failed; user can press Redeem (swap) again to resume.
       await refreshPosition();
     } finally {
       setLoading(false);
@@ -259,10 +270,11 @@ export function RedeemModal({
     setResult(null);
     setSteps([]);
     try {
+      setSteps(['Claiming USDC payout…']);
       const r = await claim(connection, anchorWallet, vault.vault_id, network);
       setResult({
         type: 'success',
-        text: `Claimed payout from vault №${vault.vault_id}.`,
+        text: `Claimed USDC payout from vault №${vault.vault_id}.`,
         solscan: r.link,
       });
       await refreshPosition();
@@ -344,10 +356,10 @@ export function RedeemModal({
                   : ''}{' '}
                 · unlocks {unlockDate?.toLocaleString() ?? '—'}
                 {readyToClaim
-                  ? ' — swapped: ready to Claim'
+                  ? ' — USDC ready: press Claim (or Redeem to auto-claim)'
                   : unlocked
-                    ? ' — ready: press Redeem (swap) to run the outflow swap'
-                    : ' — cooldown active'}
+                    ? ' — press Redeem (swap) to convert assets → USDC (then auto-claim)'
+                    : ' — waiting for unlock'}
               </p>
             </div>
           )}

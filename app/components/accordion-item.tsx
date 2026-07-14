@@ -726,41 +726,39 @@ export function AccordionItem({
                             </>
                           );
                         }
-                        if (opts?.status === 'ready' && opts.options.length === 0) {
+                        if (opts?.status !== 'ready') {
+                          return (
+                            <select value="" disabled className={fieldInputClass}>
+                              <option value="">Loading {noun}…</option>
+                            </select>
+                          );
+                        }
+                        if (opts.options.length === 0) {
                           return (
                             <p className="rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-xs text-muted-foreground">
                               No {noun} recorded on {network} yet.
                             </p>
                           );
                         }
-                        const ready = opts?.status === 'ready';
+                        const current = values[field.name];
                         const selected =
-                          ready &&
-                          values[field.name] !== undefined &&
-                          opts.options.some((o) => o.value === values[field.name])
-                            ? values[field.name]
-                            : ready
-                              ? opts.options[0].value
-                              : '';
+                          current !== undefined && opts.options.some((o) => o.value === current)
+                            ? current
+                            : opts.options[0].value;
                         return (
                           <select
                             value={selected}
-                            disabled={!ready}
                             onChange={(e) => {
                               clearFieldError();
                               setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
                             }}
                             className={fieldInputClass}
                           >
-                            {!ready ? (
-                              <option value="">Loading {noun}…</option>
-                            ) : (
-                              opts.options.map((o) => (
-                                <option key={o.value} value={o.value}>
-                                  {o.label}
-                                </option>
-                              ))
-                            )}
+                            {opts.options.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
                           </select>
                         );
                       })()

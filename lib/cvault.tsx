@@ -1983,6 +1983,7 @@ interface RawRedeemState {
   numAssets: number;
   assetAmountIn: BN[];
   assetSwapped: boolean[];
+  assetToSolDone: boolean[];
 }
 
 async function tryFetchRedeemState(
@@ -1991,12 +1992,53 @@ async function tryFetchRedeemState(
   vaultId: number,
 ): Promise<RawRedeemState | null> {
   try {
-    return await (program.account as any).redeemState.fetch(
+    const raw = await (program.account as any).redeemState.fetch(
       deriveRedeemStatePda(user, vaultId),
     );
+    // Normalize camelCase / snake_case so resume logic never sees undefined flags.
+    const d = raw as Record<string, unknown>;
+    const pick = <T,>(camel: string, snake: string): T => (d[camel] ?? d[snake]) as T;
+    return {
+      redeemableShares: pick<BN>('redeemableShares', 'redeemable_shares'),
+      unlockTime: pick<BN>('unlockTime', 'unlock_time'),
+      pendingUsdc: pick<BN>('pendingUsdc', 'pending_usdc'),
+      numAssets: Number(pick<number>('numAssets', 'num_assets') ?? 0),
+      assetAmountIn: pick<BN[]>('assetAmountIn', 'asset_amount_in') ?? [],
+      assetSwapped: pick<boolean[]>('assetSwapped', 'asset_swapped') ?? [],
+      assetToSolDone: pick<boolean[]>('assetToSolDone', 'asset_to_sol_done') ?? [],
+    };
   } catch {
     return null;
   }
+}
+
+/**
+ * Poll vault wSOL balance until it increases past `before`, or give up.
+ * Confirmed txs can still lag on public RPCs; a single post-tx read often
+ * returns the pre-swap balance and used to drop the sol→USDC leg forever
+ * (asset_to_sol_done already true, no retry of leg-1).
+ */
+async function waitForWsolIncrease(
+  connection: Connection,
+  ctx: VaultChainCtx,
+  before: bigint,
+  onProgress?: ProgressFn,
+): Promise<bigint> {
+  const delaysMs = [0, 400, 800, 1500, 2500, 4000];
+  let last = before;
+  for (let i = 0; i < delaysMs.length; i++) {
+    if (delaysMs[i] > 0) {
+      await new Promise((r) => setTimeout(r, delaysMs[i]));
+    }
+    last = await vaultWsolBalance(connection, ctx);
+    if (last > before) {
+      return last - before;
+    }
+    onProgress?.(
+      `Waiting for vault wSOL balance to settle (read ${last}, was ${before})…`,
+    );
+  }
+  return 0n;
 }
 
 export interface RedeemClaimResult {
@@ -2087,33 +2129,66 @@ export async function redeemSwap(
     };
   }
 
-  // Phase 2 — outflow legs. ViaSol asset→wSOL legs run one per transaction so
-  // the wSOL received can be measured off-chain (swap_sol_to_usdc takes the
-  // amount explicitly); all →USDC legs then share one bundle.
+  // Phase 2 — outflow legs. ViaSol asset→wSOL is one tx per asset so the
+  // received wSOL can be measured for swap_sol_to_usdc; DirectUsdc (+ wSOL
+  // native ViaSol) USDC legs are batched when possible.
+  //
+  // Resume-safe: if a prior run set asset_to_sol_done but never finished
+  // sol→USDC (RPC lag / crash), skip leg-1 and convert the vault's current
+  // wSOL balance. Never silently drop a leg — that left users burned with
+  // Claim disabled (pending_usdc == 0).
   const usdcLegIxs: TransactionInstruction[] = [];
   for (let i = 0; i < redeemState.numAssets; i++) {
     if (redeemState.assetSwapped[i]) continue;
     const amountIn = new BN(redeemState.assetAmountIn[i].toString());
     if (amountIn.isZero()) continue;
     const asset = assetAt(ctx, i);
+    const legDone = Boolean(redeemState.assetToSolDone?.[i]);
 
     if (asset.mint.equals(WSOL_MINT) && asset.route === 'ViaSol') {
       usdcLegIxs.push(
         await buildSwapSolToUsdcIx(connection, program, ctx, i, amountIn, new BN(0), user),
       );
     } else if (asset.route === 'ViaSol') {
-      onProgress?.(`Swapping asset ${i + 1}/${redeemState.numAssets} → wSOL…`);
-      const before = await vaultWsolBalance(connection, ctx);
-      const legIx = await buildSwapAssetToSolIx(connection, program, ctx, i, user, new BN(0));
-      signatures.push(await sendV0(connection, wallet, [legIx], lut));
-      const received = (await vaultWsolBalance(connection, ctx)) - before;
-      if (received > 0n) {
-        usdcLegIxs.push(
-          await buildSwapSolToUsdcIx(
-            connection, program, ctx, i, new BN(received.toString()), new BN(0), user,
-          ),
+      let received = 0n;
+      if (!legDone) {
+        onProgress?.(`Swapping asset ${i + 1}/${redeemState.numAssets} → wSOL…`);
+        const before = await vaultWsolBalance(connection, ctx);
+        const legIx = await buildSwapAssetToSolIx(connection, program, ctx, i, user, new BN(0));
+        signatures.push(await sendV0(connection, wallet, [legIx], lut));
+        received = await waitForWsolIncrease(connection, ctx, before, onProgress);
+        // Refresh flags so later logic sees asset_to_sol_done.
+        redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
+      } else {
+        onProgress?.(
+          `Asset ${i + 1}/${redeemState.numAssets}: asset→wSOL already done — converting vault wSOL → USDC…`,
+        );
+        received = await vaultWsolBalance(connection, ctx);
+      }
+
+      if (received <= 0n) {
+        throw new Error(
+          `ViaSol asset ${i} (mint ${asset.mint.toBase58().slice(0, 8)}…) produced no measurable wSOL after leg-1. ` +
+            `Shares may already be burned — press Redeem (swap) again after RPC settles, or check the vault wSOL ATA. ` +
+            `Do not start a new redeem until this one finishes.`,
         );
       }
+
+      // Send sol→USDC immediately (not batched) so multi-ViaSol legs don't
+      // leave intermediate wSOL mixed across assets, and so pending_usdc is
+      // credited even if a later leg fails.
+      onProgress?.(`Converting wSOL → USDC for asset ${i + 1}/${redeemState.numAssets}…`);
+      const solUsdcIx = await buildSwapSolToUsdcIx(
+        connection,
+        program,
+        ctx,
+        i,
+        new BN(received.toString()),
+        new BN(0),
+        user,
+      );
+      signatures.push(await sendV0(connection, wallet, [solUsdcIx], lut));
+      redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
     } else {
       usdcLegIxs.push(
         await buildSwapAssetToUsdcIx(connection, program, ctx, i, user, new BN(0)),
@@ -2122,14 +2197,39 @@ export async function redeemSwap(
   }
 
   if (usdcLegIxs.length > 0) {
-    onProgress?.('Converting to base token…');
+    onProgress?.('Converting DirectUsdc assets to base token…');
     signatures.push(await sendV0(connection, wallet, usdcLegIxs, lut));
   }
+
+  // Hard check: claim requires pending_usdc > 0. Surface a real error instead
+  // of "swapped" with a greyed-out Claim button.
+  const finalState = await tryFetchRedeemState(program, user, vaultId);
+  if (!finalState) {
+    throw new Error('RedeemState missing after swaps — cannot claim.');
+  }
+  const pending = BigInt(finalState.pendingUsdc.toString());
+  if (pending <= 0n) {
+    const pendingLegs = [];
+    for (let i = 0; i < finalState.numAssets; i++) {
+      const amt = BigInt(finalState.assetAmountIn[i].toString());
+      if (amt > 0n && !finalState.assetSwapped[i]) {
+        pendingLegs.push(i);
+      }
+    }
+    throw new Error(
+      `Outflow finished with pending USDC = 0 (cannot claim). ` +
+        (pendingLegs.length
+          ? `Still unswapped asset slots: [${pendingLegs.join(', ')}]. Press Redeem (swap) again to resume.`
+          : `All slots marked swapped but no USDC was credited — vault may have held zero free balances at burn time.`),
+    );
+  }
+
+  onProgress?.(`Outflow complete — ${pending} USDC raw pending claim.`);
 
   return {
     phase: 'swapped',
     signatures,
-    link: solscanLink(signatures[signatures.length - 1], network),
+    link: solscanLink(signatures[signatures.length - 1] ?? '', network),
     altAddress: ensured.altAddress,
     altCreated: ensured.altCreated,
   };
@@ -2547,6 +2647,7 @@ export interface UserPosition {
     numAssets: number;
     assetAmountIn: string[];
     assetSwapped: boolean[];
+    assetToSolDone: boolean[];
   };
 }
 
@@ -2596,14 +2697,24 @@ export async function getUserPosition(
         }
       : undefined,
     redeemState: redeemData
-      ? {
-          redeemableShares: redeemData.redeemableShares.toString(),
-          unlockTime: redeemData.unlockTime.toString(),
-          pendingUsdc: redeemData.pendingUsdc.toString(),
-          numAssets: redeemData.numAssets,
-          assetAmountIn: (redeemData.assetAmountIn as BN[]).map((a) => a.toString()),
-          assetSwapped: redeemData.assetSwapped,
-        }
+      ? (() => {
+          // Program converts IDL to camelCase, but accept snake_case keys too
+          // so a stale client never drops pending state (Claim stays disabled).
+          const d = redeemData as Record<string, unknown>;
+          const pick = <T,>(camel: string, snake: string): T =>
+            (d[camel] ?? d[snake]) as T;
+          const amountArr = pick<BN[]>('assetAmountIn', 'asset_amount_in') ?? [];
+          return {
+            redeemableShares: pick<BN>('redeemableShares', 'redeemable_shares').toString(),
+            unlockTime: pick<BN>('unlockTime', 'unlock_time').toString(),
+            pendingUsdc: pick<BN>('pendingUsdc', 'pending_usdc').toString(),
+            numAssets: Number(pick<number>('numAssets', 'num_assets') ?? 0),
+            assetAmountIn: amountArr.map((a) => a.toString()),
+            assetSwapped: (pick<boolean[]>('assetSwapped', 'asset_swapped') ?? []) as boolean[],
+            assetToSolDone: (pick<boolean[]>('assetToSolDone', 'asset_to_sol_done') ??
+              []) as boolean[],
+          };
+        })()
       : undefined,
   };
 }
