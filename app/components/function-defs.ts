@@ -73,17 +73,8 @@ const VIEW_ASSET_ID_FIELD: FieldDef = {
 
 export const VIEW_FUNCTIONS: FunctionDef[] = [
   {
-    id: 'view_global_state',
-    number: '01',
-    title: 'Global State',
-    description:
-      'Read program-wide flags: emergency, treasury, TWAP keeper, total vaults, total listed assets.',
-    fields: [],
-    submitLabel: 'Fetch global state',
-  },
-  {
     id: 'view_vault_state',
-    number: '02',
+    number: '01',
     title: 'Vault State',
     description: 'Read a vault account: shares, TVL, pending balances, deposit/redeem fees, asset count.',
     fields: [VIEW_VAULT_ID_FIELD],
@@ -91,7 +82,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   },
   {
     id: 'view_nav',
-    number: '03',
+    number: '02',
     title: 'Live Nav & Share Price',
     description:
       'Calls get_total_nav_view. Asset ATAs and price sources (Pyth or DEX pool) are derived from the vault on-chain.',
@@ -100,7 +91,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   },
   {
     id: 'view_my_position',
-    number: '04',
+    number: '03',
     title: 'My Position',
     description: 'Your share balance, deposit history, and any active redeem state.',
     fields: [VIEW_VAULT_ID_FIELD],
@@ -108,7 +99,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   },
   {
     id: 'view_vault_asset_balances',
-    number: '05',
+    number: '04',
     title: 'Vault Asset Balances',
     description:
       'Live token balance the vault holds for each asset — read from each asset ATA on-chain and shown in human-readable units.',
@@ -117,7 +108,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   },
   {
     id: 'view_asset_state',
-    number: '06',
+    number: '05',
     title: 'Asset State',
     description:
       'Read a single admin-listed AssetInfo account by asset id: mint, pools, price source, route, decimals, active flag.',

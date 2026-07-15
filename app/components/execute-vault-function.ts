@@ -13,7 +13,6 @@ import {
   updateTreasuryAddr,
   setTwapKeeper,
   updateDexTwap,
-  getGlobalState,
   getVaultState,
   getTotalNavView,
   getUserPosition,
@@ -139,8 +138,6 @@ export async function executeVaultFunction(
   const id = vaultId(v);
 
   switch (fnId) {
-    case 'view_global_state':
-      return humanizeViewResult(fnId, await getGlobalState(connection));
     case 'view_vault_state':
       return humanizeViewResult(fnId, await getVaultState(connection, id, net));
     case 'view_nav':

@@ -68,8 +68,6 @@ export function humanizeViewResult(fnId: string, data: unknown): unknown {
       return humanizeVaultState(data as Record<string, unknown>);
     case 'view_my_position':
       return humanizeUserPosition(data as Record<string, unknown>);
-    case 'view_global_state':
-      return humanizeGlobalState(data as Record<string, unknown>);
     case 'view_asset_state':
       return humanizeAssetState(data as Record<string, unknown>);
     case 'view_vault_asset_balances':
@@ -168,16 +166,6 @@ function humanizeUserPosition(d: Record<string, unknown>): Record<string, unknow
   }
 
   return out;
-}
-
-function humanizeGlobalState(d: Record<string, unknown>): Record<string, unknown> {
-  return {
-    emergency: d.isEmergency,
-    totalVaults: d.totalVaults,
-    totalAssets: d.totalAssets,
-    treasury: typeof d.treasuryAddr === 'string' ? shortPubkey(d.treasuryAddr) : d.treasuryAddr,
-    twapKeeper: typeof d.twapKeeper === 'string' ? shortPubkey(d.twapKeeper) : d.twapKeeper,
-  };
 }
 
 function humanizeAssetState(d: Record<string, unknown>): Record<string, unknown> {
