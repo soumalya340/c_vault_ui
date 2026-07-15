@@ -132,9 +132,29 @@ function AdminDashboard({
 }
 
 function AdminGate({ network, onNetworkChange }: { network: Network; onNetworkChange: (n: Network) => void }) {
-  const { publicKey, connected, connecting } = useWallet();
+  const { publicKey, connected, connecting, autoConnect } = useWallet();
+  // `autoConnect` resolves asynchronously (wallet extension injection, adapter
+  // readyState, etc.) — on first mount `connecting` and `connected` are both
+  // false for one or more renders *before* the auto-connect attempt even
+  // starts. Gating on that snapshot would call `notFound()` (which
+  // permanently unmounts this tree) for the real admin wallet on every
+  // fresh page load. Wait one extra tick after mount so auto-connect has a
+  // chance to flip `connecting` true before we treat "not connected" as final.
+  const [settled, setSettled] = useState(!autoConnect);
 
-  if (connecting) {
+  useEffect(() => {
+    if (!autoConnect || connecting || connected) {
+      setSettled(true);
+      return;
+    }
+    // Extension injection (window.solana / window.solflare) can lag the
+    // first paint — give auto-connect a real window to flip `connecting`
+    // before giving up and treating this as "not connected".
+    const id = setTimeout(() => setSettled(true), 1500);
+    return () => clearTimeout(id);
+  }, [autoConnect, connecting, connected]);
+
+  if (connecting || !settled) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
         <span className="font-mono text-[11px] uppercase tracking-[0.2em]">loading…</span>

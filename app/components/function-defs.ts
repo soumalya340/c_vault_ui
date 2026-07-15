@@ -59,6 +59,18 @@ const ASSET_ID_FIELD: FieldDef = {
   hint: 'Loaded from the asset registry. 0-based on-chain id — genesis wSOL is 0.',
 };
 
+const VIEW_VAULT_ID_FIELD: FieldDef = {
+  ...VAULT_ID_FIELD,
+  label: 'Vault',
+  hint: 'Pick a vault from the registry.',
+};
+
+const VIEW_ASSET_ID_FIELD: FieldDef = {
+  ...ASSET_ID_FIELD,
+  label: 'Asset',
+  hint: 'Pick an asset from the registry.',
+};
+
 export const VIEW_FUNCTIONS: FunctionDef[] = [
   {
     id: 'view_global_state',
@@ -74,7 +86,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     number: '02',
     title: 'Vault State',
     description: 'Read a vault account: shares, TVL, pending balances, deposit/redeem fees, asset count.',
-    fields: [VAULT_ID_FIELD],
+    fields: [VIEW_VAULT_ID_FIELD],
     submitLabel: 'Fetch vault',
   },
   {
@@ -83,7 +95,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     title: 'Live Nav & Share Price',
     description:
       'Calls get_total_nav_view. Asset ATAs and price sources (Pyth or DEX pool) are derived from the vault on-chain.',
-    fields: [VAULT_ID_FIELD],
+    fields: [VIEW_VAULT_ID_FIELD],
     submitLabel: 'Get live NAV',
   },
   {
@@ -91,7 +103,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     number: '04',
     title: 'My Position',
     description: 'Your share balance, deposit history, and any active redeem state.',
-    fields: [VAULT_ID_FIELD],
+    fields: [VIEW_VAULT_ID_FIELD],
     submitLabel: 'Fetch my position',
   },
   {
@@ -100,7 +112,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     title: 'Vault Asset Balances',
     description:
       'Live token balance the vault holds for each asset — read from each asset ATA on-chain and shown in human-readable units.',
-    fields: [VAULT_ID_FIELD],
+    fields: [VIEW_VAULT_ID_FIELD],
     submitLabel: 'Fetch asset balances',
   },
   {
@@ -109,7 +121,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     title: 'Asset State',
     description:
       'Read a single admin-listed AssetInfo account by asset id: mint, pools, price source, route, decimals, active flag.',
-    fields: [ASSET_ID_FIELD],
+    fields: [VIEW_ASSET_ID_FIELD],
     submitLabel: 'Fetch asset',
   },
 ];

@@ -5,13 +5,12 @@ if (typeof globalThis !== 'undefined' && !('Buffer' in globalThis)) {
   (globalThis as { Buffer?: typeof NodeBuffer }).Buffer = NodeBuffer;
 }
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { WalletProvider, useWallet, ConnectionContext } from '@solana/wallet-adapter-react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { WalletProvider, ConnectionContext } from '@solana/wallet-adapter-react';
 import { WalletModalContext } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
-import { ADMIN_PUBKEY } from '@/lib/constants';
-import { createFailoverConnection } from '@/lib/connection';
+import { createPlatformConnection } from '@/lib/connection';
 import { WalletModal } from './components/wallet-modal';
 
 export type Network = 'localhost' | 'mainnet';
@@ -57,51 +56,30 @@ export function setStoredNetwork(network: Network): void {
   }
 }
 
+/** Public Solana mainnet RPC — used only when `NEXT_PUBLIC_HELIUS_RPC` is unset. */
+export const MAINNET_PUBLIC_RPC = 'https://api.mainnet-beta.solana.com';
+
 /**
  * RPC endpoint for the selected network.
  *
- * - mainnet: paid Helius via `NEXT_PUBLIC_HELIUS_RPC` (preferred — every wallet
- *   uses this so the whole UI rides the paid RPC). Falls back to public
- *   mainnet-beta only if the env var is unset.
+ * - mainnet: `NEXT_PUBLIC_HELIUS_RPC`, falling back to {@link MAINNET_PUBLIC_RPC}.
  * - localhost: local validator (`http://127.0.0.1:8899` by default).
  */
 export function getRpcEndpoint(network: Network): string {
   if (network === 'mainnet') {
-    return (
-      process.env.NEXT_PUBLIC_HELIUS_RPC ??
-      process.env.NEXT_PUBLIC_MAINNET_RPC ??
-      'https://api.mainnet-beta.solana.com'
-    );
+    return process.env.NEXT_PUBLIC_HELIUS_RPC ?? MAINNET_PUBLIC_RPC;
   }
   return process.env.NEXT_PUBLIC_LOCALHOST_RPC ?? 'http://127.0.0.1:8899';
-}
-
-/**
- * Arms/disarms admin-only Helius failover when the primary mainnet endpoint
- * is not already Helius (see lib/connection.ts). Everyone already uses
- * NEXT_PUBLIC_HELIUS_RPC as the mainnet primary when that env is set.
- */
-function AdminFailoverArmer({ connection }: { connection: ReturnType<typeof createFailoverConnection> }) {
-  const { publicKey } = useWallet();
-
-  useEffect(() => {
-    const isAdmin = publicKey?.equals(ADMIN_PUBKEY) ?? false;
-    (connection as unknown as { setFailoverAdminMode?: (on: boolean) => void }).setFailoverAdminMode?.(
-      isAdmin,
-    );
-  }, [connection, publicKey]);
-
-  return null;
 }
 
 export function Providers({
   children,
   endpoint,
-  network,
 }: {
   children: ReactNode;
   endpoint: string;
-  network: Network;
+  /** @deprecated Network is only used by callers for layout; connection uses endpoint. */
+  network?: Network;
 }) {
   const wallets = useMemo(
     () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
@@ -110,14 +88,13 @@ export function Providers({
   const [visible, setVisible] = useState(false);
 
   const connection = useMemo(
-    () => createFailoverConnection(endpoint, network, 'confirmed'),
-    [endpoint, network],
+    () => createPlatformConnection(endpoint, 'confirmed'),
+    [endpoint],
   );
 
   return (
     <ConnectionContext.Provider value={{ connection }}>
       <WalletProvider wallets={wallets} autoConnect>
-        <AdminFailoverArmer connection={connection} />
         <WalletModalContext.Provider value={{ visible, setVisible }}>
           {children}
           <WalletModal />

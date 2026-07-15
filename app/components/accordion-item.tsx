@@ -265,6 +265,11 @@ function useAssetIdOptions(active: boolean, network: Network): IdOptionsState | 
   return state;
 }
 
+const ID_FIELD_PLACEHOLDER: Record<'vault_id' | 'asset_id', string> = {
+  vault_id: 'Select a Vault',
+  asset_id: 'Choose an Asset',
+};
+
 type PresetPickerState =
   | { status: 'idle' | 'loading' }
   | { status: 'ready'; options: AssetPresetRecord[] }
@@ -506,7 +511,14 @@ export function AccordionItem({
         return;
       }
       const current = submitValues[name];
-      if (!current || !opts.options.some((o) => o.value === current)) {
+      const valid = current && opts.options.some((o) => o.value === current);
+      if (!valid) {
+        if (section === 'view') {
+          const idName = name as 'vault_id' | 'asset_id';
+          setFieldErrors({ [name]: `${ID_FIELD_PLACEHOLDER[idName]}.` });
+          setLoading(false);
+          return;
+        }
         submitValues = { ...submitValues, [name]: opts.options[0].value };
       }
     }
@@ -684,6 +696,9 @@ export function AccordionItem({
                 const fieldInputClass = fieldError
                   ? `${inputClass} border-destructive focus-visible:border-destructive focus-visible:ring-destructive`
                   : inputClass;
+                const fieldSelectClass = fieldError
+                  ? `${selectClass} border-destructive focus-visible:border-destructive focus-visible:ring-destructive`
+                  : selectClass;
                 const clearFieldError = () => {
                   if (!fieldError) return;
                   setFieldErrors((prev) => {
@@ -757,10 +772,15 @@ export function AccordionItem({
                             </p>
                           );
                         }
+                        const idFieldName = field.name as 'vault_id' | 'asset_id';
+                        const requirePick = section === 'view';
                         const current = values[field.name];
-                        const selected =
-                          current !== undefined && opts.options.some((o) => o.value === current)
-                            ? current
+                        const hasSelection =
+                          current !== undefined && opts.options.some((o) => o.value === current);
+                        const selected = hasSelection
+                          ? current
+                          : requirePick
+                            ? ''
                             : opts.options[0].value;
                         return (
                           <select
@@ -769,8 +789,14 @@ export function AccordionItem({
                               clearFieldError();
                               setValues((prev) => ({ ...prev, [field.name]: e.target.value }));
                             }}
-                            className={fieldInputClass}
+                            className={fieldSelectClass}
+                            aria-invalid={fieldError ? true : undefined}
                           >
+                            {requirePick && (
+                              <option value="">
+                                {ID_FIELD_PLACEHOLDER[idFieldName]}
+                              </option>
+                            )}
                             {opts.options.map((o) => (
                               <option key={o.value} value={o.value}>
                                 {o.label}
