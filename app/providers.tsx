@@ -67,9 +67,19 @@ export const MAINNET_PUBLIC_RPC = 'https://api.mainnet-beta.solana.com';
  */
 export function getRpcEndpoint(network: Network): string {
   if (network === 'mainnet') {
-    return process.env.NEXT_PUBLIC_HELIUS_RPC ?? MAINNET_PUBLIC_RPC;
+    const helius = process.env.NEXT_PUBLIC_HELIUS_RPC;
+    const endpoint = helius ?? MAINNET_PUBLIC_RPC;
+    console.log(
+      '[rpc]',
+      helius ? 'NEXT_PUBLIC_HELIUS_RPC' : 'MAINNET_PUBLIC_RPC',
+      endpoint,
+    );
+    return endpoint;
   }
-  return process.env.NEXT_PUBLIC_LOCALHOST_RPC ?? 'http://127.0.0.1:8899';
+  const endpoint =
+    process.env.NEXT_PUBLIC_LOCALHOST_RPC ?? 'http://127.0.0.1:8899';
+  console.log('[rpc]', 'localhost', endpoint);
+  return endpoint;
 }
 
 export function Providers({
