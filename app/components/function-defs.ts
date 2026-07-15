@@ -89,17 +89,10 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
     fields: [VIEW_VAULT_ID_FIELD],
     submitLabel: 'Get live NAV',
   },
-  {
-    id: 'view_my_position',
-    number: '03',
-    title: 'My Position',
-    description: 'Your share balance, deposit history, and any active redeem state.',
-    fields: [VIEW_VAULT_ID_FIELD],
-    submitLabel: 'Fetch my position',
-  },
+  // My Position lives on Portfolio only (per-holding "My Position" button), not this View plate.
   {
     id: 'view_vault_asset_balances',
-    number: '04',
+    number: '03',
     title: 'Vault Asset Balances',
     description:
       'Live token balance the vault holds for each asset — read from each asset ATA on-chain and shown in human-readable units.',
@@ -108,7 +101,7 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   },
   {
     id: 'view_asset_state',
-    number: '05',
+    number: '04',
     title: 'Asset State',
     description:
       'Read a single admin-listed AssetInfo account by asset id: mint, pools, price source, route, decimals, active flag.',

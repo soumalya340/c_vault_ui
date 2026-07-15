@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { ADMIN_PUBKEY } from '@/lib/constants';
+import { PORTFOLIO_ROUTE } from './console-routes';
 
 const connectClassName =
   'rounded-[2px] border border-border-strong bg-background px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.12em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
@@ -87,6 +88,14 @@ export function WalletButton() {
               </p>
             </div>
           )}
+          <Link
+            href={PORTFOLIO_ROUTE}
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            className="block w-full border-b border-border px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-foreground/5"
+          >
+            Portfolio
+          </Link>
           {publicKey.equals(ADMIN_PUBKEY) && (
             <Link
               href="/admin"

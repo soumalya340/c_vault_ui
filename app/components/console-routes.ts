@@ -8,6 +8,7 @@ export const SECTION_ROUTES: Record<Exclude<SectionId, 'admin'>, string> = {
 };
 
 export const ADMIN_ROUTE = '/admin';
+export const PORTFOLIO_ROUTE = '/portfolio';
 export const HOME_ROUTE = '/';
 
 export type ConsoleView = 'home' | SectionId;

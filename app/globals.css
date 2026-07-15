@@ -6,6 +6,7 @@
   --background: #E5E8DB;
   --foreground: #17251C;
   --accent: #2E5C44;
+  --position: #5E4B8A;
   --seal: #A63A2B;
   --destructive: #96301F;
   --muted-foreground: rgba(23, 37, 28, 0.62);
@@ -17,6 +18,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-accent: var(--accent);
+  --color-position: var(--position);
   --color-seal: var(--seal);
   --color-destructive: var(--destructive);
   --color-muted-foreground: var(--muted-foreground);
