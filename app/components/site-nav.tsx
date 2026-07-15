@@ -1,39 +1,42 @@
 'use client';
 
-import type { Network } from '@/app/providers';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { NetworkToggle } from './network-toggle';
 import { UnwrapWsolButton } from './unwrap-wsol-button';
 import { WalletButton } from './wallet-button';
 import { ClusterStatusBanner, ClusterStatusChip } from './cluster-status';
 import { SECTION_STYLE, type SectionId } from './function-defs';
 import { SECTION_META } from './section-header';
+import {
+  HOME_ROUTE,
+  pathnameToConsoleView,
+  sectionPath,
+} from './console-routes';
+import { useConsoleNetwork } from './console-shell';
 
-export type ActiveView = 'home' | SectionId;
+// Admin lives at the gated /admin dashboard — wallet menu "Dashboard" only, not a tab.
+const NAV_SECTION_IDS = ['view', 'vaults', 'vault-ops'] as const satisfies readonly Exclude<
+  SectionId,
+  'admin'
+>[];
 
-// Admin lives at the gated /admin dashboard now, not as a main-console tab.
-const SECTION_IDS: SectionId[] = ['view', 'vaults', 'vault-ops'];
+function NavTabs({ className }: { className?: string }) {
+  const pathname = usePathname();
+  const active = pathnameToConsoleView(pathname) ?? 'home';
 
-function NavTabs({
-  active,
-  onNavigate,
-  className,
-}: {
-  active: ActiveView;
-  onNavigate: (view: ActiveView) => void;
-  className?: string;
-}) {
   return (
     <nav aria-label="Sections" className={className}>
-      {SECTION_IDS.map((id) => {
+      {NAV_SECTION_IDS.map((id) => {
         const meta = SECTION_META[id];
         const accent = SECTION_STYLE[id].accent;
         const isActive = active === id;
+
         return (
-          <button
+          <Link
             key={id}
-            type="button"
+            href={sectionPath(id)}
             aria-current={isActive ? 'page' : undefined}
-            onClick={() => onNavigate(id)}
             className={`relative flex min-h-12 flex-1 items-center justify-center gap-1.5 whitespace-nowrap px-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent lg:flex-none lg:px-4 lg:text-[11px] ${
               isActive
                 ? 'text-foreground'
@@ -55,31 +58,25 @@ function NavTabs({
                 style={{ background: accent }}
               />
             )}
-          </button>
+          </Link>
         );
       })}
     </nav>
   );
 }
 
-export function SiteNav({
-  network,
-  onNetworkChange,
-  active,
-  onNavigate,
-}: {
-  network: Network;
-  onNetworkChange: (network: Network) => void;
-  active: ActiveView;
-  onNavigate: (view: ActiveView) => void;
-}) {
+export function SiteNav() {
+  const pathname = usePathname();
+  const { network, onNetworkChange } = useConsoleNetwork();
+  const isHome = pathname === HOME_ROUTE;
+
   return (
     <header className="sticky top-0 z-50 border-b-[1.5px] border-border-strong bg-background/95 backdrop-blur-sm">
       <div className="flex min-h-14 items-center gap-3 px-4 md:gap-6 md:px-8">
-        <button
-          type="button"
-          onClick={() => onNavigate('home')}
+        <Link
+          href={HOME_ROUTE}
           aria-label="cVault home"
+          aria-current={isHome ? 'page' : undefined}
           className="flex shrink-0 items-baseline gap-2 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <span className="font-display text-xl font-bold tracking-[0.02em] text-foreground">
@@ -88,13 +85,9 @@ export function SiteNav({
           <span className="hidden font-mono text-[8px] uppercase tracking-[0.24em] text-muted-foreground xl:inline">
             Operations console
           </span>
-        </button>
+        </Link>
 
-        <NavTabs
-          active={active}
-          onNavigate={onNavigate}
-          className="hidden self-stretch divide-x divide-border border-x border-border lg:flex"
-        />
+        <NavTabs className="hidden self-stretch divide-x divide-border border-x border-border lg:flex" />
 
         <div className="ml-auto flex shrink-0 items-center gap-2 py-2 md:gap-3">
           <ClusterStatusChip />
@@ -106,12 +99,7 @@ export function SiteNav({
         </div>
       </div>
 
-      {/* Compact tab rail below the brand row on smaller screens */}
-      <NavTabs
-        active={active}
-        onNavigate={onNavigate}
-        className="flex divide-x divide-border border-t border-border lg:hidden"
-      />
+      <NavTabs className="flex divide-x divide-border border-t border-border lg:hidden" />
 
       <ClusterStatusBanner />
     </header>

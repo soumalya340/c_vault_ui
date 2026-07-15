@@ -1,10 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import type { Network } from '@/app/providers';
 import { btnPrimaryClass, btnSecondaryClass } from '@/app/components/ui-classes';
 import { ClusterLiveLabel, LocalhostStamp } from './cluster-status';
 import { SECTION_STYLE, type SectionId } from './function-defs';
 import { SECTION_META } from './section-header';
+import { sectionPath } from './console-routes';
 
 const TICKER_ITEMS = [
   'DEP · Deposit',
@@ -17,8 +19,11 @@ const TICKER_ITEMS = [
   'PYTH · Oracle',
 ] as const;
 
-// Admin lives at the gated /admin dashboard now, not as a main-console card.
-const SECTION_IDS: SectionId[] = ['view', 'vaults', 'vault-ops'];
+// Admin lives at the gated /admin dashboard — wallet menu "Dashboard" only.
+const SECTION_IDS = ['view', 'vaults', 'vault-ops'] as const satisfies readonly Exclude<
+  SectionId,
+  'admin'
+>[];
 
 export function GuillocheRosette({ className }: { className?: string }) {
   const petals = Array.from({ length: 18 }, (_, i) => i * 10);
@@ -82,19 +87,16 @@ export function HeroSection({
   vaultId,
   vaultShort,
   programShort,
-  onNavigate,
 }: {
   network: Network;
   vaultId: number;
   vaultShort: string;
   programShort: string;
-  onNavigate: (section: SectionId) => void;
 }) {
   const tickerRun = [...TICKER_ITEMS, ...TICKER_ITEMS];
 
   return (
     <section className="flex flex-col gap-6" aria-label="cVault overview">
-      {/* Master plate */}
       <div className="relative isolate overflow-hidden border-[1.5px] border-border-strong bg-background motion-safe:animate-[cert-fadeup_0.8s_ease_0.1s_both]">
         <GuillocheRosette className="pointer-events-none absolute left-1/2 top-1/2 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 text-accent opacity-[0.16] sm:h-[720px] sm:w-[720px] md:h-[880px] md:w-[880px]" />
 
@@ -122,24 +124,21 @@ export function HeroSection({
           </p>
 
           <div className="mt-1 flex w-full flex-col items-stretch justify-center gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
-            <button
-              type="button"
-              onClick={() => onNavigate('vaults')}
+            <Link
+              href={sectionPath('vaults')}
               className={`${btnPrimaryClass} min-h-11`}
             >
               Browse vaults
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('vault-ops')}
+            </Link>
+            <Link
+              href={sectionPath('vault-ops')}
               className={`${btnSecondaryClass} min-h-11`}
             >
               Open vault ops
-            </button>
+            </Link>
           </div>
         </div>
 
-        {/* Instrument ticker band */}
         <div
           aria-hidden
           className="relative flex overflow-hidden border-t-[1.5px] border-border-strong bg-foreground py-2.5"
@@ -157,7 +156,6 @@ export function HeroSection({
           </div>
         </div>
 
-        {/* Serial register */}
         <div
           className="relative flex flex-col items-center justify-between gap-2 border-t border-border px-6 py-3 font-mono text-[10px] font-bold tracking-[0.1em] text-seal sm:flex-row sm:text-[11px]"
           role="status"
@@ -170,7 +168,6 @@ export function HeroSection({
         </div>
       </div>
 
-      {/* Plate index — one cell per section */}
       <nav
         aria-label="Section index"
         className="grid grid-cols-2 gap-px border border-border-strong bg-border md:grid-cols-3 motion-safe:animate-[cert-fadeup_0.9s_ease_0.35s_both]"
@@ -179,10 +176,9 @@ export function HeroSection({
           const meta = SECTION_META[id];
           const accent = SECTION_STYLE[id].accent;
           return (
-            <button
+            <Link
               key={id}
-              type="button"
-              onClick={() => onNavigate(id)}
+              href={sectionPath(id)}
               className="group flex flex-col items-start gap-2 bg-background px-4 py-4 text-left transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--foreground)_5%,var(--background))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent md:px-5 md:py-5"
             >
               <span
@@ -203,7 +199,7 @@ export function HeroSection({
               >
                 Open &#8594;
               </span>
-            </button>
+            </Link>
           );
         })}
       </nav>

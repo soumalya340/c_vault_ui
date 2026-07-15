@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { useWallet } from '@solana/wallet-adapter-react';
 import {
   Providers,
@@ -131,43 +132,18 @@ function AdminDashboard({
 }
 
 function AdminGate({ network, onNetworkChange }: { network: Network; onNetworkChange: (n: Network) => void }) {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, connecting } = useWallet();
 
-  if (!connected || !publicKey) {
+  if (connecting) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background text-foreground">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
-          Connect the admin wallet to continue
-        </p>
-        <WalletButton />
-        <Link
-          href="/"
-          className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          &larr; Back to app
-        </Link>
+      <main className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+        <span className="font-mono text-[11px] uppercase tracking-[0.2em]">loading…</span>
       </main>
     );
   }
 
-  if (!publicKey.equals(ADMIN_PUBKEY)) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background text-foreground">
-        <p className="font-mono text-sm font-bold uppercase tracking-[0.2em] text-destructive">
-          Unauthorized
-        </p>
-        <p className="max-w-md text-center font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-          Signer {publicKey.toBase58().slice(0, 8)}… is not the on-chain admin.
-        </p>
-        <WalletButton />
-        <Link
-          href="/"
-          className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          &larr; Back to app
-        </Link>
-      </main>
-    );
+  if (!connected || !publicKey?.equals(ADMIN_PUBKEY)) {
+    notFound();
   }
 
   return <AdminDashboard network={network} onNetworkChange={onNetworkChange} />;
