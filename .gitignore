@@ -55,3 +55,6 @@ data/pyth_feeds.json
 
 deps
 docs
+.agents
+.claude
+skills-lock.json
