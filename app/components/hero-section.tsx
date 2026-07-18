@@ -115,12 +115,12 @@ export function HeroSection({
             heroShown ? 'is-shown' : ''
           }`}
         >
-          <p className="t-stagger-line t-stagger-line--1 m-0 font-mono text-[9px] uppercase tracking-[0.34em] text-muted-foreground">
-            On-chain multi-asset ETF instrument
+          <p className="t-stagger-line t-stagger-line--1 m-0 font-mono text-[10px] font-medium uppercase tracking-[0.4em] text-muted-foreground">
+            Decentralized token fund · Solana
           </p>
 
           <div className="t-stagger-line t-stagger-line--2 relative">
-            <h1 className="m-0 font-display text-[clamp(52px,12vw,164px)] font-bold uppercase leading-[0.92] tracking-[0.02em] text-foreground">
+            <h1 className="m-0 font-display text-[clamp(52px,12vw,164px)] font-bold uppercase leading-[0.9] tracking-[0.01em] text-foreground">
               <span className="block">Vault</span>
               <span className="type-engraved block">Operations</span>
             </h1>
@@ -128,13 +128,19 @@ export function HeroSection({
             <LocalhostStamp />
           </div>
 
-          <p className="t-stagger-line t-stagger-line--3 m-0 max-w-[46ch] text-[clamp(14px,1.2vw,17px)] leading-[1.65] text-muted-foreground">
-            Deposit, redeem, read NAV, and administer multi-asset vaults — one
-            instruction per control. Quote mint is mainnet USDC; pools may be
-            Whirlpool or DAMM v2.
+          <p className="t-stagger-line t-stagger-line--3 m-0 max-w-[46ch] font-display text-[clamp(17px,1.6vw,22px)] font-medium leading-[1.55] tracking-[0.01em] text-muted-foreground">
+            Deposit once.{' '}
+            <span className="text-foreground">Own the fund.</span>{' '}
+            Exit on your terms.
           </p>
 
-          <div className="mt-1 flex w-full flex-col items-stretch justify-center gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
+          <p className="motto-band t-stagger-line t-stagger-line--3 m-0 max-w-[38ch] font-display text-[clamp(12px,1.1vw,14px)] italic leading-[1.5] tracking-[0.01em]">
+            <span className="motto-mark" aria-hidden>&#10022;</span>
+            A share is not a promise to pay you later — it is a claim you already own.
+            <span className="motto-mark" aria-hidden>&#10022;</span>
+          </p>
+
+          <div className="mt-2 flex w-full flex-col items-stretch justify-center gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
             <Link
               href={sectionPath('vaults')}
               className={`${btnPrimaryClass} min-h-11`}
