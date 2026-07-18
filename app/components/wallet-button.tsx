@@ -92,7 +92,7 @@ export function WalletButton() {
             href={PORTFOLIO_ROUTE}
             role="menuitem"
             onClick={() => setMenuOpen(false)}
-            className="block w-full border-b border-border px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-foreground/5"
+            className="block w-full border-b border-border px-4 py-2.5 text-left font-[family-name:var(--font-saira-condensed)] text-base font-bold capitalize tracking-[0.02em] text-foreground transition-colors hover:bg-foreground/5"
           >
             Portfolio
           </Link>
@@ -101,7 +101,7 @@ export function WalletButton() {
               href="/admin"
               role="menuitem"
               onClick={() => setMenuOpen(false)}
-              className="block w-full border-b border-border px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-foreground/5"
+              className="block w-full border-b border-border px-4 py-2.5 text-left font-[family-name:var(--font-saira-condensed)] text-base font-bold capitalize tracking-[0.02em] text-foreground transition-colors hover:bg-foreground/5"
             >
               Dashboard
             </Link>
@@ -113,7 +113,7 @@ export function WalletButton() {
               setMenuOpen(false);
               disconnect();
             }}
-            className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-foreground/5"
+            className="w-full px-4 py-2.5 text-left font-[family-name:var(--font-saira-condensed)] text-base font-bold capitalize tracking-[0.02em] text-foreground transition-colors hover:bg-foreground/5"
           >
             Disconnect
           </button>
