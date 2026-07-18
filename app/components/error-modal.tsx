@@ -16,6 +16,7 @@ import { ADMIN_PUBKEY, TWAP_KEEPER_PUBKEY } from '@/lib/constants';
 import { deriveGlobalStatePda } from '@/lib/pda';
 import { ensureVaultDexTwapFresh, refreshAllStaleDexTwaps } from '@/lib/twap';
 import { btnGhostClass, btnPrimaryClass, btnSecondaryClass } from './ui-classes';
+import { useModalTransition } from './use-modal-transition';
 
 function useIsClient() {
   const [mounted, setMounted] = useState(false);
@@ -47,6 +48,8 @@ export function ErrorModal({
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const mounted = useIsClient();
+  const { requestClose, modalClassName, backdropClassName, isClosing } =
+    useModalTransition(onClose);
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -63,7 +66,7 @@ export function ErrorModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !refreshing) onClose();
+      if (e.key === 'Escape' && !refreshing && !isClosing) requestClose();
     }
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
@@ -73,7 +76,7 @@ export function ErrorModal({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, refreshing]);
+  }, [requestClose, refreshing, isClosing]);
 
   if (!mounted) return null;
 
@@ -186,9 +189,9 @@ export function ErrorModal({
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
         onClick={() => {
-          if (!refreshing) onClose();
+          if (!refreshing && !isClosing) requestClose();
         }}
         aria-hidden
       />
@@ -198,7 +201,7 @@ export function ErrorModal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={`${titleId}-summary`}
-        className="cert-frame relative z-10 w-full max-w-[520px] overflow-hidden bg-background shadow-2xl"
+        className={`cert-frame relative z-10 w-full max-w-[520px] overflow-hidden bg-background shadow-2xl ${modalClassName}`}
       >
         <div className={`border-b border-border-strong px-6 py-4 ${borderAccent}`}>
           <div className="flex items-start justify-between gap-4">
@@ -217,8 +220,8 @@ export function ErrorModal({
             </div>
             <button
               type="button"
-              onClick={onClose}
-              disabled={refreshing}
+              onClick={requestClose}
+              disabled={refreshing || isClosing}
               aria-label="Close"
               className={btnGhostClass}
             >
@@ -318,14 +321,20 @@ export function ErrorModal({
                 disabled={refreshing}
                 className={btnSecondaryClass}
               >
-                {refreshing ? 'Refreshing…' : 'Refresh Price'}
+                {refreshing ? (
+                  <span className="t-shimmer" data-text="Refreshing…">
+                    Refreshing…
+                  </span>
+                ) : (
+                  'Refresh Price'
+                )}
               </button>
             )}
             <button
               type="button"
               data-dismiss
-              onClick={onClose}
-              disabled={refreshing}
+              onClick={requestClose}
+              disabled={refreshing || isClosing}
               className={btnPrimaryClass}
             >
               Understood

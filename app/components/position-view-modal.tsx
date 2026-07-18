@@ -8,6 +8,7 @@ import { formatResult } from './execute-vault-function';
 import { humanizeViewResult } from './view-display';
 import { LedgerOutput } from './ledger-output';
 import { btnGhostClass, btnSecondaryClass, outputPanelClass } from './ui-classes';
+import { useModalTransition } from './use-modal-transition';
 
 export function PositionViewModal({
   vault,
@@ -20,6 +21,8 @@ export function PositionViewModal({
 }) {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
+  const { requestClose, modalClassName, backdropClassName, isClosing } =
+    useModalTransition(onClose);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [output, setOutput] = useState<string | null>(null);
@@ -90,14 +93,16 @@ export function PositionViewModal({
   return (
     <div className='fixed inset-0 z-50 flex items-center justify-center p-4'>
       <div
-        className='absolute inset-0 bg-black/70 backdrop-blur-sm'
-        onClick={onClose}
+        className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
+        onClick={() => {
+          if (!isClosing) requestClose();
+        }}
       />
       <div
         role='dialog'
         aria-modal='true'
         aria-label={`My position in ${vault.symbol}`}
-        className='cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl'
+        className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
       >
         <div className='flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4'>
           <div>
@@ -114,7 +119,8 @@ export function PositionViewModal({
           </div>
           <button
             type='button'
-            onClick={onClose}
+            onClick={requestClose}
+            disabled={isClosing}
             aria-label='Close'
             className={btnGhostClass}
           >
@@ -130,7 +136,13 @@ export function PositionViewModal({
               disabled={loading || !publicKey}
               className={btnSecondaryClass}
             >
-              {loading ? 'Fetching…' : 'Refresh'}
+              {loading ? (
+                <span className='t-shimmer' data-text='Fetching…'>
+                  Fetching…
+                </span>
+              ) : (
+                'Refresh'
+              )}
             </button>
             {!publicKey && (
               <span className='font-mono text-[11px] text-muted-foreground'>

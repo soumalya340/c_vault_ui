@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Network } from '@/app/providers';
 import { btnPrimaryClass, btnSecondaryClass } from '@/app/components/ui-classes';
@@ -94,21 +95,31 @@ export function HeroSection({
   programShort: string;
 }) {
   const tickerRun = [...TICKER_ITEMS, ...TICKER_ITEMS];
+  const [heroShown, setHeroShown] = useState(false);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setHeroShown(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   return (
     <section className="flex flex-col gap-6" aria-label="cVault overview">
-      <div className="relative isolate overflow-hidden border-[1.5px] border-border-strong bg-background motion-safe:animate-[cert-fadeup_0.8s_ease_0.1s_both]">
+      <div className="relative isolate overflow-hidden border-[1.5px] border-border-strong bg-background">
         <GuillocheRosette className="pointer-events-none absolute left-1/2 top-1/2 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 text-accent opacity-[0.16] sm:h-[720px] sm:w-[720px] md:h-[880px] md:w-[880px]" />
 
         <SerialRail side="left" text={`Series 2026 · № CVLT-${vaultId}`} />
         <SerialRail side="right" text={`Solana · ${network} · c-vault`} />
 
-        <div className="relative flex flex-col items-center gap-6 px-6 py-14 text-center sm:py-16 md:py-20 lg:px-16">
-          <p className="m-0 font-mono text-[9px] uppercase tracking-[0.34em] text-muted-foreground">
+        <div
+          className={`t-stagger relative flex flex-col items-center gap-6 px-6 py-14 text-center sm:py-16 md:py-20 lg:px-16 ${
+            heroShown ? 'is-shown' : ''
+          }`}
+        >
+          <p className="t-stagger-line t-stagger-line--1 m-0 font-mono text-[9px] uppercase tracking-[0.34em] text-muted-foreground">
             On-chain multi-asset ETF instrument
           </p>
 
-          <div className="relative">
+          <div className="t-stagger-line t-stagger-line--2 relative">
             <h1 className="m-0 font-display text-[clamp(52px,12vw,164px)] font-bold uppercase leading-[0.92] tracking-[0.02em] text-foreground">
               <span className="block">Vault</span>
               <span className="type-engraved block">Operations</span>
@@ -117,7 +128,7 @@ export function HeroSection({
             <LocalhostStamp />
           </div>
 
-          <p className="m-0 max-w-[46ch] text-[clamp(14px,1.2vw,17px)] leading-[1.65] text-muted-foreground">
+          <p className="t-stagger-line t-stagger-line--3 m-0 max-w-[46ch] text-[clamp(14px,1.2vw,17px)] leading-[1.65] text-muted-foreground">
             Deposit, redeem, read NAV, and administer multi-asset vaults — one
             instruction per control. Quote mint is mainnet USDC; pools may be
             Whirlpool or DAMM v2.

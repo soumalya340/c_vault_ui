@@ -28,6 +28,7 @@ import {
   inputClass,
   outputPanelClass,
 } from './ui-classes';
+import { useModalTransition } from './use-modal-transition';
 
 // Two separate actions so a failure in one phase (e.g. an outflow swap leg)
 // doesn't get hidden behind a single "Redeem & Claim" button:
@@ -59,6 +60,8 @@ export function RedeemModal({
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
   const { publicKey } = useWallet();
+  const { requestClose, modalClassName, backdropClassName, isClosing } =
+    useModalTransition(onClose);
 
   const [shares, setShares] = useState('');
   const [previewing, setPreviewing] = useState(false);
@@ -314,12 +317,17 @@ export function RedeemModal({
           }}
         />
       )}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
+        onClick={() => {
+          if (!isClosing) requestClose();
+        }}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Redeem from ${vault.symbol}`}
-        className="cert-frame relative z-10 w-full max-w-[480px] overflow-hidden bg-background shadow-2xl"
+        className={`cert-frame relative z-10 w-full max-w-[480px] overflow-hidden bg-background shadow-2xl ${modalClassName}`}
       >
         <div className="flex items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
           <div>
@@ -330,14 +338,24 @@ export function RedeemModal({
               {vault.symbol} · {vault.name}
             </h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className={btnGhostClass}>
+          <button
+            type="button"
+            onClick={requestClose}
+            disabled={isClosing}
+            aria-label="Close"
+            className={btnGhostClass}
+          >
             Close
           </button>
         </div>
 
         <div className="space-y-4 px-6 py-5">
           {checkingPosition && (
-            <p className="font-mono text-xs text-muted-foreground">Checking on-chain position…</p>
+            <p className="font-mono text-xs text-muted-foreground">
+              <span className="t-shimmer" data-text="Checking on-chain position…">
+                Checking on-chain position…
+              </span>
+            </p>
           )}
 
           {!checkingPosition && (
@@ -452,7 +470,15 @@ export function RedeemModal({
                 disabled={loading || !anchorWallet || readyToClaim || sharesDecimals === null}
                 className={btnPrimaryClass}
               >
-                {loading ? 'Processing…' : anchorWallet ? 'Redeem (swap)' : 'Connect wallet'}
+                {loading ? (
+                  <span className="t-shimmer" data-text="Processing…">
+                    Processing…
+                  </span>
+                ) : anchorWallet ? (
+                  'Redeem (swap)'
+                ) : (
+                  'Connect wallet'
+                )}
               </button>
               <button
                 type="button"
@@ -460,7 +486,13 @@ export function RedeemModal({
                 disabled={loading || !anchorWallet || !readyToClaim}
                 className={btnPrimaryClass}
               >
-                {loading ? 'Processing…' : 'Claim'}
+                {loading ? (
+                  <span className="t-shimmer" data-text="Processing…">
+                    Processing…
+                  </span>
+                ) : (
+                  'Claim'
+                )}
               </button>
             </div>
           </form>

@@ -335,6 +335,19 @@ export function AccordionItem({
   const [loading, setLoading] = useState(false);
   const [openInfo, setOpenInfo] = useState<string | null>(null);
 
+  // transitions-dev error shake: replay is-shaking whenever fieldErrors update.
+  useEffect(() => {
+    const names = Object.keys(fieldErrors);
+    if (names.length === 0) return;
+    for (const name of names) {
+      const el = document.getElementById(`field-${fn.id}-${name}`);
+      if (!el) continue;
+      el.classList.remove('is-shaking');
+      void el.offsetWidth;
+      el.classList.add('is-shaking');
+    }
+  }, [fieldErrors, fn.id]);
+
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
   const { publicKey, connected } = useWallet();
@@ -569,9 +582,10 @@ export function AccordionItem({
 
   return (
     <div
-      className={`overflow-hidden transition-colors duration-150 ${
+      className={`t-acc overflow-hidden transition-colors duration-150 ${
         open ? 'bg-foreground/[0.03]' : 'bg-transparent'
       }`}
+      data-open={open ? 'true' : 'false'}
     >
       {errorOpen && lastError && (
         <ErrorModal
@@ -596,7 +610,7 @@ export function AccordionItem({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="group flex w-full items-baseline gap-4 px-2 py-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset md:px-3"
+        className="t-acc-head group flex w-full items-baseline gap-4 px-2 py-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset md:px-3"
       >
         <span
           className="flex-shrink-0 font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal"
@@ -612,16 +626,18 @@ export function AccordionItem({
           aria-hidden
         />
         <span
-          className="flex-shrink-0 select-none font-mono text-sm text-muted-foreground transition-colors"
+          className="t-acc-chevron flex-shrink-0 select-none text-muted-foreground"
           style={open ? { color: style.accent } : undefined}
           aria-hidden
         >
-          {open ? '▴' : '▾'}
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 6.5L8 10.5L12 6.5" />
+          </svg>
         </span>
       </button>
 
-      <div className={`accordion-content ${open ? 'open' : ''}`}>
-        <div className="accordion-inner">
+      <div className="t-acc-panel">
+        <div className="t-acc-panel-inner">
           <form
             onSubmit={handleSubmit}
             className="space-y-4 border-t border-border px-2 pb-5 pt-4 md:px-3"
@@ -693,12 +709,13 @@ export function AccordionItem({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {fn.fields.map((field) => {
                 const fieldError = fieldErrors[field.name];
+                const fieldId = `field-${fn.id}-${field.name}`;
                 const fieldInputClass = fieldError
-                  ? `${inputClass} border-destructive focus-visible:border-destructive focus-visible:ring-destructive`
-                  : inputClass;
+                  ? `${inputClass} t-input is-error border-destructive focus-visible:border-destructive focus-visible:ring-destructive`
+                  : `${inputClass} t-input`;
                 const fieldSelectClass = fieldError
-                  ? `${selectClass} border-destructive focus-visible:border-destructive focus-visible:ring-destructive`
-                  : selectClass;
+                  ? `${selectClass} t-input is-error border-destructive focus-visible:border-destructive focus-visible:ring-destructive`
+                  : `${selectClass} t-input`;
                 const clearFieldError = () => {
                   if (!fieldError) return;
                   setFieldErrors((prev) => {
@@ -709,9 +726,14 @@ export function AccordionItem({
                 };
                 const infoOpen = openInfo === field.name;
                 return (
-                  <div key={field.name} className={field.wide ? 'sm:col-span-2' : undefined}>
+                  <div
+                    key={field.name}
+                    className={`t-input-wrap ${fieldError ? 'is-error' : ''} ${field.wide ? 'sm:col-span-2' : ''}`}
+                  >
                     <div className="mb-1.5 flex items-baseline gap-1.5">
-                      <label className={`${fieldLabelClass} !mb-0`}>{field.label}</label>
+                      <label className={`${fieldLabelClass} !mb-0`} htmlFor={fieldId}>
+                        {field.label}
+                      </label>
                       {field.info && (
                         <button
                           type="button"
@@ -742,6 +764,7 @@ export function AccordionItem({
                           return (
                             <>
                               <input
+                                id={fieldId}
                                 type="number"
                                 placeholder={field.placeholder}
                                 value={values[field.name] ?? ''}
@@ -760,7 +783,7 @@ export function AccordionItem({
                         }
                         if (opts?.status !== 'ready') {
                           return (
-                            <select value="" disabled className={fieldInputClass}>
+                            <select id={fieldId} value="" disabled className={fieldInputClass}>
                               <option value="">Loading {noun}…</option>
                             </select>
                           );
@@ -784,6 +807,7 @@ export function AccordionItem({
                             : opts.options[0].value;
                         return (
                           <select
+                            id={fieldId}
                             value={selected}
                             onChange={(e) => {
                               clearFieldError();
@@ -807,6 +831,7 @@ export function AccordionItem({
                       })()
                     ) : field.type === 'select' ? (
                       <select
+                        id={fieldId}
                         value={values[field.name] ?? field.options?.[0]?.value ?? ''}
                         onChange={(e) => {
                           clearFieldError();
@@ -822,6 +847,7 @@ export function AccordionItem({
                       </select>
                     ) : field.name === 'assets_json' ? (
                       <textarea
+                        id={fieldId}
                         value={values[field.name] ?? ''}
                         onChange={(e) => {
                           clearFieldError();
@@ -837,6 +863,7 @@ export function AccordionItem({
                           $
                         </span>
                         <input
+                          id={fieldId}
                           type="text"
                           inputMode="decimal"
                           placeholder={field.placeholder}
@@ -850,6 +877,7 @@ export function AccordionItem({
                       </div>
                     ) : (
                       <input
+                        id={fieldId}
                         type={field.type ?? 'text'}
                         placeholder={field.placeholder}
                         value={values[field.name] ?? ''}
@@ -885,7 +913,7 @@ export function AccordionItem({
                       </div>
                     )}
                     {fieldError && (
-                      <p className="mt-1.5 font-mono text-xs leading-relaxed text-destructive">
+                      <p className="t-error-msg mt-1.5 font-mono text-xs leading-relaxed text-destructive">
                         {fieldError}
                       </p>
                     )}
@@ -937,11 +965,15 @@ export function AccordionItem({
             </div>
 
             <button type="submit" disabled={loading} className={btnPrimaryClass}>
-              {loading
-                ? 'Processing…'
-                : needsWallet && !connected
-                  ? 'Connect wallet'
-                  : fn.submitLabel}
+              {loading ? (
+                <span className="t-shimmer" data-text="Processing…">
+                  Processing…
+                </span>
+              ) : needsWallet && !connected ? (
+                'Connect wallet'
+              ) : (
+                fn.submitLabel
+              )}
             </button>
 
             {result && (

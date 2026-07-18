@@ -210,10 +210,10 @@ function VaultNav() {
   return <span className="font-mono text-[11px] text-muted-foreground/60">loading NAV…</span>;
 }
 
-// Per-row asset inspector. The ⓘ button toggles an inline panel that reads the
-// vault's asset basket fresh from on-chain (fetchVaultCtx) at click time — no
-// websockets. Names resolve via pre_approved_token_registry (network-scoped),
-// then the Pools.md preset catalog, then a shortened mint.
+// Per-row asset inspector. "View assets" expands the panel and loads the
+// vault basket from on-chain at that moment (fetchVaultCtx) — no separate
+// refresh control, no polling. Names resolve via pre_approved_token_registry
+// (network-scoped), then the Pools.md preset catalog, then a shortened mint.
 function VaultAssetsView({
   vaultId,
   byMint,
@@ -231,40 +231,41 @@ function VaultAssetsView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(() => {
+  // Load on-chain whenever the panel is open and the vault/cluster changes.
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
     setLoading(true);
     setError(null);
+    setAssets(null);
+
     fetchVaultCtx(connection, vaultId, network)
       .then((ctx) => {
+        if (cancelled) return;
         setAssets(ctx.assets);
       })
       .catch((err) => {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
-  }, [connection, vaultId, network]);
 
-  const toggle = useCallback(() => {
-    setOpen((wasOpen) => {
-      const next = !wasOpen;
-      // Fetch on open (and re-fetch on every re-open) so the view always
-      // reflects on-chain state at click time.
-      if (next) load();
-      return next;
-    });
-  }, [load]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connection, vaultId, network]);
 
   return (
-    <div className="w-full">
+    <div className="t-acc w-full" data-open={open ? 'true' : 'false'}>
       <button
         type="button"
-        onClick={toggle}
+        onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-label={open ? 'Hide vault assets' : 'View vault assets'}
-        title="View vault assets on-chain"
-        className="group inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        aria-label={open ? 'Hide vault assets' : 'View vault assets on-chain'}
+        className="t-acc-head group inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-border-strong leading-none transition-colors duration-150 group-hover:border-accent">
           {open ? '×' : 'i'}
@@ -272,74 +273,85 @@ function VaultAssetsView({
         {open ? 'Hide assets' : 'View assets'}
       </button>
 
-      <div className={`accordion-content ${open ? 'open' : ''}`}>
-        <div className="accordion-inner">
+      <div className="t-acc-panel">
+        <div className="t-acc-panel-inner">
           <div className="mt-3 rounded-[2px] border border-border-strong bg-foreground/[0.03]">
-            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-              <span className={`${sectionLabelClass} uppercase`}>
-                {assets
-                  ? `${assets.length} asset${assets.length === 1 ? '' : 's'} on-chain`
-                  : 'assets'}
-              </span>
-              <button type="button" onClick={load} disabled={loading} className={btnGhostClass}>
-                {loading ? 'Loading…' : 'Refresh'}
-              </button>
-            </div>
-
-            {loading && !assets && (
+            {loading && (
               <p className="px-4 py-4 font-mono text-xs text-muted-foreground">
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>fetching assets…
+                <span className="mr-2 text-muted-foreground/50">&gt;</span>
+                <span className="t-shimmer" data-text="reading on-chain…">
+                  reading on-chain…
+                </span>
               </p>
             )}
 
-            {error && (
+            {!loading && error && (
               <p className="px-4 py-4 font-mono text-xs text-destructive">
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>assets unavailable — {error}
+                <span className="mr-2 text-muted-foreground/50">&gt;</span>
+                assets unavailable — {error}
               </p>
             )}
 
-            {assets && assets.length > 0 && (
-              <ul className="divide-y divide-border">
-                {assets.map((asset, i) => {
-                  const mint = asset.mint.toBase58();
-                  const { title, subtitle } = resolveAssetLabel(
-                    mint,
-                    asset.assetId,
-                    byMint,
-                    byId,
-                  );
-                  const pct = (asset.allocationBps / 100).toFixed(2);
-                  return (
-                    <li key={`${mint}-${i}`} className="flex flex-col gap-2 px-4 py-3">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
-                            {title}
-                          </span>
-                          {subtitle && (
-                            <span className="font-mono text-[11px] text-muted-foreground">
-                              {subtitle}
+            {!loading && !error && assets && assets.length === 0 && (
+              <p className="px-4 py-4 font-mono text-xs text-muted-foreground">
+                <span className="mr-2 text-muted-foreground/50">&gt;</span>
+                no assets on-chain
+              </p>
+            )}
+
+            {!loading && !error && assets && assets.length > 0 && (
+              <>
+                <div className="border-b border-border px-4 py-2.5">
+                  <span className={`${sectionLabelClass} uppercase`}>
+                    {assets.length} asset{assets.length === 1 ? '' : 's'} on-chain
+                  </span>
+                </div>
+                <ul className="divide-y divide-border">
+                  {assets.map((asset, i) => {
+                    const mint = asset.mint.toBase58();
+                    const { title, subtitle } = resolveAssetLabel(
+                      mint,
+                      asset.assetId,
+                      byMint,
+                      byId,
+                    );
+                    const pct = (asset.allocationBps / 100).toFixed(2);
+                    return (
+                      <li key={`${mint}-${i}`} className="flex flex-col gap-2 px-4 py-3">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
+                              {title}
                             </span>
-                          )}
-                          <span className="rounded-[2px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                            {asset.route}
+                            {subtitle && (
+                              <span className="font-mono text-[11px] text-muted-foreground">
+                                {subtitle}
+                              </span>
+                            )}
+                            <span className="rounded-[2px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                              {asset.route}
+                            </span>
+                          </div>
+                          <span className="font-mono text-xs tabular-nums text-foreground">
+                            {pct}%
                           </span>
                         </div>
-                        <span className="font-mono text-xs tabular-nums text-foreground">{pct}%</span>
-                      </div>
-                      <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
-                        <div
-                          className="h-full rounded-full bg-accent"
-                          style={{ width: `${Math.min(asset.allocationBps / 100, 100)}%` }}
-                        />
-                      </div>
-                      <span className="font-mono text-[11px] text-muted-foreground/70">
-                        mint {shorten(mint)} · {asset.decimals} dp
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+                        <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
+                          <div
+                            className="h-full rounded-full bg-accent"
+                            style={{
+                              width: `${Math.min(asset.allocationBps / 100, 100)}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="font-mono text-[11px] text-muted-foreground/70">
+                          mint {shorten(mint)} · {asset.decimals} dp
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </div>
         </div>

@@ -30,6 +30,7 @@ import {
   inputClass,
   outputPanelClass,
 } from './ui-classes';
+import { useModalTransition } from './use-modal-transition';
 
 /** Human-readable token amount with thousands separators; exact string math. */
 function formatTokenUi(raw: string, decimals: number): string {
@@ -51,6 +52,8 @@ export function DepositModal({
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
   const { publicKey } = useWallet();
+  const { requestClose, modalClassName, backdropClassName, isClosing } =
+    useModalTransition(onClose);
 
   const [amount, setAmount] = useState('');
   const [minSharesOut, setMinSharesOut] = useState('');
@@ -281,12 +284,17 @@ export function DepositModal({
           }}
         />
       )}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
+        onClick={() => {
+          if (!isClosing) requestClose();
+        }}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Deposit into ${vault.symbol}`}
-        className="cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl"
+        className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
           <div>
@@ -297,7 +305,13 @@ export function DepositModal({
               {vault.symbol} · {vault.name}
             </h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className={btnGhostClass}>
+          <button
+            type="button"
+            onClick={requestClose}
+            disabled={isClosing}
+            aria-label="Close"
+            className={btnGhostClass}
+          >
             Close
           </button>
         </div>
@@ -385,7 +399,15 @@ export function DepositModal({
             disabled={loading || !anchorWallet || insufficientBalance}
             className={btnPrimaryClass}
           >
-            {loading ? 'Processing…' : anchorWallet ? 'Deposit' : 'Connect wallet'}
+            {loading ? (
+              <span className="t-shimmer" data-text="Processing…">
+                Processing…
+              </span>
+            ) : anchorWallet ? (
+              'Deposit'
+            ) : (
+              'Connect wallet'
+            )}
           </button>
 
           {steps.length > 0 && (
