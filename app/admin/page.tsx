@@ -20,45 +20,6 @@ import { AdminWorkspace } from '@/app/components/admin/admin-workspace';
 
 const MICROPRINT = 'CVAULT ADMIN · ON-CHAIN CALLS · DB MANAGEMENT · '.repeat(24);
 
-function NetworkTabs({
-  network,
-  onChange,
-}: {
-  network: Network;
-  onChange: (n: Network) => void;
-}) {
-  // Deployed hosts (Vercel) can never reach a local validator or the SQLite
-  // file on the laptop — only offer localhost when the page itself is local.
-  // Matches app/components/network-toggle.tsx.
-  const options = isLocalOrigin()
-    ? (['localhost', 'mainnet'] as const)
-    : (['mainnet'] as const);
-
-  return (
-    <div className="flex items-center gap-1 rounded-[2px] border border-border-strong p-1" role="tablist" aria-label="Network">
-      {options.map((n) => {
-        const active = network === n;
-        return (
-          <button
-            key={n}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(n)}
-            className={`rounded-[2px] px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.16em] transition-colors ${
-              active
-                ? 'bg-accent text-background'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {n}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function AdminHeader({
   network,
   onNetworkChange,
@@ -87,9 +48,8 @@ function AdminHeader({
         >
           <span aria-hidden>&larr;</span> Back to app
         </Link>
-        <NetworkTabs network={network} onChange={onNetworkChange} />
         <div className="ml-auto flex items-center gap-3 py-2">
-          <WalletButton />
+          <WalletButton network={network} onNetworkChange={onNetworkChange} />
         </div>
       </div>
     </header>
