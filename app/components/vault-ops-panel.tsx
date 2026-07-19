@@ -337,7 +337,19 @@ function OperationAccordion({
 
             {op.id === 'set_paused' && (
               <div>
-                <FieldLabel>Target state</FieldLabel>
+                <div className="mb-2 flex items-baseline justify-between gap-3">
+                  <FieldLabel>Target state</FieldLabel>
+                  <span
+                    className={`inline-flex items-center gap-2 border px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.2em] ${
+                      currentPaused === 'PAUSED'
+                        ? 'border-seal text-seal'
+                        : 'border-moss text-moss'
+                    }`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                    Current · {currentPaused}
+                  </span>
+                </div>
                 <Segmented
                   options={[
                     { label: 'Active', value: 'ACTIVE' },
@@ -362,21 +374,6 @@ function OperationAccordion({
           </div>
 
           <div className="flex flex-col gap-3">
-            {op.id === 'set_paused' && (
-              <div className="mb-2">
-                <FieldLabel>Current</FieldLabel>
-                <span
-                  className={`inline-flex items-center gap-2 border px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.2em] ${
-                    currentPaused === 'PAUSED'
-                      ? 'border-seal text-seal'
-                      : 'border-moss text-moss'
-                  }`}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-current" />● {currentPaused}
-                </span>
-              </div>
-            )}
-
             <button
               type="button"
               onClick={execute}

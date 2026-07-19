@@ -56,7 +56,7 @@ function formatAssetOption(a: AssetRegistryEntry): string {
   const name = a.asset_name?.trim();
   const mint = shortMint(a.mint);
   const title = name ? `${name} · ${mint}` : mint;
-  return `#${a.asset_id} · ${title} (${a.decimals} dec, ${a.route})`;
+  return `#${a.asset_id} · ${title}`;
 }
 
 function SectionDivider({
