@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { NetworkToggle } from './network-toggle';
-import { UnwrapWsolButton } from './unwrap-wsol-button';
 import { WalletButton } from './wallet-button';
 import { ClusterStatusBanner, ClusterStatusChip } from './cluster-status';
 import { SECTION_STYLE, type SectionId } from './function-defs';
@@ -92,9 +91,6 @@ export function SiteNav() {
         <div className="ml-auto flex shrink-0 items-center gap-2 py-2 md:gap-3">
           <ClusterStatusChip />
           <NetworkToggle network={network} onChange={onNetworkChange} />
-          <div className="hidden sm:block">
-            <UnwrapWsolButton network={network} />
-          </div>
           <WalletButton />
         </div>
       </div>
