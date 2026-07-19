@@ -1,11 +1,20 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { parseUnits, PRICE_SCALE_DECIMALS, type Network } from '@/lib/cvault';
 import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
@@ -179,6 +188,20 @@ function OperationAccordion({
   const selectedVault = vaults?.find((v) => String(v.vault_id) === vaultId);
   const currentPaused = appliedPause ?? (selectedVault?.paused ? 'PAUSED' : 'ACTIVE');
 
+  const vaultSelectItems = useMemo(() => {
+    const placeholder = { label: '— select vault —', value: null as string | null };
+    if (!vaults?.length) return [placeholder];
+    return [
+      placeholder,
+      ...vaults.map((v) => ({
+        value: String(v.vault_id),
+        label: `№ ${String(v.vault_id).padStart(2, '0')} · ${v.name}${
+          v.symbol ? ` (${v.symbol})` : ''
+        }`,
+      })),
+    ];
+  }, [vaults]);
+
   const execute = async () => {
     if (!connected || !anchorWallet || !publicKey) {
       setVisible(true);
@@ -299,32 +322,42 @@ function OperationAccordion({
                   </p>
                 </>
               ) : vaults === null ? (
-                <select disabled className="h-11 w-full border border-border-strong bg-foreground/[0.03] px-3.5 font-mono text-xs text-muted-foreground">
-                  <option>Loading vaults…</option>
-                </select>
+                <Select disabled items={[{ label: 'Loading vaults…', value: null }]}>
+                  <SelectTrigger className="text-muted-foreground" aria-busy="true">
+                    <SelectValue placeholder="Loading vaults…" />
+                  </SelectTrigger>
+                </Select>
               ) : vaults.length === 0 ? (
-                <p className="h-11 border border-border-strong bg-foreground/[0.03] px-3.5 font-mono text-xs text-muted-foreground flex items-center">
+                <p className="flex h-11 items-center border border-border-strong bg-foreground/[0.03] px-3.5 font-mono text-xs text-muted-foreground">
                   No vaults recorded on {network} yet.
                 </p>
               ) : (
-                <div className="relative">
-                  <select
-                    value={vaultId}
-                    onChange={(e) => setVaultId(e.target.value)}
-                    className="h-11 w-full appearance-none border border-border-strong bg-foreground/[0.03] px-3.5 pr-9 font-mono text-xs text-foreground focus:border-foreground focus:outline-none"
-                  >
-                    <option value="">— select vault —</option>
-                    {vaults.map((v) => (
-                      <option key={v.vault_id} value={String(v.vault_id)}>
-                        № {String(v.vault_id).padStart(2, '0')} · {v.name}
-                        {v.symbol ? ` (${v.symbol})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                    ▾
-                  </span>
-                </div>
+                <Select
+                  items={vaultSelectItems}
+                  value={vaultId || null}
+                  onValueChange={(v) => setVaultId(v ?? '')}
+                >
+                  <SelectTrigger aria-label="Select vault">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Vaults · {network}</SelectLabel>
+                      {vaultSelectItems
+                        .filter((item): item is { label: string; value: string } => item.value != null)
+                        .map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            <span className="tabular-nums text-seal transition-colors duration-150 group-hover/item:text-primary-foreground group-focus/item:text-primary-foreground group-data-highlighted/item:text-primary-foreground">
+                              № {item.value.padStart(2, '0')}
+                            </span>
+                            <span className="truncate">
+                              {item.label.replace(/^№\s+\d+\s+·\s+/, '')}
+                            </span>
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               )}
             </div>
 

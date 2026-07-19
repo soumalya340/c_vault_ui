@@ -27,6 +27,15 @@ import {
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
 import { showVaultOpsToast } from './vault-ops-toast';
@@ -269,6 +278,17 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
 
   const activeAssets = useMemo(() => registry.filter((a) => a.active), [registry]);
   const assetById = useMemo(() => new Map(registry.map((a) => [a.asset_id, a])), [registry]);
+
+  const assetSelectItems = useMemo(
+    () => [
+      { label: '— pick token —', value: null as string | null },
+      ...activeAssets.map((a) => ({
+        value: a.asset_id,
+        label: formatAssetOption(a),
+      })),
+    ],
+    [activeAssets],
+  );
 
   const allocationTotalBps = rows.reduce((sum, r) => sum + pctToBps(r.allocationPct), 0);
   const allocationTotalPct = (allocationTotalBps / 100).toFixed(2);
@@ -654,8 +674,6 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
 
             <div className="divide-y divide-border">
               {rows.map((row, i) => {
-                const entry = assetById.get(row.assetId);
-                const symbol = entry ? assetLabel(entry) : '';
                 return (
                   <div
                     key={i}
@@ -666,27 +684,74 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                       {String(i + 1).padStart(2, '0')}
                     </span>
 
-                    <div className="relative min-w-0">
-                      <span
-                        className="pointer-events-none absolute left-3.5 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full"
-                        style={{ background: row.assetId ? tokenColor(symbol) : '#C9C8B6' }}
-                      />
-                      <select
-                        value={row.assetId}
-                        onChange={(e) => updateRow(i, { assetId: e.target.value })}
+                    <div className="min-w-0">
+                      <Select
+                        items={assetSelectItems}
+                        value={row.assetId || null}
+                        onValueChange={(v) => updateRow(i, { assetId: v ?? '' })}
                         disabled={!!registryError || activeAssets.length === 0}
-                        className="h-[42px] w-full appearance-none border border-border-strong bg-foreground/[0.03] pl-9 pr-9 font-mono text-[12.5px] text-foreground transition-colors hover:border-border-strong focus:border-foreground focus:outline-none disabled:opacity-50"
                       >
-                        <option value="">— pick token —</option>
-                        {activeAssets.map((a) => (
-                          <option key={a.asset_id} value={a.asset_id}>
-                            {formatAssetOption(a)}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                        ▾
-                      </span>
+                        <SelectTrigger
+                          size="lg"
+                          aria-label={`Token for asset slot ${i + 1}`}
+                          className="min-w-0"
+                        >
+                          <SelectValue>
+                            {(value: string | null) => {
+                              if (!value) {
+                                return (
+                                  <>
+                                    <span
+                                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                      style={{ background: '#C9C8B6' }}
+                                      aria-hidden
+                                    />
+                                    <span className="truncate text-muted-foreground">
+                                      — pick token —
+                                    </span>
+                                  </>
+                                );
+                              }
+                              const entry = assetById.get(value);
+                              const label = entry ? assetLabel(entry) : '';
+                              return (
+                                <>
+                                  <span
+                                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                    style={{
+                                      background: entry
+                                        ? tokenColor(label)
+                                        : '#C9C8B6',
+                                    }}
+                                    aria-hidden
+                                  />
+                                  <span className="truncate">
+                                    {entry ? formatAssetOption(entry) : value}
+                                  </span>
+                                </>
+                              );
+                            }}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectLabel>Registry assets · {network}</SelectLabel>
+                            {activeAssets.map((a) => {
+                              const label = assetLabel(a);
+                              return (
+                                <SelectItem key={a.asset_id} value={a.asset_id}>
+                                  <span
+                                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                    style={{ background: tokenColor(label) }}
+                                    aria-hidden
+                                  />
+                                  <span className="truncate">{formatAssetOption(a)}</span>
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     {/*
