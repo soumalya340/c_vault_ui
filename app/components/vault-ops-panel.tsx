@@ -378,11 +378,7 @@ function OperationAccordion({
               type="button"
               onClick={execute}
               disabled={loading}
-              className={`h-11 w-full font-mono text-[9.5px] font-semibold uppercase tracking-[0.22em] transition-colors ${
-                op.id === 'set_paused'
-                  ? 'border border-border-strong bg-transparent text-foreground hover:border-foreground hover:bg-foreground/[0.03]'
-                  : 'bg-foreground text-background hover:bg-seal'
-              } disabled:cursor-not-allowed disabled:opacity-40`}
+              className="h-11 w-full bg-foreground font-mono text-[9.5px] font-semibold uppercase tracking-[0.22em] text-background transition-colors hover:bg-seal disabled:cursor-not-allowed disabled:opacity-40"
             >
               {loading ? 'Processing…' : connected ? `Execute ${op.name.toLowerCase()}` : 'Connect wallet'}
             </button>
