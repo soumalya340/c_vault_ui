@@ -106,7 +106,7 @@ function TextInput({
 }) {
   return (
     <input
-      className="h-11 w-full border border-border-strong bg-background px-3.5 font-mono text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)] disabled:cursor-default disabled:opacity-70"
+      className="h-11 w-full border border-border-strong bg-background px-3.5 font-mono text-sm text-foreground transition-[color,background-color,border-color,box-shadow] duration-[250ms] placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)] disabled:cursor-default disabled:opacity-70"
       value={value}
       onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       placeholder={placeholder}

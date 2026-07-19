@@ -32,7 +32,7 @@ function TextInput({
 }) {
   return (
     <input
-      className="h-11 w-full border border-border-strong bg-background px-3.5 font-mono text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)]"
+      className="h-11 w-full border border-border-strong bg-background px-3.5 font-mono text-sm text-foreground transition-[color,background-color,border-color,box-shadow] duration-[250ms] placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)]"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -279,7 +279,7 @@ function OperationAccordion({
         className="overflow-hidden transition-[max-height] duration-500 ease-[cubic-bezier(.22,1,.36,1)]"
         style={{ maxHeight: open ? undefined : 0 }}
       >
-        <div className="grid gap-6 px-6 pb-7 pt-2 md:grid-cols-[1fr_220px]">
+        <div className="grid items-end gap-6 px-6 pb-7 pt-2 md:grid-cols-[1fr_220px]">
           <p className="text-sm leading-relaxed text-foreground/80 md:col-span-2">
             {op.description}
           </p>
