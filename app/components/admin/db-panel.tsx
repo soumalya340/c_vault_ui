@@ -1,17 +1,10 @@
 'use client';
 
+import { ListRowsSkeleton } from '../loading-skeletons';
 import { panelClass, btnGhostClass } from '../ui-classes';
 
 export function DbRowSkeleton({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="flex flex-col divide-y divide-border" aria-hidden>
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="px-4 py-3">
-          <div className="h-3.5 w-2/3 max-w-xs animate-pulse rounded-[2px] bg-foreground/[0.08]" />
-        </div>
-      ))}
-    </div>
-  );
+  return <ListRowsSkeleton rows={rows} />;
 }
 
 export function DbPanel({

@@ -8,6 +8,7 @@ import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
+import { FieldSkeleton } from './loading-skeletons';
 import { LedgerOutput } from './ledger-output';
 import { showVaultOpsToast } from './vault-ops-toast';
 
@@ -299,9 +300,7 @@ function OperationAccordion({
                   </p>
                 </>
               ) : vaults === null ? (
-                <select disabled className="h-11 w-full border border-border-strong bg-foreground/[0.03] px-3.5 font-mono text-xs text-muted-foreground">
-                  <option>Loading vaults…</option>
-                </select>
+                <FieldSkeleton />
               ) : vaults.length === 0 ? (
                 <p className="h-11 border border-border-strong bg-foreground/[0.03] px-3.5 font-mono text-xs text-muted-foreground flex items-center">
                   No vaults recorded on {network} yet.
