@@ -179,6 +179,7 @@ function humanizeAssetState(d: Record<string, unknown>): Record<string, unknown>
         : String(d.tokenProgramTag);
   const out: Record<string, unknown> = {
     assetId: d.assetId,
+    name: typeof d.assetName === 'string' && d.assetName ? d.assetName : '—',
     mint: typeof d.mint === 'string' ? shortPubkey(d.mint) : d.mint,
     decimals: d.decimals,
     route: d.route,
