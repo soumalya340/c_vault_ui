@@ -121,32 +121,51 @@ function TextInput({
 function FeeControl({
   value,
   onChange,
+  minBps = 0,
+  maxBps,
 }: {
   value: string;
   onChange: (v: string) => void;
+  minBps?: number;
+  maxBps: number;
 }) {
-  const num = Number(value) || 0;
-  const pct = (num / 100).toFixed(2);
+  const bps = Number(value) || 0;
+  const pct = bps / 100;
+  const minPct = minBps / 100;
+  const maxPct = maxBps / 100;
+
+  const setFromPct = (pctStr: string) => {
+    const n = Number(pctStr);
+    if (!Number.isFinite(n)) {
+      onChange('');
+      return;
+    }
+    const clamped = Math.min(maxBps, Math.max(minBps, Math.round(n * 100)));
+    onChange(String(clamped));
+  };
 
   return (
     <div className="flex h-11 items-center gap-3 border border-border-strong bg-foreground/[0.03] px-3 transition-colors focus-within:border-foreground">
       <input
         type="number"
-        min={0}
-        max={500}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        min={minPct}
+        max={maxPct}
+        step={0.01}
+        value={pct}
+        onChange={(e) => setFromPct(e.target.value)}
         className="w-14 border-0 bg-transparent text-right font-mono text-sm text-foreground focus:outline-none"
       />
       <input
         type="range"
-        min={0}
-        max={500}
-        value={value}
+        min={minBps}
+        max={maxBps}
+        value={bps}
         onChange={(e) => onChange(e.target.value)}
         className="flex-1 accent-seal h-0.5 cursor-pointer"
       />
-      <span className="min-w-[52px] text-right font-mono text-[10px] font-medium text-seal">{pct}%</span>
+      <span className="min-w-[52px] text-right font-mono text-[10px] font-medium text-seal">
+        {pct.toFixed(2)}%
+      </span>
     </div>
   );
 }
@@ -543,15 +562,15 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
             </div>
           </div>
 
-          <SectionDivider title="Economics" side="B · fees in bps" />
+          <SectionDivider title="Economics" side="B · fees in %" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <FieldLabel>Deposit fee (bps)</FieldLabel>
-              <FeeControl value={depositFeeBps} onChange={setDepositFeeBps} />
+              <FieldLabel>Deposit fee (%)</FieldLabel>
+              <FeeControl value={depositFeeBps} onChange={setDepositFeeBps} maxBps={600} />
             </div>
             <div>
-              <FieldLabel>Redeem fee (bps)</FieldLabel>
-              <FeeControl value={redeemFeeBps} onChange={setRedeemFeeBps} />
+              <FieldLabel>Redeem fee (%)</FieldLabel>
+              <FeeControl value={redeemFeeBps} onChange={setRedeemFeeBps} minBps={50} maxBps={1000} />
             </div>
             <div>
               <FieldLabel>
