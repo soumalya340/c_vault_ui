@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-function readCloseMs(): number {
+function readCloseMs(varName: string): number {
   if (typeof document === 'undefined') return 150;
   const v = parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue('--modal-close-dur'),
+    getComputedStyle(document.documentElement).getPropertyValue(varName),
   );
   return Number.isFinite(v) ? v : 150;
 }
@@ -41,7 +41,7 @@ export function useModalTransition(onClose: () => void) {
     closingRef.current = true;
     setIsOpen(false);
     setIsClosing(true);
-    const ms = readCloseMs();
+    const ms = readCloseMs('--modal-close-dur');
     window.setTimeout(() => {
       onCloseRef.current();
     }, ms);
@@ -61,8 +61,16 @@ export function useModalTransition(onClose: () => void) {
 /**
  * Controlled modal (e.g. wallet adapter `visible`). Stays mounted through
  * the close animation when `visible` flips false.
+ * Optional `config` lets non-modal consumers (dropdowns) reuse the same lifecycle
+ * with their own class prefix and close-duration CSS variable.
  */
-export function useControlledModalTransition(visible: boolean) {
+export function useControlledModalTransition(
+  visible: boolean,
+  config?: { classPrefix?: string; closeDurationVar?: string },
+) {
+  const classPrefix = config?.classPrefix ?? 'modal';
+  const closeDurationVar = config?.closeDurationVar ?? '--modal-close-dur';
+
   const [mounted, setMounted] = useState(visible);
   const [phase, setPhase] = useState<'hidden' | 'open' | 'closing'>('hidden');
   const [prevVisible, setPrevVisible] = useState(visible);
@@ -91,21 +99,21 @@ export function useControlledModalTransition(visible: boolean) {
     }
 
     if (!visible && phase === 'closing') {
-      const ms = readCloseMs();
+      const ms = readCloseMs(closeDurationVar);
       const t = window.setTimeout(() => {
         setMounted(false);
         setPhase('hidden');
       }, ms);
       return () => window.clearTimeout(t);
     }
-  }, [visible, phase, mounted]);
+  }, [visible, phase, mounted, closeDurationVar]);
 
   const stateClass =
     phase === 'open' ? 'is-open' : phase === 'closing' ? 'is-closing' : '';
 
   return {
     mounted,
-    modalClassName: `t-modal ${stateClass}`.trim(),
-    backdropClassName: `t-modal-backdrop ${stateClass}`.trim(),
+    modalClassName: `t-${classPrefix} ${stateClass}`.trim(),
+    backdropClassName: `t-${classPrefix}-backdrop ${stateClass}`.trim(),
   };
 }

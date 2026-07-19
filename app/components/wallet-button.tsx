@@ -6,6 +6,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { ADMIN_PUBKEY } from '@/lib/constants';
 import { PORTFOLIO_ROUTE } from './console-routes';
+import { useControlledModalTransition } from './use-modal-transition';
 
 const connectClassName =
   'rounded-[2px] border border-border-strong bg-background px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.12em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
@@ -18,6 +19,10 @@ export function WalletButton() {
   const { setVisible } = useWalletModal();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { mounted, modalClassName } = useControlledModalTransition(menuOpen, {
+    classPrefix: 'dropdown',
+    closeDurationVar: '--dropdown-close-dur',
+  });
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -75,10 +80,10 @@ export function WalletButton() {
         </svg>
       </button>
 
-      {menuOpen && (
+      {mounted && (
         <div
           role="menu"
-          className="cert-frame absolute right-0 z-50 mt-2 min-w-[200px] overflow-hidden bg-background py-1 shadow-xl"
+          className={`cert-frame absolute right-0 z-50 mt-2 min-w-[200px] overflow-hidden bg-background py-1 shadow-xl ${modalClassName}`}
         >
           {wallet?.adapter.name && (
             <div className="border-b border-border px-4 py-2">

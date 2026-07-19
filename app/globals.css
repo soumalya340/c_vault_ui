@@ -6,13 +6,16 @@
 
 :root {
   color-scheme: light;
-  /* Specimen-note palette: engraved certificate on sage banknote paper */
-  --accent: oklch(0.97 0 0);
+  /* Specimen-note palette: engraved certificate on sage banknote paper.
+     Brand tokens win over shadcn defaults — do not replace with stock white/neutral light theme. */
+  --background: #E5E8DB;
+  --foreground: #17251C;
+  --accent: #2E5C44;
   --position: #5E4B8A;
   --seal: #A63A2B;
-  --destructive: oklch(0.577 0.245 27.325);
-  --muted-foreground: oklch(0.556 0 0);
-  --border: oklch(0.922 0 0);
+  --destructive: #96301F;
+  --muted-foreground: rgba(23, 37, 28, 0.62);
+  --border: rgba(23, 37, 28, 0.22);
   --border-strong: rgba(23, 37, 28, 0.55);
 
   /* ── transitions-dev motion tokens ───────────────────────────── */
@@ -80,34 +83,34 @@
   --stagger-stagger: 40ms;
   --stagger-blur: 3px;
   --stagger-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+
+  /* shadcn structural tokens mapped onto specimen-note (not stock white) */
+  --card: #E5E8DB;
+  --card-foreground: #17251C;
+  --popover: #E5E8DB;
+  --popover-foreground: #17251C;
+  --primary: #2E5C44;
+  --primary-foreground: #E5E8DB;
+  --secondary: color-mix(in srgb, #17251C 8%, #E5E8DB);
+  --secondary-foreground: #17251C;
+  --muted: color-mix(in srgb, #17251C 6%, #E5E8DB);
+  --accent-foreground: #E5E8DB;
+  --input: rgba(23, 37, 28, 0.22);
+  --ring: #2E5C44;
+  --chart-1: #2E5C44;
+  --chart-2: #5E4B8A;
+  --chart-3: #A63A2B;
+  --chart-4: rgba(23, 37, 28, 0.55);
+  --chart-5: #17251C;
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: #E5E8DB;
+  --sidebar-foreground: #17251C;
+  --sidebar-primary: #2E5C44;
+  --sidebar-primary-foreground: #E5E8DB;
+  --sidebar-accent: color-mix(in srgb, #17251C 8%, #E5E8DB);
+  --sidebar-accent-foreground: #17251C;
+  --sidebar-border: rgba(23, 37, 28, 0.22);
+  --sidebar-ring: #2E5C44;
 }
 
 @theme inline {
@@ -159,6 +162,8 @@
 }
 
 body {
+  background-color: var(--background);
+  color: var(--foreground);
   font-family: var(--font-sans), sans-serif;
   /* Laid-paper texture: fine horizontal chain lines, like security paper */
   background-image: repeating-linear-gradient(
