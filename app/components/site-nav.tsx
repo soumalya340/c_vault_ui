@@ -2,14 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { NetworkToggle } from './network-toggle';
-import { UnwrapWsolButton } from './unwrap-wsol-button';
 import { WalletButton } from './wallet-button';
 import { ClusterStatusBanner, ClusterStatusChip } from './cluster-status';
 import { SECTION_STYLE, type SectionId } from './function-defs';
 import { SECTION_META } from './section-header';
 import {
   HOME_ROUTE,
+  PORTFOLIO_ROUTE,
   pathnameToConsoleView,
   sectionPath,
 } from './console-routes';
@@ -65,10 +64,22 @@ function NavTabs({ className }: { className?: string }) {
   );
 }
 
+function BackToApp() {
+  return (
+    <Link
+      href={HOME_ROUTE}
+      className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <span aria-hidden>&larr;</span> Back to app
+    </Link>
+  );
+}
+
 export function SiteNav() {
   const pathname = usePathname();
   const { network, onNetworkChange } = useConsoleNetwork();
   const isHome = pathname === HOME_ROUTE;
+  const isPortfolio = pathname === PORTFOLIO_ROUTE;
 
   return (
     <header className="sticky top-0 z-50 border-b-[1.5px] border-border-strong bg-background/95 backdrop-blur-sm">
@@ -83,23 +94,25 @@ export function SiteNav() {
             cVault<span className="text-seal">&#8314;</span>
           </span>
           <span className="hidden font-mono text-[8px] uppercase tracking-[0.24em] text-muted-foreground xl:inline">
-            Operations console
+            {isPortfolio ? 'Portfolio' : 'Operations console'}
           </span>
         </Link>
 
-        <NavTabs className="hidden self-stretch divide-x divide-border border-x border-border lg:flex" />
+        {isPortfolio ? (
+          <BackToApp />
+        ) : (
+          <NavTabs className="hidden self-stretch divide-x divide-border border-x border-border lg:flex" />
+        )}
 
         <div className="ml-auto flex shrink-0 items-center gap-2 py-2 md:gap-3">
           <ClusterStatusChip />
-          <NetworkToggle network={network} onChange={onNetworkChange} />
-          <div className="hidden sm:block">
-            <UnwrapWsolButton network={network} />
-          </div>
-          <WalletButton />
+          <WalletButton network={network} onNetworkChange={onNetworkChange} />
         </div>
       </div>
 
-      <NavTabs className="flex divide-x divide-border border-t border-border lg:hidden" />
+      {!isPortfolio && (
+        <NavTabs className="flex divide-x divide-border border-t border-border lg:hidden" />
+      )}
 
       <ClusterStatusBanner />
     </header>

@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { ADMIN_PUBKEY } from '@/lib/constants';
+import type { Network } from '@/app/providers';
 import { PORTFOLIO_ROUTE } from './console-routes';
+import { NetworkToggle } from './network-toggle';
 import { useControlledModalTransition } from './use-modal-transition';
 
 const connectClassName =
@@ -14,7 +16,16 @@ const connectClassName =
 const connectedClassName =
   'flex items-center gap-2 rounded-[2px] border border-border-strong bg-background px-3.5 py-2 text-sm font-semibold text-foreground transition-colors duration-150 hover:border-accent hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
-export function WalletButton() {
+const menuItemClassName =
+  'block w-full border-b border-border px-4 py-2.5 text-left font-[family-name:var(--font-saira-condensed)] text-base font-bold capitalize tracking-[0.02em] text-foreground transition-colors hover:bg-foreground/5';
+
+export function WalletButton({
+  network,
+  onNetworkChange,
+}: {
+  network: Network;
+  onNetworkChange: (network: Network) => void;
+}) {
   const { publicKey, connected, disconnect, wallet } = useWallet();
   const { setVisible } = useWalletModal();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -37,11 +48,15 @@ export function WalletButton() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpen]);
 
+  // Disconnected: keep network reachable next to Connect (no dropdown yet).
   if (!connected || !publicKey) {
     return (
-      <button type="button" onClick={() => setVisible(true)} className={connectClassName}>
-        Connect wallet
-      </button>
+      <div className="flex items-center gap-2">
+        <NetworkToggle network={network} onChange={onNetworkChange} />
+        <button type="button" onClick={() => setVisible(true)} className={connectClassName}>
+          Connect wallet
+        </button>
+      </div>
     );
   }
 
@@ -83,7 +98,7 @@ export function WalletButton() {
       {mounted && (
         <div
           role="menu"
-          className={`cert-frame absolute right-0 z-50 mt-2 min-w-[200px] overflow-hidden bg-background py-1 shadow-xl ${modalClassName}`}
+          className={`cert-frame absolute right-0 z-50 mt-2 min-w-[220px] overflow-hidden bg-background py-1 shadow-xl ${modalClassName}`}
         >
           {wallet?.adapter.name && (
             <div className="border-b border-border px-4 py-2">
@@ -93,11 +108,19 @@ export function WalletButton() {
               </p>
             </div>
           )}
+
+          <div className="border-b border-border px-4 py-3">
+            <p className="mb-2 font-mono text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              Network
+            </p>
+            <NetworkToggle network={network} onChange={onNetworkChange} />
+          </div>
+
           <Link
             href={PORTFOLIO_ROUTE}
             role="menuitem"
             onClick={() => setMenuOpen(false)}
-            className="block w-full border-b border-border px-4 py-2.5 text-left font-[family-name:var(--font-saira-condensed)] text-base font-bold capitalize tracking-[0.02em] text-foreground transition-colors hover:bg-foreground/5"
+            className={menuItemClassName}
           >
             Portfolio
           </Link>
@@ -106,9 +129,9 @@ export function WalletButton() {
               href="/admin"
               role="menuitem"
               onClick={() => setMenuOpen(false)}
-              className="block w-full border-b border-border px-4 py-2.5 text-left font-[family-name:var(--font-saira-condensed)] text-base font-bold capitalize tracking-[0.02em] text-foreground transition-colors hover:bg-foreground/5"
+              className={menuItemClassName}
             >
-              Dashboard
+              Admin Dashboard
             </Link>
           )}
           <button

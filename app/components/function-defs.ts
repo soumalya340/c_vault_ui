@@ -65,12 +65,6 @@ const VIEW_VAULT_ID_FIELD: FieldDef = {
   hint: 'Pick a vault from the registry.',
 };
 
-const VIEW_ASSET_ID_FIELD: FieldDef = {
-  ...ASSET_ID_FIELD,
-  label: 'Asset',
-  hint: 'Pick an asset from the registry.',
-};
-
 export const VIEW_FUNCTIONS: FunctionDef[] = [
   {
     id: 'view_vault_state',
@@ -98,15 +92,6 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
       'Live token balance the vault holds for each asset — read from each asset ATA on-chain and shown in human-readable units.',
     fields: [VIEW_VAULT_ID_FIELD],
     submitLabel: 'Fetch asset balances',
-  },
-  {
-    id: 'view_asset_state',
-    number: '04',
-    title: 'Asset State',
-    description:
-      'Read a single admin-listed AssetInfo account by asset id: mint, pools, price source, route, decimals, active flag.',
-    fields: [VIEW_ASSET_ID_FIELD],
-    submitLabel: 'Fetch asset',
   },
 ];
 
@@ -342,12 +327,25 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
     number: '08',
     title: 'Update DEX TWAP',
     description:
-      'Keeper-only: push a live price observation into TWAP for one DEX-priced asset. Rejected if the asset is Pyth-priced or the connected wallet isn’t the configured TWAP keeper.',
+      'Keeper-only: push a live price observation into TWAP for one DEX-priced asset. Rejected if the asset is Pyth-priced or the connected wallet isn\'t the configured TWAP keeper.',
     fields: [
       ASSET_ID_FIELD,
       { name: 'twap_live_state', label: 'Live price (x64 fixed-point)', type: 'number', placeholder: '0' },
     ],
     submitLabel: 'Push TWAP observation',
+  },
+];
+
+/** Admin dashboard read plate — inspection only, no wallet required. */
+export const ADMIN_VIEW_FUNCTIONS: FunctionDef[] = [
+  {
+    id: 'view_asset_state',
+    number: '01',
+    title: 'Asset State',
+    description:
+      'Read a single admin-listed AssetInfo account by asset id: mint, name, pools, price source, route, decimals, active flag.',
+    fields: [ASSET_ID_FIELD],
+    submitLabel: 'Fetch asset',
   },
 ];
 

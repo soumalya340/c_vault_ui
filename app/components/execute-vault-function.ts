@@ -175,8 +175,16 @@ export async function executeVaultFunction(
     case 'view_my_position':
       if (!publicKey) throw new Error('Connect wallet');
       return humanizeViewResult(fnId, await getUserPosition(connection, id, publicKey, net));
-    case 'view_asset_state':
-      return humanizeViewResult(fnId, await getAssetState(connection, assetId(v)));
+    case 'view_asset_state': {
+      const assetIdNum = assetId(v);
+      const [state, registry] = await Promise.all([
+        getAssetState(connection, assetIdNum),
+        fetchAssetRegistry(net).catch(() => []),
+      ]);
+      const entry = registry.find((r) => Number(r.asset_id) === assetIdNum);
+      const enriched = { ...state, assetName: entry?.asset_name?.trim() || null };
+      return humanizeViewResult(fnId, enriched);
+    }
     case 'init_global_state': {
       if (!anchorWallet) throw new Error('Wallet required');
       // Nothing is read from the form — the genesis wSOL asset is fully

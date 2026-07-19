@@ -3,7 +3,6 @@
 import { VaultOpsHero } from '@/app/components/vault-ops-hero';
 import { VaultOpsTicker } from '@/app/components/vault-ops-ticker';
 import { VaultOpsCreatePanel } from '@/app/components/vault-ops-create-panel';
-import { VaultOpsPanel } from '@/app/components/vault-ops-panel';
 import { VaultOpsToast } from '@/app/components/vault-ops-toast';
 import { useConsoleNetwork } from '@/app/components/console-shell';
 
@@ -15,7 +14,6 @@ export default function VaultsOpsPage() {
       <VaultOpsTicker />
       <VaultOpsHero network={network} />
       <VaultOpsCreatePanel key={`create-${network}`} network={network} />
-      <VaultOpsPanel key={`ops-${network}`} network={network} />
       <VaultOpsToast />
     </div>
   );
