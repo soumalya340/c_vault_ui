@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-19 — `new_ui/portfolio-vault-ops-relocation`
+
+### Changes
+- Moved **Vault Operations** (Genesis deposit, Set vault paused, Set fee recipient) off the Vault Ops plate (№03) and into **Portfolio → My Vaults**, inline under each vault's **Manage** row. Vault creation (Create ETF) stays on Vault Ops unchanged.
+- `VaultOpsPanel` is now scoped to a single vault (`vault` prop) instead of listing every vault in a dropdown — since Manage is clicked from a known vault row, the vault selector was removed from all three operations (it was redundant with the row/panel header already showing which vault is active).
+- Removed the **Vault TVL** stat from each My Vaults row (redundant with data shown elsewhere).
+- `/portfolio` no longer shows the 01 VIEW / 02 VAULTS / 03 VAULT OPS section tabs in the header — it's a wallet-scoped destination (reached from the wallet menu, like Admin Dashboard), not a console section. Header now shows a **"← Back to app"** link and a "Portfolio" sublabel, mirroring the existing `/admin` header pattern.
+
+### Reason
+Vault Operations are per-vault manager actions; picking a vault twice (once to get to Vault Ops, again from a dropdown) was redundant when the operator already clicked Manage from that vault's row in Portfolio. Portfolio's nav also inherited the 3-tab console chrome even though it isn't one of the three sections — same category as `/admin`, which already gets its own back-link header instead of tabs.
+
+### Files changed
+- `app/(console)/vaults-ops/page.tsx` — removed `VaultOpsPanel`; Create ETF panel unchanged
+- `app/components/vault-ops-panel.tsx` — `VaultOpsPanel` now takes `vault: VaultRecord` instead of listing/selecting vaults; removed vault dropdown/readout from all 3 operations; lighter chrome for inline embedding
+- `app/components/portfolio-panel.tsx` — My Vaults rows: Manage button toggles inline `VaultOpsPanel` per vault; removed Vault TVL stat
+- `app/components/site-nav.tsx` — `/portfolio` renders "← Back to app" instead of section tabs, with a "Portfolio" header sublabel
+- `Changelog.md` — this entry
+
+---
+
 ## 2026-07-19 — `admin/asset-state-to-onchain-calls`
 
 ### Changes

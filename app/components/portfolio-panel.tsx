@@ -16,6 +16,7 @@ import { formatTokenUi, formatUsdUi } from '@/app/components/view-display';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
+import { VaultOpsPanel } from './vault-ops-panel';
 import {
   MetricStripSkeleton,
   PortfolioListSkeleton,
@@ -62,6 +63,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
   const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
   const [createdVaults, setCreatedVaults] = useState<VaultRecord[]>([]);
   const [tab, setTab] = useState<'vaults' | 'positions'>('vaults');
+  const [expandedVaultId, setExpandedVaultId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [depositTarget, setDepositTarget] = useState<
@@ -343,58 +345,70 @@ export function PortfolioPanel({ network }: { network: Network }) {
                 </div>
               ) : (
                 <ul className='divide-y divide-border'>
-                  {createdVaults.map((v) => (
-                    <li
-                      key={v.vault_address}
-                      className='flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-foreground/[0.02] sm:flex-row sm:items-center sm:justify-between md:px-6'
-                    >
-                      <div className='min-w-0'>
-                        <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1.5'>
-                          <span className='font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal'>
-                            &#8470;&nbsp;CVLT-{v.vault_id}
-                          </span>
-                          <span className='text-sm font-medium tracking-[-0.01em] text-foreground'>
-                            {v.symbol}
-                          </span>
-                          <span className='truncate text-sm text-muted-foreground'>
-                            {v.name}
-                          </span>
-                          <span
-                            className='rounded-[2px] border border-border-strong px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase leading-none tracking-[0.1em] text-muted-foreground'
-                            title={`${v.fund_type === 'fixed' ? 'Fixed' : 'Dynamic'} basket · ${v.num_assets} asset${v.num_assets === 1 ? '' : 's'}`}
-                          >
-                            {v.fund_type === 'fixed' ? 'Fixed' : 'Dynamic'} ·{' '}
-                            {v.num_assets}
-                          </span>
+                  {createdVaults.map((v) => {
+                    const isExpanded = expandedVaultId === v.vault_id;
+                    return (
+                      <li key={v.vault_address}>
+                        <div className='flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-foreground/[0.02] sm:flex-row sm:items-center sm:justify-between md:px-6'>
+                          <div className='min-w-0'>
+                            <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1.5'>
+                              <span className='font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal'>
+                                &#8470;&nbsp;CVLT-{v.vault_id}
+                              </span>
+                              <span className='text-sm font-medium tracking-[-0.01em] text-foreground'>
+                                {v.symbol}
+                              </span>
+                              <span className='truncate text-sm text-muted-foreground'>
+                                {v.name}
+                              </span>
+                              <span
+                                className='rounded-[2px] border border-border-strong px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase leading-none tracking-[0.1em] text-muted-foreground'
+                                title={`${v.fund_type === 'fixed' ? 'Fixed' : 'Dynamic'} basket · ${v.num_assets} asset${v.num_assets === 1 ? '' : 's'}`}
+                              >
+                                {v.fund_type === 'fixed' ? 'Fixed' : 'Dynamic'} ·{' '}
+                                {v.num_assets}
+                              </span>
+                            </div>
+                            <div className='mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground'>
+                              <span>vault {shorten(v.vault_address)}</span>
+                              {v.paused ? (
+                                <span className='text-destructive'>paused</span>
+                              ) : null}
+                              {heldVaultIds.has(v.vault_id) && (
+                                <span>you also hold shares</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className='flex items-center gap-4 sm:text-right'>
+                            <button
+                              type='button'
+                              onClick={() =>
+                                setExpandedVaultId((cur) =>
+                                  cur === v.vault_id ? null : v.vault_id,
+                                )
+                              }
+                              aria-expanded={isExpanded}
+                              className={`${btnGhostClass} inline-flex items-center gap-1.5`}
+                            >
+                              {isExpanded ? 'Close' : 'Manage'}
+                              <span
+                                className={`text-[10px] transition-transform duration-300 ${isExpanded ? '-rotate-90' : ''}`}
+                                aria-hidden
+                              >
+                                {isExpanded ? '✕' : '→'}
+                              </span>
+                            </button>
+                          </div>
                         </div>
-                        <div className='mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground'>
-                          <span>vault {shorten(v.vault_address)}</span>
-                          {v.paused ? (
-                            <span className='text-destructive'>paused</span>
-                          ) : null}
-                          {heldVaultIds.has(v.vault_id) && (
-                            <span>you also hold shares</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className='flex items-center gap-4 sm:text-right'>
-                        <div>
-                          <span className='block font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground'>
-                            Vault TVL
-                          </span>
-                          <span className='font-mono text-sm font-semibold tabular-nums text-foreground'>
-                            {formatUsdUi(v.total_usdc_value, USDC_DECIMALS)}
-                          </span>
-                        </div>
-                        <Link
-                          href={sectionPath('vault-ops')}
-                          className={btnGhostClass}
-                        >
-                          Manage &rarr;
-                        </Link>
-                      </div>
-                    </li>
-                  ))}
+
+                        {isExpanded && (
+                          <div className='border-t border-border-strong bg-foreground/[0.015] px-5 py-5 md:px-6'>
+                            <VaultOpsPanel network={network} vault={v} />
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </>

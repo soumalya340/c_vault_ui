@@ -4,11 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { parseUnits, PRICE_SCALE_DECIMALS, type Network } from '@/lib/cvault';
-import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
+import type { VaultRecord } from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
-import { FieldSkeleton } from './loading-skeletons';
 import { LedgerOutput } from './ledger-output';
 import { showVaultOpsToast } from './vault-ops-toast';
 
@@ -74,30 +73,6 @@ function Segmented({
   );
 }
 
-function useVaultOptions(active: boolean, network: Network) {
-  const [vaults, setVaults] = useState<VaultRecord[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    fetchVaults(network)
-      .then((rows) => {
-        if (cancelled) return;
-        setVaults(rows.sort((a, b) => a.vault_id - b.vault_id));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [active, network]);
-
-  return { vaults, error };
-}
-
 interface OpsResult {
   type: 'success' | 'error' | 'info';
   text: string;
@@ -142,11 +117,13 @@ const OPERATIONS: OperationDef[] = [
 function OperationAccordion({
   op,
   network,
+  vault,
   open,
   onToggle,
 }: {
   op: OperationDef;
   network: Network;
+  vault: VaultRecord;
   open: boolean;
   onToggle: () => void;
 }) {
@@ -154,9 +131,8 @@ function OperationAccordion({
   const anchorWallet = useAnchorWallet();
   const { publicKey, connected } = useWallet();
   const { setVisible } = useWalletModal();
-  const { vaults, error: vaultsError } = useVaultOptions(open, network);
 
-  const [vaultId, setVaultId] = useState('');
+  const vaultId = String(vault.vault_id);
   const [amount, setAmount] = useState('');
   const [pausedTarget, setPausedTarget] = useState<'ACTIVE' | 'PAUSED'>('ACTIVE');
   const [appliedPause, setAppliedPause] = useState<'ACTIVE' | 'PAUSED' | null>(null);
@@ -175,18 +151,13 @@ function OperationAccordion({
     } else if (bodyRef.current) {
       bodyRef.current.style.maxHeight = '0px';
     }
-  }, [open, vaults, result, loading]);
+  }, [open, result, loading]);
 
-  const selectedVault = vaults?.find((v) => String(v.vault_id) === vaultId);
-  const currentPaused = appliedPause ?? (selectedVault?.paused ? 'PAUSED' : 'ACTIVE');
+  const currentPaused = appliedPause ?? (vault.paused ? 'PAUSED' : 'ACTIVE');
 
   const execute = async () => {
     if (!connected || !anchorWallet || !publicKey) {
       setVisible(true);
-      return;
-    }
-    if (!vaultId) {
-      showVaultOpsToast('SELECT A VAULT');
       return;
     }
 
@@ -286,47 +257,6 @@ function OperationAccordion({
           </p>
 
           <div className="space-y-4">
-            <div>
-              <FieldLabel>Vault</FieldLabel>
-              {vaultsError ? (
-                <>
-                  <TextInput
-                    value={vaultId}
-                    onChange={setVaultId}
-                    placeholder="0"
-                  />
-                  <p className="mt-1.5 font-mono text-xs text-destructive">
-                    Couldn&rsquo;t load vaults — enter the id manually.
-                  </p>
-                </>
-              ) : vaults === null ? (
-                <FieldSkeleton />
-              ) : vaults.length === 0 ? (
-                <p className="h-11 border border-border-strong bg-foreground/[0.03] px-3.5 font-mono text-xs text-muted-foreground flex items-center">
-                  No vaults recorded on {network} yet.
-                </p>
-              ) : (
-                <div className="relative">
-                  <select
-                    value={vaultId}
-                    onChange={(e) => setVaultId(e.target.value)}
-                    className="h-11 w-full appearance-none border border-border-strong bg-foreground/[0.03] px-3.5 pr-9 font-mono text-xs text-foreground focus:border-foreground focus:outline-none"
-                  >
-                    <option value="">— select vault —</option>
-                    {vaults.map((v) => (
-                      <option key={v.vault_id} value={String(v.vault_id)}>
-                        № {String(v.vault_id).padStart(2, '0')} · {v.name}
-                        {v.symbol ? ` (${v.symbol})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                    ▾
-                  </span>
-                </div>
-              )}
-            </div>
-
             {op.id === 'genesis_deposit' && (
               <div>
                 <FieldLabel>Opening share price ($)</FieldLabel>
@@ -422,34 +352,40 @@ function OperationAccordion({
   );
 }
 
-export function VaultOpsPanel({ network }: { network: Network }) {
+export function VaultOpsPanel({
+  network,
+  vault,
+}: {
+  network: Network;
+  vault: VaultRecord;
+}) {
   const [openId, setOpenId] = useState<string>('genesis_deposit');
 
   return (
-    <section className="border border-border-strong bg-background p-1.5 opacity-0 translate-y-6 transition-all duration-700 ease-[cubic-bezier(.22,1,.36,1)] data-[in=true]:opacity-100 data-[in=true]:translate-y-0"
-      data-in="true"
+    <section
+      className="border border-border bg-foreground/[0.015] motion-safe:animate-[cert-fadeup_0.4s_ease_both]"
+      aria-label={`Vault operations · CVLT-${vault.vault_id}`}
     >
-      <div className="border border-border">
-        <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border px-6 py-4">
-          <div className="flex min-w-0 items-baseline gap-3 font-display text-lg font-semibold uppercase tracking-[0.1em] text-seal">
-            Vault Operations
-          </div>
-          <span className="min-w-0 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-            3 instruments · series 2026
-          </span>
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border px-6 py-4">
+        <div className="flex min-w-0 items-baseline gap-3 font-display text-base font-semibold uppercase tracking-[0.1em] text-seal">
+          Vault Operations
         </div>
+        <span className="min-w-0 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+          3 instruments · series 2026
+        </span>
+      </div>
 
-        <div>
-          {OPERATIONS.map((op) => (
-            <OperationAccordion
-              key={op.id}
-              op={op}
-              network={network}
-              open={openId === op.id}
-              onToggle={() => setOpenId((cur) => (cur === op.id ? '' : op.id))}
-            />
-          ))}
-        </div>
+      <div>
+        {OPERATIONS.map((op) => (
+          <OperationAccordion
+            key={op.id}
+            op={op}
+            network={network}
+            vault={vault}
+            open={openId === op.id}
+            onToggle={() => setOpenId((cur) => (cur === op.id ? '' : op.id))}
+          />
+        ))}
       </div>
     </section>
   );
