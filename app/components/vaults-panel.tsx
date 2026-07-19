@@ -24,6 +24,7 @@ import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { ErrorModal } from './error-modal';
 import { SECTION_STYLE } from './function-defs';
+import { AssetRowsSkeleton, VaultListSkeleton } from './loading-skeletons';
 import { btnGhostClass, btnPrimaryClass, btnSecondaryClass, panelClass, sectionLabelClass } from './ui-classes';
 
 const VAULTS_PER_PAGE = 6;
@@ -276,14 +277,7 @@ function VaultAssetsView({
       <div className="t-acc-panel">
         <div className="t-acc-panel-inner">
           <div className="mt-3 rounded-[2px] border border-border-strong bg-foreground/[0.03]">
-            {loading && (
-              <p className="px-4 py-4 font-mono text-xs text-muted-foreground">
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                <span className="t-shimmer" data-text="reading on-chain…">
-                  reading on-chain…
-                </span>
-              </p>
-            )}
+            {loading && <AssetRowsSkeleton rows={3} />}
 
             {!loading && error && (
               <p className="px-4 py-4 font-mono text-xs text-destructive">
@@ -456,12 +450,7 @@ export function VaultsPanel({ network }: { network: Network }) {
           </div>
         </div>
 
-        {loading && (
-          <p className="px-5 py-6 font-mono text-xs text-muted-foreground md:px-6">
-            <span className="mr-2 text-muted-foreground/50">&gt;</span>
-            Fetching vaults…
-          </p>
-        )}
+        {loading && <VaultListSkeleton rows={3} />}
 
         {!loading && error && (
           <p className="px-5 py-6 font-mono text-xs text-destructive md:px-6">

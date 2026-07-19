@@ -25,6 +25,7 @@ import {
   type SectionId,
 } from './function-defs';
 import { ErrorModal } from './error-modal';
+import { FieldSkeleton } from './loading-skeletons';
 import { LedgerOutput } from './ledger-output';
 import {
   btnPrimaryClass,
@@ -658,6 +659,8 @@ export function AccordionItem({
                   <p className="font-mono text-xs text-destructive">
                     Couldn&rsquo;t load presets — {presetPicker.message}
                   </p>
+                ) : presetPicker.status === 'loading' ? (
+                  <FieldSkeleton />
                 ) : presetPicker.status === 'ready' && presetPicker.options.length === 0 ? (
                   <p className="font-mono text-xs text-muted-foreground">
                     Every cataloged preset is already listed on {network}.
@@ -666,13 +669,10 @@ export function AccordionItem({
                   <select
                     id="create-asset-preset"
                     className={selectClass}
-                    disabled={presetPicker.status !== 'ready'}
                     value=""
                     onChange={(e) => e.target.value && fillFromPreset(e.target.value)}
                   >
-                    <option value="">
-                      {presetPicker.status === 'loading' ? 'Loading presets…' : 'Choose a preset to autofill…'}
-                    </option>
+                    <option value="">Choose a preset to autofill…</option>
                     {presetPicker.status === 'ready' &&
                       presetPicker.options.map((p) => (
                         <option key={p.preset_key} value={p.preset_key}>
@@ -782,11 +782,7 @@ export function AccordionItem({
                           );
                         }
                         if (opts?.status !== 'ready') {
-                          return (
-                            <select id={fieldId} value="" disabled className={fieldInputClass}>
-                              <option value="">Loading {noun}…</option>
-                            </select>
-                          );
+                          return <FieldSkeleton />;
                         }
                         if (opts.options.length === 0) {
                           return (

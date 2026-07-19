@@ -13,8 +13,13 @@ import {
   type PortfolioSnapshot,
 } from '@/lib/portfolio';
 import { formatTokenUi, formatUsdUi } from '@/app/components/view-display';
+import { Skeleton } from '@/components/ui/skeleton';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
+import {
+  MetricStripSkeleton,
+  PortfolioListSkeleton,
+} from './loading-skeletons';
 import {
   btnGhostClass,
   btnPrimaryClass,
@@ -183,6 +188,8 @@ export function PortfolioPanel({ network }: { network: Network }) {
           </div>
         </div>
 
+        {connected && loading && <MetricStripSkeleton />}
+
         {connected && snapshot && !loading && (
           <div className='grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-4'>
             <Metric
@@ -223,13 +230,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
           </div>
         )}
 
-        {connected && loading && (
-          <p className='px-5 py-8 font-mono text-xs text-muted-foreground md:px-6'>
-            <span className='mr-2 text-muted-foreground/50'>&gt;</span>
-            Scanning chartered vaults and share accounts across the series…
-          </p>
-        )}
-
         {connected && !loading && error && (
           <div className='flex flex-col gap-3 px-5 py-8 md:px-6'>
             <p className='font-mono text-xs text-destructive'>
@@ -242,6 +242,15 @@ export function PortfolioPanel({ network }: { network: Network }) {
           </div>
         )}
       </div>
+
+      {connected && loading && (
+        <div className={`${panelClass} overflow-hidden`}>
+          <div className='border-b border-border-strong px-5 py-3.5 md:px-6'>
+            <Skeleton className='h-3 w-28 rounded-[2px]' />
+          </div>
+          <PortfolioListSkeleton rows={3} />
+        </div>
+      )}
 
       {connected && !loading && !error && (
         <div className={`${panelClass} overflow-hidden`}>
