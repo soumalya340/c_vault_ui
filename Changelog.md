@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-07-19 — `admin/asset-state-to-onchain-calls`
+
+### Changes
+- Moved **Asset State** (`view_asset_state`) from View plate (№04 under Read operations) to **Admin → On-chain calls** plate as №09.
+- Added registry **name** enrichment to Asset State output — the admin now sees the human-readable asset name alongside on-chain fields.
+- Changed wallet dropdown link text from **"Dashboard"** to **"Admin Dashboard"** for clarity.
+- Removed unused `VIEW_ASSET_ID_FIELD` constant; Asset State now uses `ASSET_ID_FIELD` like other admin functions.
+
+### Files changed
+- `app/components/function-defs.ts` — moved `view_asset_state` to `ADMIN_FUNCTIONS` (№09); removed `VIEW_ASSET_ID_FIELD`
+- `app/components/execute-vault-function.ts` — parallel registry lookup for asset name
+- `app/components/view-display.ts` — `humanizeAssetState` now includes `name` field
+- `app/components/wallet-button.tsx` — "Dashboard" → "Admin Dashboard"
+- `Changelog.md` — this entry
+
+---
+
 ## 2026-07-19 — `new_ui/ui-components-relocation`
 
 ### Changes

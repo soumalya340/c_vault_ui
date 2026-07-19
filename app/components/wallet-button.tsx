@@ -131,7 +131,7 @@ export function WalletButton({
               onClick={() => setMenuOpen(false)}
               className={menuItemClassName}
             >
-              Dashboard
+              Admin Dashboard
             </Link>
           )}
           <button
