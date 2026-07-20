@@ -2,11 +2,11 @@
 // (c_vault_script/lib/db/schema.sql). Never run `prisma migrate` or
 // `prisma db push` against this file — the CLI script owns the schema.
 // Regenerate the client after schema.sql changes with:
-//   npx prisma db pull && npx prisma generate
+//   npx prisma db pull --schema=db/prisma/schema.prisma && npx prisma generate --schema=db/prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../lib/generated/prisma"
+  output   = "../../lib/generated/prisma"
 }
 
 datasource db {

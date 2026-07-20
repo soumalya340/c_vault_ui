@@ -3,7 +3,7 @@
  * Keep in sync with:
  *   - c_vault_script/constant.js (ASSET_PRESETS)
  *   - c_vault_script/lib/vaultPresets.js (VAULT_PRESETS)
- *   - supabase/migration/0005_presets.sql
+ *   - db/supabase/migration/0005_presets.sql
  */
 
 export const ASSET_PRESETS = [

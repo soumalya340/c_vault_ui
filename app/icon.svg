@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="cVault">
+  <!-- cVault mark: engraving-green tile, paper C monogram with keyhole -->
+  <rect width="64" height="64" rx="14" fill="#1E3B2C"/>
+  <!-- Bold C monogram: open ring, gap centered at 3 o'clock -->
+  <circle
+    cx="32"
+    cy="32"
+    r="15.5"
+    fill="none"
+    stroke="#E9ECDF"
+    stroke-width="10.5"
+    stroke-dasharray="78.5 18.9"
+    stroke-dashoffset="-9.45"
+  />
+  <!-- Vault keyhole centered in the C -->
+  <g fill="#E9ECDF">
+    <circle cx="32" cy="28.8" r="5"/>
+    <path d="M29.4 32.2 L27.6 41.2 H36.4 L34.6 32.2 Z"/>
+  </g>
+</svg>

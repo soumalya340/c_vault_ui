@@ -171,7 +171,7 @@ function PendingClaimButton({ vault, network }: { vault: VaultRecord; network: N
 }
 
 // Single source of truth for the Vaults tab: rows come from the Supabase
-// `vaults` table (forge/supabase/migrations/0004_vaults.sql), populated right
+// `vaults` table (db/supabase/migration/0001_vaults.sql), populated right
 // after create_etf lands on-chain. Deposit and Redeem are the only two
 // actions exposed per row — no standalone Deposit/Redeem sections exist.
 

@@ -2,7 +2,7 @@
 
 // Client wrappers for the c_vault_ui API routes. Tokens come from the forge
 // `token_registry` table; vaults from the `vaults` table
-// (forge/supabase/migrations/0004_vaults.sql) — the single source of truth
+// (db/supabase/migration/0001_vaults.sql) — the single source of truth
 // for what the Vaults tab renders.
 
 export interface TokenOption {

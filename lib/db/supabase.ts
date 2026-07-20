@@ -19,12 +19,12 @@ function wrapMissingColumn(err: unknown): never {
   const message = (err as { message?: string } | undefined)?.message ?? String(err);
   if (message.includes("asset_name") || message.includes("deposit_alt_address") || message.includes("redeem_alt_address")) {
     throw new Error(
-      "Supabase is missing admin-parity columns — run supabase/migration/0004_admin_parity.sql in the Supabase SQL editor.",
+      "Supabase is missing admin-parity columns — run db/supabase/migration/0004_admin_parity.sql in the Supabase SQL editor.",
     );
   }
   if (message.includes("asset_presets") || message.includes("vault_presets")) {
     throw new Error(
-      "Supabase is missing preset tables — run supabase/migration/0005_presets.sql in the Supabase SQL editor.",
+      "Supabase is missing preset tables — run db/supabase/migration/0005_presets.sql in the Supabase SQL editor.",
     );
   }
   throw err instanceof Error ? err : new Error(message);

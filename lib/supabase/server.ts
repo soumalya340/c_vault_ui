@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 /**
  * Server-only client using the anon key. Requests are subject to Row Level
  * Security — `token_registry` and `vaults` must have policies granting the
- * `anon` role access (see forge/supabase/migrations). Never import from a
+ * `anon` role access (see db/supabase/migration). Never import from a
  * "use client" file.
  */
 export function createServiceClient() {
