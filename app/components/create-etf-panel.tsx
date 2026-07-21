@@ -373,6 +373,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="cVault Shares"
+              maxLength={32}
               required
             />
           </div>
@@ -383,6 +384,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               value={symbol}
               onChange={(e) => setSymbol(e.target.value)}
               placeholder="CVS"
+              maxLength={10}
               required
             />
           </div>
@@ -393,6 +395,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               value={uri}
               onChange={(e) => setUri(e.target.value)}
               placeholder="https://…"
+              maxLength={700}
               required
             />
           </div>

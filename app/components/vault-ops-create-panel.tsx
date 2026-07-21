@@ -558,7 +558,13 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
             </div>
             <div>
               <FieldLabel>Metadata URI</FieldLabel>
-              <TextInput value={uri} onChange={setUri} placeholder="https://…" required />
+              <TextInput
+                value={uri}
+                onChange={setUri}
+                placeholder="https://…"
+                maxLength={700}
+                required
+              />
             </div>
           </div>
 

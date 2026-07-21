@@ -74,12 +74,15 @@ export function humanizeViewResult(fnId: string, data: unknown): unknown {
 
 function humanizeNav(d: Record<string, unknown>): Record<string, unknown> {
   // Prefer pre-formatted human fields from getTotalNavView; never surface raw.
-  const totalNav =
+  // On-chain field is `tvl` (renamed from total_nav) — display label is TVL.
+  const tvl =
     typeof d.totalNavUsd === 'string'
       ? enhanceUsdString(d.totalNavUsd)
-      : d.totalNav != null
-        ? formatUsdUi(String(d.totalNav), USDC_DECIMALS)
-        : '—';
+      : d.tvl != null
+        ? formatUsdUi(String(d.tvl), USDC_DECIMALS)
+        : d.totalNav != null
+          ? formatUsdUi(String(d.totalNav), USDC_DECIMALS)
+          : '—';
   const sharePrice =
     typeof d.sharePriceUsd === 'string'
       ? enhanceUsdString(d.sharePriceUsd)
@@ -94,11 +97,10 @@ function humanizeNav(d: Record<string, unknown>): Record<string, unknown> {
         : '—';
 
   const out: Record<string, unknown> = {
-    totalNav,
+    tvl,
     sharePrice,
     totalShares,
   };
-  if (d.sharesDecimals != null) out.sharesDecimals = d.sharesDecimals;
   if (typeof d.note === 'string' && d.note) out.note = d.note;
   return out;
 }
