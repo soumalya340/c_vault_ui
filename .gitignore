@@ -55,6 +55,7 @@ data/pyth_feeds.json
 
 deps
 docs
+!docs/superpowers
 .agents
 .claude
 skills-lock.json
