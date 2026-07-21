@@ -440,14 +440,9 @@ export function VaultsPanel({ network }: { network: Network }) {
           >
             Vaults
           </span>
-          <div className="flex items-center gap-3">
-            <span className={`${sectionLabelClass} uppercase`}>
-              {vaults.length} instrument{vaults.length === 1 ? '' : 's'} · series 2026
-            </span>
-            <button type="button" onClick={load} className={btnSecondaryClass}>
-              Refresh
-            </button>
-          </div>
+          <span className={`${sectionLabelClass} uppercase`}>
+            {vaults.length} instrument{vaults.length === 1 ? '' : 's'} · series 2026
+          </span>
         </div>
 
         {loading && <VaultListSkeleton rows={3} />}
