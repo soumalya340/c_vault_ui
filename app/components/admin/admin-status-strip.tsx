@@ -44,7 +44,6 @@ export function AdminStatusStrip({ network }: { network: Network }) {
   const [vaultCount, setVaultCount] = useState<number | null>(null);
   const [registryCount, setRegistryCount] = useState<number | null>(null);
   const [assetPresetCount, setAssetPresetCount] = useState<number | null>(null);
-  const [vaultPresetCount, setVaultPresetCount] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +71,6 @@ export function AdminStatusStrip({ network }: { network: Network }) {
     setVaultCount(null);
     setRegistryCount(null);
     setAssetPresetCount(null);
-    setVaultPresetCount(null);
     fetch(`/api/admin/db/tables?network=${network}`)
       .then((r) => r.json())
       .then((d) => {
@@ -96,7 +94,6 @@ export function AdminStatusStrip({ network }: { network: Network }) {
       .then((d) => {
         if (!cancelled) {
           setAssetPresetCount(Array.isArray(d.assetPresets) ? d.assetPresets.length : 0);
-          setVaultPresetCount(Array.isArray(d.vaultPresets) ? d.vaultPresets.length : 0);
         }
       })
       .catch(() => {});
@@ -127,11 +124,6 @@ export function AdminStatusStrip({ network }: { network: Network }) {
         label="Asset presets"
         loading={assetPresetCount === null}
         value={assetPresetCount === null ? '' : String(assetPresetCount)}
-      />
-      <Stat
-        label="Vault presets"
-        loading={vaultPresetCount === null}
-        value={vaultPresetCount === null ? '' : String(vaultPresetCount)}
       />
       <Stat label="Program" value={short(C_VAULT_PROGRAM_ID.toBase58())} />
       <Stat label="Admin" value={short(ADMIN_PUBKEY.toBase58())} />

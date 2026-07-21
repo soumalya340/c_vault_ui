@@ -29,9 +29,16 @@ create table if not exists vaults (
   asset_ids bigint[] not null,
   asset_allocation_bps integer[] not null,
   num_assets smallint not null,
+  -- Smart-contract genesis deposit flag: false until genesis_deposit succeeds.
+  genesis_deposit_status boolean not null default false,
   unique (network, vault_id),
   unique (shares_mint)
 );
+
+-- Idempotent for DBs that already ran an older create table if not exists:
+-- create table does not add new columns on re-run, so alter fills the gap.
+alter table vaults
+  add column if not exists genesis_deposit_status boolean not null default false;
 
 create index if not exists vaults_network_created_at_idx
   on vaults (network, created_at desc);

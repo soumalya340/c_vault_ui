@@ -1,5 +1,19 @@
 ## Todo
 
+# IMMEDIATE 
+
+1. Clear the db 
+
+
+
+
+
+
+
+
+
+## FUTURE
+
 ### 1. Update the Smart Contracts
 
 - Review and update the vault creation program (Anchor/Rust)
