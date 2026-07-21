@@ -41,17 +41,16 @@ type PendingClaimState =
   | { status: 'idle' }
   | { status: 'checking' }
   | { status: 'none'; solscan?: string }
-  | { status: 'locked'; usdc: string; unlockTime: number }
   | { status: 'ready'; usdc: string }
   | { status: 'claiming'; usdc: string }
   | { status: 'error'; message: string };
 
 /**
  * On-click on-chain check for a claimable redeem — reads RedeemState fresh
- * (no polling, no per-row auto-fetch) and, if `pending_usdc > 0` and the
- * cooldown has passed, submits `claim` directly. Independent of the Redeem
- * & Claim modal so a user doesn't have to re-enter the burn flow just to
- * collect USDC from a redeem they already swapped.
+ * (no polling, no per-row auto-fetch) and, if `pending_usdc > 0`, submits
+ * `claim` directly. Independent of the Redeem & Claim modal so a user doesn't
+ * have to re-enter the burn flow just to collect USDC from a redeem they
+ * already swapped.
  */
 function PendingClaimButton({ vault, network }: { vault: VaultRecord; network: Network }) {
   const { connection } = useConnection();
@@ -74,11 +73,6 @@ function PendingClaimButton({ vault, network }: { vault: VaultRecord; network: N
       const pendingUsdc = pos.redeemState?.pendingUsdc ?? '0';
       if (!pos.redeemState || BigInt(pendingUsdc) <= 0n) {
         setState({ status: 'none' });
-        return;
-      }
-      const unlockTime = Number(pos.redeemState.unlockTime);
-      if (Date.now() < unlockTime * 1000) {
-        setState({ status: 'locked', usdc: pendingUsdc, unlockTime });
         return;
       }
       setState({ status: 'ready', usdc: pendingUsdc });
@@ -143,12 +137,6 @@ function PendingClaimButton({ vault, network }: { vault: VaultRecord; network: N
               </a>
             </>
           )}
-        </span>
-      )}
-      {state.status === 'locked' && (
-        <span className="font-mono text-[11px] text-muted-foreground">
-          {formatTokenUi(state.usdc, USDC_DECIMALS)} USDC pending · unlocks{' '}
-          {new Date(state.unlockTime * 1000).toLocaleString()}
         </span>
       )}
       {(state.status === 'ready' || state.status === 'claiming') && (

@@ -5,8 +5,6 @@ import { panelClass, sectionLabelClass } from '../ui-classes';
 import { DbVaultsTable } from './db-vaults-table';
 import { DbRegistryTable } from './db-registry-table';
 import { DbAssetPresetsTable } from './db-asset-presets-table';
-import { DbVaultPresetsTable } from './db-vault-presets-table';
-import { DbDangerZone } from './db-danger-zone';
 
 function Panel({
   title,
@@ -43,7 +41,6 @@ export function AdminDbSection({ network }: { network: Network }) {
         </p>
         <DbVaultsTable network={network} />
         <DbRegistryTable network={network} />
-        <DbDangerZone key={network} network={network} />
       </div>
 
       <div className="flex flex-col gap-4">
@@ -52,9 +49,6 @@ export function AdminDbSection({ network }: { network: Network }) {
         </p>
         <Panel title="Asset presets (Pools.md)" badge="Seeded">
           <DbAssetPresetsTable key={network} network={network} />
-        </Panel>
-        <Panel title="Vault presets (Vault.md)" badge="Seeded">
-          <DbVaultPresetsTable key={network} network={network} />
         </Panel>
       </div>
     </section>

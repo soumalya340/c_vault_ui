@@ -48,12 +48,6 @@ function formatAllocationBps(bps: number[]): string {
   return bps.map((b) => `${(b / 100).toFixed(2)}%`).join(' · ');
 }
 
-function formatUnixTs(raw: string | number): string {
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return '—';
-  return new Date(n * 1000).toLocaleString();
-}
-
 /**
  * Map a VIEW function result into display-only fields. Unknown ids pass through.
  * Order of keys matches the console design (hero metrics first).
@@ -80,12 +74,15 @@ export function humanizeViewResult(fnId: string, data: unknown): unknown {
 
 function humanizeNav(d: Record<string, unknown>): Record<string, unknown> {
   // Prefer pre-formatted human fields from getTotalNavView; never surface raw.
-  const totalNav =
+  // On-chain field is `tvl` (renamed from total_nav) — display label is TVL.
+  const tvl =
     typeof d.totalNavUsd === 'string'
       ? enhanceUsdString(d.totalNavUsd)
-      : d.totalNav != null
-        ? formatUsdUi(String(d.totalNav), USDC_DECIMALS)
-        : '—';
+      : d.tvl != null
+        ? formatUsdUi(String(d.tvl), USDC_DECIMALS)
+        : d.totalNav != null
+          ? formatUsdUi(String(d.totalNav), USDC_DECIMALS)
+          : '—';
   const sharePrice =
     typeof d.sharePriceUsd === 'string'
       ? enhanceUsdString(d.sharePriceUsd)
@@ -100,11 +97,10 @@ function humanizeNav(d: Record<string, unknown>): Record<string, unknown> {
         : '—';
 
   const out: Record<string, unknown> = {
-    totalNav,
+    tvl,
     sharePrice,
     totalShares,
   };
-  if (d.sharesDecimals != null) out.sharesDecimals = d.sharesDecimals;
   if (typeof d.note === 'string' && d.note) out.note = d.note;
   return out;
 }
@@ -149,18 +145,9 @@ function humanizeUserPosition(d: Record<string, unknown>): Record<string, unknow
     shareBalance: formatTokenUi(String(d.shareBalance ?? '0'), 6),
   };
 
-  const info = d.userInfo as Record<string, unknown> | undefined;
-  if (info) {
-    out.totalUsdcDeposited = formatUsdUi(String(info.totalUsdcDeposited ?? '0'), USDC_DECIMALS);
-    out.lastUsdcDeposited = formatUsdUi(String(info.lastUsdcDeposited ?? '0'), USDC_DECIMALS);
-    out.lastSharesMinted = formatTokenUi(String(info.lastSharesMinted ?? '0'), 6);
-    out.lastDeposit = formatUnixTs(String(info.lastDepositTs ?? '0'));
-  }
-
   const redeem = d.redeemState as Record<string, unknown> | undefined;
   if (redeem) {
-    out.redeemableShares = formatTokenUi(String(redeem.redeemableShares ?? '0'), 6);
-    out.unlocksAt = formatUnixTs(String(redeem.unlockTime ?? '0'));
+    out.isRedeemActive = Boolean(redeem.isRedeemActive);
     out.pendingUsdc = formatUsdUi(String(redeem.pendingUsdc ?? '0'), USDC_DECIMALS);
     out.redeemAssets = redeem.numAssets;
   }

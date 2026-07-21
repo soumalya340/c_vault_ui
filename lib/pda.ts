@@ -8,7 +8,6 @@ import {
   VAULT_AUTHORITY_SEED,
   SHARES_MINT_SEED,
   USDC_VAULT_SEED,
-  USER_INFO_SEED,
   REDEEM_SEED,
   type Network,
 } from './constants';
@@ -73,14 +72,6 @@ export function deriveVaultPdas(
     C_VAULT_PROGRAM_ID,
   );
   return { vaultPda, vaultAuthority, sharesMint, usdcVault };
-}
-
-export function deriveUserInfoPda(vaultPda: PublicKey, user: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [USER_INFO_SEED, vaultPda.toBuffer(), user.toBuffer()],
-    C_VAULT_PROGRAM_ID,
-  );
-  return pda;
 }
 
 export function deriveRedeemStatePda(user: PublicKey, vaultId: number): PublicKey {

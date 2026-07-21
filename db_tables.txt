@@ -1,5 +1,3 @@
-
-
 asset_presets (12 column(s)):
   - preset_key (text)
   - asset_name (text)
@@ -34,17 +32,7 @@ pre_approved_token_registry (17 column(s)):
   - asset_name (text)
 
 
-vault_presets (8 column(s)):
-  - vault_num (integer)
-  - name (text)
-  - symbol (text)
-  - theme (text)
-  - fund_type (text)
-  - deposit_fee_bps (integer)
-  - redeem_fee_bps (integer)
-  - assets (jsonb)
-
-vaults (27 column(s)):
+vaults (28 column(s)):
   - vault_address (text)
   - vault_id (bigint)
   - vault_authority (text)
@@ -72,3 +60,4 @@ vaults (27 column(s)):
   - num_assets (smallint)
   - deposit_alt_address (text)
   - redeem_alt_address (text)
+  - genesis_deposit_status (boolean) //  This is new 

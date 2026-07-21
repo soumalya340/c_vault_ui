@@ -9,6 +9,7 @@ import {
   AddressLookupTableAccount,
   Connection,
   PublicKey,
+  SYSVAR_RENT_PUBKEY,
   SystemProgram,
   TransactionInstruction,
 } from '@solana/web3.js';
@@ -18,7 +19,6 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction,
-  createApproveInstruction,
   getMint,
   unpackAccount,
 } from '@solana/spl-token';
@@ -33,7 +33,6 @@ import {
   deriveGlobalStatePda,
   deriveAssetInfoPda,
   deriveVaultPdas,
-  deriveUserInfoPda,
   deriveRedeemStatePda,
 } from './pda';
 import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
@@ -66,6 +65,11 @@ import {
   SWAP_LEGS_PER_TX,
   VAULT_ATA_IXS_PER_TX,
   USDC_DECIMALS,
+  MAX_ASSETS,
+  MAX_DEPOSIT_FEE_BPS,
+  MIN_REDEEM_FEE_BPS,
+  MAX_REDEEM_FEE_BPS,
+  CREATE_ETF_MAX_METADATA_BYTES,
 } from './constants';
 import { formatUserFacingError, parseTxError } from './txError';
 export { parseTxError, formatUserFacingError, type UserFacingError } from './txError';
@@ -95,7 +99,6 @@ export {
   deriveGlobalStatePda,
   deriveAssetInfoPda,
   deriveVaultPdas,
-  deriveUserInfoPda,
   deriveRedeemStatePda,
 };
 export type { Network };
@@ -855,15 +858,53 @@ export interface CreatedVaultInfo {
 }
 
 /**
+ * Encode instruction args with a buffer large enough for long Token-2022
+ * metadata. Anchor's stock coder uses `Buffer.alloc(1000)` and throws
+ * "encoding overruns Buffer" once name+symbol+uri (+ params) exceed that.
+ * Mirrors `BorshInstructionCoder.encode` but with a 16 KiB scratch buffer.
+ */
+function encodeInstructionData(
+  program: ReturnType<typeof createProgram>,
+  ixName: string,
+  args: Record<string, unknown>,
+): Buffer {
+  const coder = program.coder.instruction as {
+    encode: (name: string, args: unknown) => Buffer;
+    ixLayouts: Map<
+      string,
+      {
+        discriminator: number[] | Buffer;
+        layout: { encode: (data: unknown, buffer: Buffer) => number };
+      }
+    >;
+  };
+
+  try {
+    return coder.encode(ixName, args);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/encoding overruns Buffer/i.test(msg)) throw err;
+  }
+
+  const encoder = coder.ixLayouts.get(ixName);
+  if (!encoder) throw new Error(`Unknown instruction: ${ixName}`);
+  const buffer = Buffer.alloc(16_384);
+  const len = encoder.layout.encode(args, buffer);
+  const disc = Buffer.from(encoder.discriminator);
+  return Buffer.concat([disc, buffer.subarray(0, len)]);
+}
+
+/**
  * Runs create_etf, which also initializes the share mint's Token-2022
  * metadata (name/symbol/uri) inside the same instruction — one signature,
  * one transaction. Returns the assigned vault id and PDAs so the caller can
  * record the vault off-chain.
  *
- * Quote mint is always mainnet USDC (program constant). remaining_accounts is
- * one AssetInfo PDA per `params.assets` entry, in order — every other asset
- * config (mint/pool/pricing/route/swap venue) already lives on that shared,
- * admin-listed AssetInfo (see `createAsset`).
+ * Account list matches `CreateEtf` in `create_etf.rs` and the LiteSVM helper
+ * `build_create_etf_ix` in `deps/c_vault/programs/vault/tests/common/mod.rs`:
+ * remaining_accounts is one AssetInfo PDA per `params.assets` entry, in order.
+ * `etf_creation_authority` is a required signer; while the gate is
+ * `Pubkey::default()` any signer (including the vault manager) is accepted.
  */
 export async function createEtf(
   connection: Connection,
@@ -874,20 +915,57 @@ export async function createEtf(
   uri: string,
   network: Network,
 ): Promise<CreatedVaultInfo> {
+  // ── Client-side mirrors of create_etf_handler validation ─────────────────
+  if (!name.trim()) throw new Error('Vault name is required.');
+  if (!symbol.trim()) throw new Error('Vault symbol is required.');
+  if (params.assets.length === 0) throw new Error('Add at least one asset.');
+  if (params.assets.length > MAX_ASSETS) {
+    throw new Error(`Too many assets (max ${MAX_ASSETS}).`);
+  }
+  if (params.depositFeeBps < 0 || params.depositFeeBps > MAX_DEPOSIT_FEE_BPS) {
+    throw new Error(`Deposit fee must be 0–${MAX_DEPOSIT_FEE_BPS} bps.`);
+  }
+  if (
+    params.redeemFeeBps < MIN_REDEEM_FEE_BPS ||
+    params.redeemFeeBps > MAX_REDEEM_FEE_BPS
+  ) {
+    throw new Error(
+      `Redeem fee must be ${MIN_REDEEM_FEE_BPS}–${MAX_REDEEM_FEE_BPS} bps (on-chain minimum ${MIN_REDEEM_FEE_BPS}).`,
+    );
+  }
+  const totalBps = params.assets.reduce((s, a) => s + a.allocationBps, 0);
+  if (totalBps !== 10_000) {
+    throw new Error(`Allocations must sum to 10_000 bps (got ${totalBps}).`);
+  }
+  const isFixed = 'fixed' in params.fundType;
+  if (isFixed && (!params.maxShares || params.maxShares.isZero())) {
+    throw new Error('Fixed vaults require a positive max shares cap.');
+  }
+
+  const metaBytes =
+    Buffer.byteLength(name, 'utf8') +
+    Buffer.byteLength(symbol, 'utf8') +
+    Buffer.byteLength(uri, 'utf8');
+  if (metaBytes > CREATE_ETF_MAX_METADATA_BYTES) {
+    throw new Error(
+      `Name + symbol + URI is too long (${metaBytes} bytes; max ${CREATE_ETF_MAX_METADATA_BYTES}). ` +
+        `Shorten the metadata — Anchor's instruction encoder hard-caps at 1000 bytes ` +
+        `(this is the "encoding overruns Buffer" failure).`,
+    );
+  }
+
   const program = createProgram(wallet, connection);
 
   // The program assigns vault_id = global_state.total_vaults at execution.
   const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
   const vaultId = (gs.totalVaults as BN).toNumber();
+  const pdas = deriveVaultPdas(vaultId, network);
+  const globalState = deriveGlobalStatePda();
+  const usdcMint = NETWORK_CONSTANTS[network].usdcMint;
 
-  const remaining: AccountMeta[] = params.assets.map((a) => ({
-    pubkey: deriveAssetInfoPda(a.assetId),
-    isSigner: false,
-    isWritable: false,
-  }));
-
-  // Matches on-chain InitializeParams — no usdc_sol_pool; ViaSol uses the
-  // cluster canonical USDC↔wSOL Whirlpool from NETWORK_CONSTANTS at swap time.
+  // Matches on-chain InitializeParams / tests::make_etf_params.
+  // Program.methods camelCases field names; FundType unit variants use
+  // lowercase keys (`{ dynamic: {} }`) which Anchor maps to the rust-repr enum.
   const ixParams = {
     feeRecipient: params.feeRecipient,
     depositFeeBps: params.depositFeeBps,
@@ -897,26 +975,68 @@ export async function createEtf(
       allocationBps: a.allocationBps,
     })),
     fundType: params.fundType,
-    maxShares: params.maxShares,
+    maxShares: isFixed ? params.maxShares : null,
   };
 
-  // Build the instruction and send it through sendV0 rather than Anchor's
-  // `.rpc()`: `.rpc()` confirms via the websocket subscription with a hard 30s
-  // cap, which the public devnet RPC trips even when the tx lands ("not
-  // confirmed / unknown if it succeeded"). sendV0 polls signature status.
-  const createIx = await (program.methods as any)
-    .createEtf(ixParams, name, symbol, uri)
-    .accounts({
-      authority: wallet.publicKey,
-      usdcMint: NETWORK_CONSTANTS[network].usdcMint,
-      sharesTokenProgram: TOKEN_2022_PROGRAM_ID,
-    } as never)
-    .remainingAccounts(remaining)
-    .instruction();
+  // Explicit account list — same order as CreateEtf in create_etf.rs /
+  // tests::build_create_etf_ix (avoid auto-resolve depth issues).
+  const keys: AccountMeta[] = [
+    { pubkey: globalState, isSigner: false, isWritable: true },
+    { pubkey: pdas.vaultPda, isSigner: false, isWritable: true },
+    { pubkey: pdas.vaultAuthority, isSigner: false, isWritable: false },
+    { pubkey: pdas.sharesMint, isSigner: false, isWritable: true },
+    { pubkey: pdas.usdcVault, isSigner: false, isWritable: true },
+    { pubkey: usdcMint, isSigner: false, isWritable: false },
+    { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+    // Gate disabled while etf_creation_authority == Pubkey::default();
+    // any signer is accepted — use the connected wallet (same as tests).
+    { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+    // remaining_accounts: AssetInfo PDAs in params.assets order (readonly).
+    ...params.assets.map((a) => ({
+      pubkey: deriveAssetInfoPda(a.assetId),
+      isSigner: false,
+      isWritable: false,
+    })),
+  ];
 
+  let data: Buffer;
+  try {
+    data = encodeInstructionData(program, 'createEtf', {
+      params: ixParams,
+      name,
+      symbol,
+      uri,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/encoding overruns Buffer/i.test(msg)) {
+      throw new Error(
+        `create_etf instruction data too large for Anchor's encoder (${msg}). ` +
+          `Shorten name/symbol/uri (combined UTF-8 length is ${metaBytes} bytes).`,
+      );
+    }
+    if (/unable to infer src variant/i.test(msg)) {
+      throw new Error(
+        `create_etf FundType encode failed (${msg}). Expected fundType ` +
+          `{ fixed: {} } or { dynamic: {} }.`,
+      );
+    }
+    throw err;
+  }
+
+  const createIx = new TransactionInstruction({
+    programId: C_VAULT_PROGRAM_ID,
+    keys,
+    data,
+  });
+
+  // sendV0 (not Anchor `.rpc()`): polls signature status instead of the flaky
+  // public-RPC websocket 30s confirm path.
   const sig = await sendV0(connection, wallet, [createIx]);
-
-  const pdas = deriveVaultPdas(vaultId, network);
   return {
     tx: sig,
     link: solscanLink(sig, network),
@@ -947,7 +1067,6 @@ async function buildDepositIxs(
   const userShares = getAssociatedTokenAddressSync(
     ctx.sharesMint, user, false, TOKEN_2022_PROGRAM_ID,
   );
-  const userInfo = deriveUserInfoPda(ctx.vaultPda, user);
   const treasury = await fetchTreasury(connection);
 
   const ensureAtaIxs: TransactionInstruction[] = [
@@ -973,7 +1092,6 @@ async function buildDepositIxs(
       user,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       baseTokenProgram: TOKEN_PROGRAM_ID,
-      userInfo,
       treasury,
       feeRecipient: ctx.feeRecipient,
       treasuryUsdcAccount: baseAta(treasury, ctx.baseMint),
@@ -1005,10 +1123,8 @@ export async function deposit(
   return { tx: sig, link: solscanLink(sig, network) };
 }
 
-/**
- * `[approve, request_redeem]` — the program burns shares with vault_authority
- * as the token authority, so the user must delegate `shares` to it first.
- */
+/** `[request_redeem]` — the program burns the user's shares directly
+ * (user-signed CPI), no delegated approve needed. */
 async function buildRequestRedeemIxs(
   program: ReturnType<typeof createProgram>,
   ctx: VaultChainCtx,
@@ -1017,14 +1133,6 @@ async function buildRequestRedeemIxs(
 ): Promise<TransactionInstruction[]> {
   const userShares = getAssociatedTokenAddressSync(
     ctx.sharesMint, user, false, TOKEN_2022_PROGRAM_ID,
-  );
-  const approveIx = createApproveInstruction(
-    userShares,
-    ctx.vaultAuthority,
-    user,
-    BigInt(shares.toString()),
-    [],
-    TOKEN_2022_PROGRAM_ID,
   );
   const redeemIx = await (program.methods as any)
     .requestRedeem(new BN(ctx.vaultId), shares)
@@ -1035,14 +1143,13 @@ async function buildRequestRedeemIxs(
       sharesMint: ctx.sharesMint,
       userShareAccount: userShares,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
-      userInfo: deriveUserInfoPda(ctx.vaultPda, user),
       user,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     } as never)
     .remainingAccounts(assetAtaRemainingAccounts(ctx))
     .instruction();
-  return [approveIx, redeemIx];
+  return [redeemIx];
 }
 
 export async function requestRedeem(
@@ -2095,7 +2202,6 @@ async function buildGenesisDepositIx(
       authority,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       baseTokenProgram: TOKEN_PROGRAM_ID,
-      userInfo: deriveUserInfoPda(ctx.vaultPda, authority),
       systemProgram: SystemProgram.programId,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     } as never)
@@ -2250,8 +2356,7 @@ export async function deployPendingSwaps(
 }
 
 interface RawRedeemState {
-  redeemableShares: BN;
-  unlockTime: BN;
+  isRedeemActive: boolean;
   pendingUsdc: BN;
   numAssets: number;
   assetAmountIn: BN[];
@@ -2272,8 +2377,7 @@ async function tryFetchRedeemState(
     const d = raw as Record<string, unknown>;
     const pick = <T,>(camel: string, snake: string): T => (d[camel] ?? d[snake]) as T;
     return {
-      redeemableShares: pick<BN>('redeemableShares', 'redeemable_shares'),
-      unlockTime: pick<BN>('unlockTime', 'unlock_time'),
+      isRedeemActive: Boolean(pick<boolean>('isRedeemActive', 'is_redeem_active')),
       pendingUsdc: pick<BN>('pendingUsdc', 'pending_usdc'),
       numAssets: Number(pick<number>('numAssets', 'num_assets') ?? 0),
       assetAmountIn: pick<BN[]>('assetAmountIn', 'asset_amount_in') ?? [],
@@ -2315,18 +2419,17 @@ async function waitForWsolIncrease(
 }
 
 export interface RedeemClaimResult {
-  /** 'requested' — shares burned, cooldown running; 'claimed' — payout sent. */
+  /** 'requested' — shares burned, not yet claimed; 'claimed' — payout sent. */
   phase: 'requested' | 'claimed';
-  unlockTime?: number;
   signatures: string[];
   link: string;
 }
 
 export interface RedeemSwapResult {
-  /** 'requested' — shares just burned, cooldown running, no swaps run yet.
-   *  'swapped' — outflow legs ran; call `claim` next. */
-  phase: 'requested' | 'swapped';
-  unlockTime?: number;
+  /** Outflow legs ran to completion; call `claim` next. No cooldown exists
+   *  on-chain — `redeemSwap` always runs request_redeem (if needed) then
+   *  every outflow leg in the same call. */
+  phase: 'swapped';
   signatures: string[];
   link: string;
   altAddress?: string;
@@ -2338,9 +2441,8 @@ export interface RedeemSwapResult {
  * standalone `claim()` export so the UI can show "Redeem (swap)" and "Claim"
  * as two separate actions instead of one combined button:
  *
- *  1. No RedeemState → verify the share balance, then `[approve, request_redeem]`.
- *  2. Cooldown still running → stop and report the unlock time.
- *  3. Unlocked → run the outflow legs (each ViaSol asset→wSOL leg is its own
+ *  1. No active redeem → verify the share balance, then `request_redeem`.
+ *  2. Run the outflow legs (each ViaSol asset→wSOL leg is its own
  *     transaction so the received wSOL can be measured; the wSOL-native slot's
  *     amount is already known from RedeemState), then all →USDC legs in one
  *     ALT-compressed transaction. Does not call `claim`.
@@ -2364,7 +2466,7 @@ export async function redeemSwap(
 
   let redeemState = await tryFetchRedeemState(program, user, vaultId);
 
-  if (!redeemState || redeemState.redeemableShares.isZero()) {
+  if (!redeemState || !redeemState.isRedeemActive) {
     // Phase 1 — on-chain share balance check, then burn.
     if (!shares || shares.isZero()) throw new Error('Enter shares to redeem.');
     const userShares = getAssociatedTokenAddressSync(
@@ -2387,19 +2489,6 @@ export async function redeemSwap(
     signatures.push(await sendV0(connection, wallet, ixs, lut));
     redeemState = await tryFetchRedeemState(program, user, vaultId);
     if (!redeemState) throw new Error('RedeemState not found after request_redeem.');
-  }
-
-  const unlockTime = Number(redeemState.unlockTime.toString());
-  if (unlockTime * 1000 > Date.now()) {
-    const last = signatures[signatures.length - 1];
-    return {
-      phase: 'requested',
-      unlockTime,
-      signatures,
-      link: last ? solscanLink(last, network) : '',
-      altAddress: ensured.altAddress,
-      altCreated: ensured.altCreated,
-    };
   }
 
   // Phase 2 — outflow legs (two-pass, required for multi-asset baskets):
@@ -2563,7 +2652,7 @@ export async function redeemSwap(
     throw new Error(
       `Outflow incomplete — still unswapped asset slots: [${unswapped.map((i) => i + 1).join(', ')}]. ` +
         (pending > 0n
-          ? `Partial USDC pending (${pending} raw) — do NOT claim yet (claim closes RedeemState). Press Redeem (swap) again to finish remaining legs. `
+          ? `Partial USDC pending (${pending} raw) — do NOT claim yet (claim requires all legs swapped). Press Redeem (swap) again to finish remaining legs. `
           : `Press Redeem (swap) again to resume. `) +
         `Do not start a new redeem.`,
     );
@@ -2601,9 +2690,6 @@ export async function redeemAndClaim(
   onProgress?: ProgressFn,
 ): Promise<RedeemClaimResult> {
   const swapResult = await redeemSwap(connection, wallet, vaultId, shares, altAddress, network, onProgress);
-  if (swapResult.phase === 'requested') {
-    return { phase: 'requested', unlockTime: swapResult.unlockTime, signatures: swapResult.signatures, link: swapResult.link };
-  }
 
   onProgress?.('Claiming payout…');
   const claimResult = await claim(connection, wallet, vaultId, network);
@@ -2863,7 +2949,7 @@ export async function getTotalNavView(
     );
   }
 
-  const totalNav = viewFieldToString(raw, 'totalNav', 'total_nav');
+  const totalNav = viewFieldToString(raw, 'tvl', 'tvl');
   const sharePrice = viewFieldToString(raw, 'sharePrice', 'share_price');
   const totalShares = viewFieldToString(raw, 'totalShares', 'total_shares');
 
@@ -2919,7 +3005,7 @@ export async function previewDeposit(
 
   return {
     sharesToMint: viewFieldToString(result, 'sharesToMint', 'shares_to_mint'),
-    totalNav: viewFieldToString(result, 'totalNav', 'total_nav'),
+    totalNav: viewFieldToString(result, 'tvl', 'tvl'),
     sharePrice: viewFieldToString(result, 'sharePrice', 'share_price'),
     totalShares: viewFieldToString(result, 'totalShares', 'total_shares'),
   };
@@ -2983,15 +3069,8 @@ export async function previewRedeem(
 export interface UserPosition {
   user: string;
   shareBalance: string;
-  userInfo?: {
-    totalUsdcDeposited: string;
-    lastUsdcDeposited: string;
-    lastSharesMinted: string;
-    lastDepositTs: string;
-  };
   redeemState?: {
-    redeemableShares: string;
-    unlockTime: string;
+    isRedeemActive: boolean;
     pendingUsdc: string;
     numAssets: number;
     assetAmountIn: string[];
@@ -3007,7 +3086,7 @@ export async function getUserPosition(
   network: Network = 'mainnet',
 ): Promise<UserPosition> {
   const program = createProgram(createDummyWallet(), connection);
-  const { vaultPda, sharesMint } = deriveVaultPdas(vaultId, network);
+  const { sharesMint } = deriveVaultPdas(vaultId, network);
   const userShareAta = getAssociatedTokenAddressSync(sharesMint, user, false, TOKEN_2022_PROGRAM_ID);
 
   let shareBalance = '0';
@@ -3016,14 +3095,6 @@ export async function getUserPosition(
     shareBalance = bal.value.amount;
   } catch {
     // ata may not exist
-  }
-
-  const userInfoPda = deriveUserInfoPda(vaultPda, user);
-  let userInfoData = null;
-  try {
-    userInfoData = await (program.account as any).userInfo.fetch(userInfoPda);
-  } catch {
-    // not created yet
   }
 
   const redeemPda = deriveRedeemStatePda(user, vaultId);
@@ -3037,14 +3108,6 @@ export async function getUserPosition(
   return {
     user: user.toBase58(),
     shareBalance,
-    userInfo: userInfoData
-      ? {
-          totalUsdcDeposited: userInfoData.totalUsdcDeposited.toString(),
-          lastUsdcDeposited: userInfoData.lastUsdcDeposited.toString(),
-          lastSharesMinted: userInfoData.lastSharesMinted.toString(),
-          lastDepositTs: userInfoData.lastDepositTs.toString(),
-        }
-      : undefined,
     redeemState: redeemData
       ? (() => {
           // Program converts IDL to camelCase, but accept snake_case keys too
@@ -3054,8 +3117,7 @@ export async function getUserPosition(
             (d[camel] ?? d[snake]) as T;
           const amountArr = pick<BN[]>('assetAmountIn', 'asset_amount_in') ?? [];
           return {
-            redeemableShares: pick<BN>('redeemableShares', 'redeemable_shares').toString(),
-            unlockTime: pick<BN>('unlockTime', 'unlock_time').toString(),
+            isRedeemActive: Boolean(pick<boolean>('isRedeemActive', 'is_redeem_active')),
             pendingUsdc: pick<BN>('pendingUsdc', 'pending_usdc').toString(),
             numAssets: Number(pick<number>('numAssets', 'num_assets') ?? 0),
             assetAmountIn: amountArr.map((a) => a.toString()),

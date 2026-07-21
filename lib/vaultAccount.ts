@@ -2,13 +2,16 @@
  * Manual decoder for the on-chain zero-copy `Vault` account.
  *
  * Anchor's JS coder does **not** apply rustc `repr(C)` padding for this
- * account (body is 704 bytes with padding after pubkey clusters / fee fields
- * / FundType). `program.account.vault.fetch` therefore mis-reads `num_assets`
- * and `asset_ids` (e.g. reports asset id 1 when the vault only holds id 0).
+ * account, so `program.account.vault.fetch` mis-reads later fields
+ * (`num_assets`, `asset_ids`, …).
  *
  * Layout mirrors `deps/c_vault/programs/vault/src/account_state/state.rs`
- * (`#[account(zero_copy(unsafe))] #[repr(C)]`). Offsets stay in lockstep with
- * `c_vault_script/lib/vaultAccount.js`.
+ * (`#[account(zero_copy(unsafe))] #[repr(C)]`):
+ *   body size = 720, full account = 8 (disc) + 720 = 728.
+ *
+ * Includes `genesis_done` + `genesis_shares_minted` (added after the original
+ * hand layout). Missing those 16 bytes shifted every later field and made
+ * genesis / deposit / redeem crash when reading the vault basket.
  */
 
 import { PublicKey } from '@solana/web3.js';
@@ -28,8 +31,12 @@ export interface DecodedVault {
   sharesMint: PublicKey;
   totalShares: BN;
   totalUsdcValue: BN;
-  /** Genesis baseline share price (PRICE_SCALE). Set once in create_etf. */
+  /** `0` = not seeded, `1` = seeded (`is_genesis_done`). */
+  genesisDone: number;
+  /** Genesis baseline share price (PRICE_SCALE). Set once in genesis_deposit. */
   baselineSharePrice: BN;
+  /** Shares minted by genesis_deposit; written once. */
+  genesisSharesMinted: BN;
   athSharePrice: BN;
   rollingHighPrice: BN;
   rollingWindowStart: BN;
@@ -54,7 +61,11 @@ export interface DecodedVault {
   assetAtaAddress: PublicKey[];
 }
 
-/** Absolute byte offsets into the full account (including 8-byte discriminator). */
+/**
+ * Absolute byte offsets into the full account (including 8-byte discriminator).
+ * Body layout verified against live mainnet vault data (len 728) and
+ * `size_of::<Vault>() == 720`.
+ */
 const OFF = {
   vaultId: 8,
   paused: 16,
@@ -65,35 +76,39 @@ const OFF = {
   // pad 6 → align u64
   totalShares: 120,
   totalUsdcValue: 128,
-  baselineSharePrice: 136,
-  athSharePrice: 144,
-  rollingHighPrice: 152,
-  rollingWindowStart: 160,
-  totalDeposited: 168,
-  totalWithdrawn: 176,
-  depositFeeBps: 184,
-  redeemFeeBps: 186,
-  // pad 4 → align u64
-  totalPendingUsdc: 192,
-  totalPendingSol: 200,
-  usdcTargetAmount: 208, // [u64; 8]
-  solTargetBps: 272, // [u16; 8]
-  reservedAssets: 288, // [u64; 8]
-  bump: 352,
-  authorityBump: 353,
-  shareMintBump: 354,
-  usdcVaultBump: 355,
-  fundType: 356,
-  // pad 3 → align u64
-  maxShares: 360,
-  numAssets: 368,
+  genesisDone: 136,
   // pad 7 → align u64
-  assetIds: 376, // [u64; 8]
-  assetAllocationBps: 440, // [u16; 8]
-  assetAtaAddress: 456, // [Pubkey; 8]
+  baselineSharePrice: 144,
+  genesisSharesMinted: 152,
+  athSharePrice: 160,
+  rollingHighPrice: 168,
+  rollingWindowStart: 176,
+  totalDeposited: 184,
+  totalWithdrawn: 192,
+  depositFeeBps: 200,
+  redeemFeeBps: 202,
+  // pad 4 → align u64
+  totalPendingUsdc: 208,
+  totalPendingSol: 216,
+  usdcTargetAmount: 224, // [u64; 8]
+  solTargetBps: 288, // [u16; 8]
+  reservedAssets: 304, // [u64; 8]
+  bump: 368,
+  authorityBump: 369,
+  shareMintBump: 370,
+  usdcVaultBump: 371,
+  fundType: 372,
+  // pad 3 → align u64
+  maxShares: 376,
+  numAssets: 384,
+  // pad 7 → align u64
+  assetIds: 392, // [u64; 8]
+  assetAllocationBps: 456, // [u16; 8]
+  assetAtaAddress: 472, // [Pubkey; 8]
 } as const;
 
-const EXPECTED_LEN = DISC + 704; // 712
+/** Full account length: 8-byte Anchor disc + 720-byte `repr(C)` body. */
+const EXPECTED_LEN = DISC + 720; // 728
 
 function u64(data: Buffer, off: number): BN {
   return new BN(data.subarray(off, off + 8), 'le');
@@ -157,7 +172,9 @@ export function decodeVaultAccount(data: Buffer | Uint8Array): DecodedVault {
     sharesMint: pk(buf, OFF.sharesMint),
     totalShares: u64(buf, OFF.totalShares),
     totalUsdcValue: u64(buf, OFF.totalUsdcValue),
+    genesisDone: buf[OFF.genesisDone],
     baselineSharePrice: u64(buf, OFF.baselineSharePrice),
+    genesisSharesMinted: u64(buf, OFF.genesisSharesMinted),
     athSharePrice: u64(buf, OFF.athSharePrice),
     rollingHighPrice: u64(buf, OFF.rollingHighPrice),
     rollingWindowStart: u64(buf, OFF.rollingWindowStart),

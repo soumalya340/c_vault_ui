@@ -11,15 +11,15 @@
 
 /** camelCase / snake_case key → certificate-register label. */
 const LABEL_OVERRIDES: Record<string, string> = {
-  totalNav: 'Total NAV',
-  totalNavUsd: 'Total NAV',
+  tvl: 'TVL',
+  totalNav: 'TVL',
+  totalNavUsd: 'TVL',
   sharePrice: 'Share price',
   sharePriceUsd: 'Share price',
   sharePriceAth: 'ATH share price',
   totalShares: 'Shares outstanding',
   totalSharesUi: 'Shares outstanding',
   sharesToMint: 'Shares to mint',
-  sharesDecimals: 'Share decimals',
   totalUsdcValue: 'Portfolio value',
   totalPendingUsdc: 'Pending USDC',
   totalPendingSol: 'Pending SOL',
@@ -28,9 +28,7 @@ const LABEL_OVERRIDES: Record<string, string> = {
   assetsToSwap: 'Assets to swap',
   perAssetAmounts: 'Per-asset amounts',
   shareBalance: 'Share balance',
-  redeemableShares: 'Redeemable shares',
-  unlocksAt: 'Unlocks at',
-  unlockTime: 'Unlocks at',
+  isRedeemActive: 'Redeem active',
   pendingUsdc: 'Pending USDC',
   vaultId: 'Vault ID',
   assetId: 'Asset ID',
@@ -58,10 +56,6 @@ const LABEL_OVERRIDES: Record<string, string> = {
   twapKeeper: 'TWAP keeper',
   totalVaults: 'Total vaults',
   totalAssets: 'Total assets',
-  totalUsdcDeposited: 'Total USDC deposited',
-  lastUsdcDeposited: 'Last USDC deposited',
-  lastSharesMinted: 'Last shares minted',
-  lastDeposit: 'Last deposit',
   redeemAssets: 'Redeem assets',
   allocation: 'Allocation',
   assetIds: 'Asset IDs',
@@ -86,7 +80,6 @@ const RAW_KEYS_HIDDEN = new Set([
   'assetAllocationBps',
   'depositFeeBps',
   'redeemFeeBps',
-  'lastDepositTs',
   'pythFeedId',
   'priceSourceTag',
   'priceDexKind',
@@ -97,12 +90,15 @@ const RAW_KEYS_HIDDEN = new Set([
   'assetAmountIn',
   'assetSwapped',
   'assetToSolDone',
+  // Internal formatting aids — never show as ledger rows.
+  'sharesDecimals',
+  // Raw on-chain TVL (base units). Prefer humanized `tvl` / `totalNavUsd`.
+  'totalNav',
 ]);
 
 /** Hero metrics get larger accent styling (console OUTPUT panel). */
 const EMPHASIS_KEYS = new Set([
-  'totalNav',
-  'totalNavUsd',
+  'tvl',
   'sharePrice',
   'sharePriceUsd',
   'totalShares',
@@ -115,8 +111,7 @@ const EMPHASIS_KEYS = new Set([
 
 /** Preferred row order for NAV / preview style payloads. */
 const KEY_ORDER = [
-  'totalNav',
-  'totalNavUsd',
+  'tvl',
   'sharePrice',
   'sharePriceUsd',
   'totalShares',
@@ -126,7 +121,6 @@ const KEY_ORDER = [
   'assetsToSwap',
   'numAssets',
   'perAssetAmounts',
-  'sharesDecimals',
   'shareBalance',
   'totalUsdcValue',
   'totalPendingUsdc',

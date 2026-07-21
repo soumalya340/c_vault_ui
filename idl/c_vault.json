@@ -1,5 +1,5 @@
 {
-  "address": "3wLNAr68SzEmzQsysEjLgopQqmt8DgwxLgavfeJutxZw",
+  "address": "8XF1n5xy8g54Feb6rPqSkHxBDd76dZbRyj8fbizRUvTd",
   "metadata": {
     "name": "c_vault",
     "version": "2.0.0",
@@ -209,10 +209,7 @@
     {
       "name": "close_global_state",
       "docs": [
-        "Admin-only: permanently close `GlobalState` and reclaim its rent.",
-        "Only allowed while genesis-only (no vaults created, no assets listed",
-        "beyond the wSOL genesis asset id 0) — a reset valve before real use,",
-        "not a general-purpose teardown."
+        "Admin-only: close `GlobalState` and reclaim rent (only allowed with no vaults and no assets beyond wSOL)."
       ],
       "discriminator": [141, 150, 173, 249, 0, 50, 177, 215],
       "accounts": [
@@ -238,6 +235,97 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "close_vault",
+      "docs": [
+        "Admin-only: delete a genesis-only vault and reclaim its rent (`total_shares == genesis_shares_minted`)."
+      ],
+      "discriminator": [141, 103, 17, 126, 72, 75, 29, 29],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
+                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
+                  166, 2, 3, 69, 47, 93, 97
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        },
+        {
+          "name": "admin_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "create_asset",
@@ -430,6 +518,17 @@
           "signer": true
         },
         {
+          "name": "etf_creation_authority",
+          "docs": [
+            "Platform-gate signer — must sign every `create_etf` call so vault",
+            "creation only happens through the platform (API/frontend), never via",
+            "a direct script or CPI holding only a vault-manager key. Checked in",
+            "the handler against `global_state.etf_creation_authority`",
+            "(skipped when that field is `Pubkey::default()`, i.e. gate disabled)."
+          ],
+          "signer": true
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         },
@@ -596,30 +695,6 @@
           "name": "base_token_program",
           "docs": ["Classic SPL Token program (for USDC transfers)."],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "user_info",
-          "docs": [
-            "One PDA per (vault, user) — created on this user's first deposit into",
-            "this vault, reused (accumulated) on every deposit after that."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [117, 115, 101, 114, 95, 105, 110, 102, 111]
-              },
-              {
-                "kind": "account",
-                "path": "vault"
-              },
-              {
-                "kind": "account",
-                "path": "user"
-              }
-            ]
-          }
         },
         {
           "name": "treasury"
@@ -838,26 +913,6 @@
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "user_info",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [117, 115, 101, 114, 95, 105, 110, 102, 111]
-              },
-              {
-                "kind": "account",
-                "path": "vault"
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
-          }
-        },
-        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         },
@@ -880,8 +935,7 @@
     {
       "name": "get_total_nav_view",
       "docs": [
-        "Read-only: returns live NAV, share price, and total shares.",
-        "Call with `.view()` from the TypeScript client — no wallet signature needed."
+        "View: live NAV, share price, and total shares (no signature needed)."
       ],
       "discriminator": [218, 231, 15, 92, 175, 53, 10, 196],
       "accounts": [
@@ -947,8 +1001,7 @@
     {
       "name": "init_global_state",
       "docs": [
-        "Create the GlobalState singleton and the wSOL genesis asset (id 0) in",
-        "one transaction. Must be called once before any vault is created."
+        "Admin-only: init `GlobalState` singleton + wSOL genesis asset (id 0) — called once before any vault."
       ],
       "discriminator": [225, 88, 176, 139, 158, 113, 203, 37],
       "accounts": [
@@ -1010,8 +1063,7 @@
     {
       "name": "preview_deposit",
       "docs": [
-        "Read-only: shares a `usdc_amount` deposit would mint right now.",
-        "Call with `.view()` from the TypeScript client — no wallet signature needed."
+        "View: shares a `usdc_amount` deposit would mint right now (no signature needed)."
       ],
       "discriminator": [16, 61, 8, 235, 146, 126, 80, 84],
       "accounts": [
@@ -1081,8 +1133,7 @@
     {
       "name": "preview_redeem",
       "docs": [
-        "Read-only: asset amounts + estimated USDC that burning `shares` would return.",
-        "Call with `.view()` from the TypeScript client — no wallet signature needed."
+        "View: asset amounts + estimated USDC that burning `shares` would return (no signature needed)."
       ],
       "discriminator": [122, 195, 125, 8, 168, 149, 50, 40],
       "accounts": [
@@ -1133,35 +1184,18 @@
           }
         },
         {
-          "name": "user_info",
+          "name": "user_share_account",
           "docs": [
-            "The redeemer's UserInfo — read-only, used only to estimate the",
-            "profit-gated vault fee. Must already exist (same requirement as the",
-            "real `request_redeem`); a caller with no UserInfo would have their",
-            "real redeem rejected with `InsufficientTrackedBasis`."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [117, 115, 101, 114, 95, 105, 110, 102, 111]
-              },
-              {
-                "kind": "account",
-                "path": "vault"
-              },
-              {
-                "kind": "account",
-                "path": "user"
-              }
-            ]
-          }
+            "The redeemer's share token account — read-only, used only to check",
+            "they actually hold at least `shares` before quoting. Anyone holding",
+            "vault share tokens can redeem, regardless of how they acquired them."
+          ]
         },
         {
           "name": "user",
           "docs": [
-            "require the caller to sign, so any pubkey may be passed to preview any",
-            "user's redeem quote."
+            "in the caller's mental model — this preview does not require the",
+            "caller to sign, so any pubkey may be passed to preview any quote."
           ]
         }
       ],
@@ -1276,30 +1310,6 @@
           }
         },
         {
-          "name": "user_info",
-          "docs": [
-            "Must already exist — a user with no UserInfo has `shares_held == 0`",
-            "and can never pass the tracked-basis check below. Not `init_if_needed`."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [117, 115, 101, 114, 95, 105, 110, 102, 111]
-              },
-              {
-                "kind": "account",
-                "path": "vault"
-              },
-              {
-                "kind": "account",
-                "path": "user"
-              }
-            ]
-          }
-        },
-        {
           "name": "user",
           "writable": true,
           "signer": true
@@ -1396,6 +1406,43 @@
         {
           "name": "is_emergency",
           "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_etf_creation_authority",
+      "docs": [
+        "Admin-only: assign (or clear, via `Pubkey::default()`) the dedicated",
+        "signer required on every `create_etf` call — gates vault creation to",
+        "only happen through the platform (API/frontend). `Pubkey::default()`",
+        "disables the gate (no signer check)."
+      ],
+      "discriminator": [6, 92, 180, 84, 24, 172, 75, 79],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+        }
+      ],
+      "args": [
+        {
+          "name": "etf_creation_authority",
+          "type": "pubkey"
         }
       ]
     },
@@ -2301,15 +2348,7 @@
     {
       "name": "update_asset_info",
       "docs": [
-        "Admin-only: selectively update an asset's swap pool, swap venue, Pyth",
-        "feed, and/or route. Pass `Some` for fields to change; `None` leaves",
-        "them as-is. At least one field must be `Some`.",
-        "",
-        "If `swap_kind` or `route` is set, `pool_address` must also be set.",
-        "When `pool_address`, `swap_kind`, or `route` is set, pass the",
-        "post-update swap pool as `remaining_accounts[0]`. `DirectUsdc`",
-        "requires a USDC leg; `ViaSol` requires a wSOL leg. Pyth-only updates",
-        "skip pool accounts."
+        "Admin-only: update an asset's swap pool, venue, Pyth feed or route — pass `Some` to change, `None` to keep."
       ],
       "discriminator": [225, 232, 152, 30, 171, 192, 32, 56],
       "accounts": [
@@ -2379,11 +2418,7 @@
     {
       "name": "update_dex_twap",
       "docs": [
-        "Keeper-only: advance TWAP for one DEX-priced global asset without",
-        "minting shares. Never mint-path.",
-        "",
-        "`twap_live_state` is written directly into `asset.twap.last_price_x64`",
-        "and stamps `last_update_twap_keeper_ts`."
+        "Keeper-only: advance TWAP for one DEX-priced global asset (no mint path)."
       ],
       "discriminator": [144, 64, 180, 12, 223, 33, 140, 232],
       "accounts": [
@@ -2487,10 +2522,6 @@
       "discriminator": [69, 112, 71, 246, 9, 201, 117, 14]
     },
     {
-      "name": "UserInfo",
-      "discriminator": [83, 134, 200, 56, 144, 56, 10, 62]
-    },
-    {
       "name": "Vault",
       "discriminator": [211, 8, 232, 43, 2, 152, 117, 119]
     }
@@ -2515,6 +2546,10 @@
     {
       "name": "DexTwapUpdatedEvent",
       "discriminator": [189, 245, 64, 172, 227, 208, 16, 63]
+    },
+    {
+      "name": "EtfCreationAuthorityUpdatedEvent",
+      "discriminator": [55, 75, 206, 199, 121, 22, 94, 66]
     },
     {
       "name": "FeeRecipientUpdatedEvent",
@@ -2581,6 +2616,10 @@
       "discriminator": [221, 153, 175, 109, 231, 230, 213, 223]
     },
     {
+      "name": "VaultDeletedEvent",
+      "discriminator": [36, 130, 196, 78, 129, 81, 213, 17]
+    },
+    {
       "name": "VaultEmergencyLockUpdatedEvent",
       "discriminator": [30, 65, 59, 191, 154, 135, 9, 87]
     },
@@ -2607,283 +2646,298 @@
     },
     {
       "code": 6003,
+      "name": "UnauthorizedGateAuthority",
+      "msg": "Signer is not the configured ETF creation authority"
+    },
+    {
+      "code": 6004,
       "name": "VaultPaused",
       "msg": "Vault deposits are paused"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "VaultAdminLocked",
       "msg": "Vault deposits are locked by admin — contact support"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "GenesisNotSeeded",
       "msg": "Vault has no shares — call genesis_deposit first"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "GenesisAlreadySeeded",
       "msg": "Vault is already genesis-seeded — call deposit instead"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "InvalidBaselineSharePrice",
       "msg": "baseline_share_price must be between $0.00001 and $100,000 (PRICE_SCALE units)"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "EmergencyMode",
       "msg": "Vault is in emergency mode — only withdrawals allowed"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "NotInEmergency",
       "msg": "Vault is not currently in emergency mode"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "InsufficientShares",
       "msg": "Insufficient shares to redeem"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "StaleOracle",
       "msg": "Oracle price is stale or unavailable"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "InvalidOraclePrice",
       "msg": "Oracle price is zero or negative"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "InvalidOracleOwner",
       "msg": "Oracle account owner does not match expected Pyth Receiver program"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "SlippageExceeded",
       "msg": "Slippage tolerance exceeded — try again"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "CpiFailure",
       "msg": "CPI call to external program failed"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "InsufficientWsolBalance",
       "msg": "wSOL balance is insufficient to cover WBTC + WETH swap legs"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "InvalidMint",
       "msg": "Token mint does not match expected canonical mint"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "AccountNotInitialized",
       "msg": "Required token account is not initialised or has zero lamports"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "IncorrectOwner",
       "msg": "Token account owner does not match expected authority"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "InvalidAccountsLength",
       "msg": "remaining_accounts length must equal the number of active vault assets"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "MismatchedAccount",
       "msg": "Unrecognized account — does not match the vault's stored asset ATA"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "MathOverflow",
       "msg": "Math overflow — value too large"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "FeeTooHigh",
       "msg": "Deposit fee cannot exceed 600 bps (6%)"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "InvalidRedeemFee",
       "msg": "Redeem fee must be between 50 and 1000 bps (0.5%-10%)"
     },
     {
-      "code": 6025,
+      "code": 6026,
+      "name": "RedeemInactive",
+      "msg": "Redeem is not active"
+    },
+    {
+      "code": 6027,
       "name": "TooEarlyRedeem",
       "msg": "Redeem cooldown not elapsed — try again after unlock_time"
     },
     {
-      "code": 6026,
+      "code": 6028,
       "name": "InvalidCooldown",
       "msg": "Cooldown must be between 0 and 604 800 seconds (7 days)"
     },
     {
-      "code": 6027,
+      "code": 6029,
       "name": "NothingToClaim",
       "msg": "No USDC pending — swap redeemed assets to USDC first"
     },
     {
-      "code": 6028,
+      "code": 6030,
+      "name": "AssetNotSwapped",
+      "msg": "Not all assets have been swapped yet — finish all per-asset swaps before claiming"
+    },
+    {
+      "code": 6031,
       "name": "RedeemAlreadyPending",
       "msg": "A redeem is already pending — claim it before starting a new one"
     },
     {
-      "code": 6029,
+      "code": 6032,
       "name": "InvalidAllocation",
       "msg": "Asset allocation BPS must sum to exactly 10 000"
     },
     {
-      "code": 6030,
+      "code": 6033,
       "name": "TooManyAssets",
       "msg": "Asset count exceeds the maximum allowed slots"
     },
     {
-      "code": 6031,
+      "code": 6034,
       "name": "NoAssets",
       "msg": "Asset list must contain at least one asset"
     },
     {
-      "code": 6032,
+      "code": 6035,
       "name": "InvalidVaultId",
       "msg": "vault_id must equal global_state.total_vaults (sequential creation enforced)"
     },
     {
-      "code": 6033,
+      "code": 6036,
       "name": "MissingUsdcSolPool",
       "msg": "usdc_sol_pool must be provided when any asset uses ViaSol routing"
     },
     {
-      "code": 6034,
+      "code": 6037,
       "name": "AssetAlreadySwapped",
       "msg": "This asset slot has already been swapped in the current redeem — cannot swap twice"
     },
     {
-      "code": 6035,
+      "code": 6038,
       "name": "AssetInactive",
       "msg": "Referenced asset exists but is not active — admin has deactivated it"
     },
     {
-      "code": 6036,
+      "code": 6039,
       "name": "NoTokenInfoUpdate",
       "msg": "update_token_info requires at least one of pool_address, swap_kind, pyth_feed_id, or route"
     },
     {
-      "code": 6037,
+      "code": 6040,
       "name": "TokenInfoPoolRequired",
       "msg": "update_token_info: changing swap_kind or route requires pool_address (cannot be None)"
     },
     {
-      "code": 6038,
+      "code": 6041,
       "name": "AssetIdMismatch",
       "msg": "A remaining_accounts entry's derived PDA does not match the claimed asset_id"
     },
     {
-      "code": 6039,
+      "code": 6042,
       "name": "AssetInfoNotWritable",
       "msg": "AssetInfo account must be writable to persist TWAP updates"
     },
     {
-      "code": 6040,
+      "code": 6043,
       "name": "MissingMaxShares",
       "msg": "A Fixed vault must declare a max_shares supply cap"
     },
     {
-      "code": 6041,
+      "code": 6044,
       "name": "InvalidMaxShares",
       "msg": "max_shares must be greater than zero"
     },
     {
-      "code": 6042,
+      "code": 6045,
       "name": "ShareCapExceeded",
       "msg": "Deposit would exceed the Fixed vault's max_shares supply cap"
     },
     {
-      "code": 6043,
+      "code": 6046,
       "name": "QuoteMintNotEligible",
       "msg": "usdc_mint must be the canonical USDC mint"
     },
     {
-      "code": 6044,
+      "code": 6047,
       "name": "EligibleMintListFull",
       "msg": "Eligible base mint list is full"
     },
     {
-      "code": 6045,
+      "code": 6048,
       "name": "EligibleMintAlreadyListed",
       "msg": "Mint is already on the eligible base mint list"
     },
     {
-      "code": 6046,
+      "code": 6049,
       "name": "EligibleMintNotFound",
       "msg": "Mint is not on the eligible base mint list"
     },
     {
-      "code": 6047,
+      "code": 6050,
       "name": "InvalidPendingAssetSlot",
       "msg": "asset_index refers to a USDC-native or wSOL-native slot, which never enters the pending pool"
     },
     {
-      "code": 6048,
+      "code": 6051,
       "name": "TwapWindowTooShort",
       "msg": "Insufficient TWAP history to mint/redeem against this asset yet"
     },
     {
-      "code": 6049,
+      "code": 6052,
       "name": "UnsupportedDexKind",
       "msg": "Pool account owner does not match the asset's declared DexKind"
     },
     {
-      "code": 6050,
+      "code": 6053,
       "name": "TwapKeeperNotSet",
       "msg": "No TWAP keeper has been assigned yet"
     },
     {
-      "code": 6051,
+      "code": 6054,
       "name": "UnauthorizedTwapKeeper",
       "msg": "Signer is not the assigned TWAP keeper"
     },
     {
-      "code": 6052,
+      "code": 6055,
       "name": "LivePriceDiscrepancy",
       "msg": "Live price discrepancy — source not reliable (TWAP observation and keeper stamp both stale)"
     },
     {
-      "code": 6053,
+      "code": 6056,
       "name": "NotDexPricedAsset",
       "msg": "asset_index does not refer to a Dex-priced asset"
     },
     {
-      "code": 6054,
+      "code": 6057,
       "name": "InvalidPoolPair",
       "msg": "Pool must include USDC or wSOL as one side of the pair"
     },
     {
-      "code": 6055,
+      "code": 6058,
       "name": "InvalidTokenProgram",
       "msg": "token_program_tag must be 0 (SPL Token) or 1 (Token-2022)"
     },
     {
-      "code": 6056,
+      "code": 6059,
       "name": "UnsupportedSwapKind",
       "msg": "remaining_accounts don't match this asset's configured swap_kind"
     },
     {
-      "code": 6057,
-      "name": "InsufficientTrackedBasis",
-      "msg": "Redeeming more shares than this program has tracked cost basis for — shares acquired by transfer are not redeemable through this program"
-    },
-    {
-      "code": 6058,
+      "code": 6060,
       "name": "GlobalStateNotEmpty",
       "msg": "GlobalState cannot be closed while vaults exist or assets beyond the wSOL genesis (id 0) have been listed"
+    },
+    {
+      "code": 6061,
+      "name": "VaultNotEmpty",
+      "msg": "Vault cannot be deleted — it has received real deposits beyond the one-time genesis seed"
     }
   ],
   "types": [
@@ -3289,6 +3343,30 @@
       }
     },
     {
+      "name": "EtfCreationAuthorityUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "FeeRecipientUpdatedEvent",
       "type": {
         "kind": "struct",
@@ -3422,10 +3500,20 @@
           {
             "name": "total_assets",
             "docs": [
-              "Global asset counter — next `create_asset` call is assigned this id,",
-              "then it increments. Mirrors `total_vaults`'s role for `create_etf`."
+              "Global asset counter — next `create_asset` call is assigned this id"
             ],
             "type": "u64"
+          },
+          {
+            "name": "etf_creation_authority",
+            "docs": [
+              "Platform signer required for `create_etf`. Vault creation is gated",
+              "through the platform (API/frontend) — direct scripts or CPIs with",
+              "only a vault-manager key are blocked. `Pubkey::default()` disables",
+              "the gate (skips signer check). Set via admin-only",
+              "`set_etf_creation_authority` once the platform keypair is ready."
+            ],
+            "type": "pubkey"
           }
         ]
       }
@@ -3518,7 +3606,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "total_nav",
+            "name": "tvl",
             "docs": ["Total portfolio value in USDC (6 decimals)."],
             "type": "u64"
           },
@@ -3697,16 +3785,11 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "redeemable_shares",
+            "name": "is_redeem_active",
             "docs": [
-              "Shares burned at request time; 0 means no active redeem."
+              "Whether a redeem is currently in progress for this user."
             ],
-            "type": "u64"
-          },
-          {
-            "name": "unlock_time",
-            "docs": ["Unix timestamp — swap / claim are blocked before this."],
-            "type": "i64"
+            "type": "bool"
           },
           {
             "name": "pending_usdc",
@@ -3760,18 +3843,6 @@
             "type": {
               "array": ["bool", 8]
             }
-          },
-          {
-            "name": "asset_usdc_out",
-            "docs": [
-              "Gross USDC received from each per-asset swap (no fee deducted at this",
-              "step anymore — the vault/performance fee is now computed once, at",
-              "claim time, on the redemption's total). Slot [i] is only meaningful",
-              "when `asset_swapped[i] == true`."
-            ],
-            "type": {
-              "array": ["u64", 8]
-            }
           }
         ]
       }
@@ -3782,16 +3853,16 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
             "name": "user",
             "type": "pubkey"
           },
           {
             "name": "shares_burned",
             "type": "u64"
-          },
-          {
-            "name": "unlock_time",
-            "type": "i64"
           },
           {
             "name": "timestamp",
@@ -4168,56 +4239,6 @@
       }
     },
     {
-      "name": "UserInfo",
-      "docs": [
-        "NAV -> TOKEN PRICE",
-        "ENTRY PRICE -> ALICE JAN -> DEPOSIT 100 USDC of  10 AIVT  -> TOKEN PRICE  / NAV of 1000$ ->  FIRST ENTRY 1000 $ Stored",
-        "FEB -> 5 AIVT sellout but she took 15 extra aivt buy.",
-        "",
-        ""
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "user",
-            "type": "pubkey"
-          },
-          {
-            "name": "total_usdc_deposited",
-            "docs": [
-              "Net USDC deposited through this program, tracked for",
-              "`InsufficientTrackedBasis` guard purposes only (see `shares_held`",
-              "below) — no longer feeds any fee calculation."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "last_usdc_deposited",
-            "type": "u64"
-          },
-          {
-            "name": "last_shares_minted",
-            "type": "u64"
-          },
-          {
-            "name": "last_deposit_ts",
-            "type": "i64"
-          },
-          {
-            "name": "shares_held",
-            "docs": [
-              "Shares minted to this user via THIS program's deposit instruction and",
-              "not yet redeemed through THIS program's request_redeem. Shares",
-              "acquired by transfer are not reflected here — see",
-              "`VaultError::InsufficientTrackedBasis`."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "Vault",
       "docs": [
         "Vault state mapped in-place via `AccountLoader` (damm-v2 zero_copy pattern).",
@@ -4242,15 +4263,14 @@
           {
             "name": "paused",
             "docs": [
-              "Deposit pause flag: `0 = live`, `1 = paused`. Use `is_paused` / `set_paused`.",
-              "Redemptions stay open regardless."
+              "Deposit pause flag: `0 = live`, `1 = paused`. Redemptions stay open."
             ],
             "type": "u8"
           },
           {
             "name": "admin_locked",
             "docs": [
-              "Admin emergency lock: `0 = unlocked`, `1 = locked`. Blocks deposits for this vault only (independent of `paused`). Redemptions stay open. Use `is_admin_locked` / `set_admin_locked`."
+              "Admin emergency lock: `0 = unlocked`, `1 = locked`. Blocks deposits (not redeems)."
             ],
             "type": "u8"
           },
@@ -4260,10 +4280,14 @@
           },
           {
             "name": "fee_recipient",
+            "docs": [
+              "Upgradable fee-recipient pubkey (vault manager's 80% fee share destination)."
+            ],
             "type": "pubkey"
           },
           {
             "name": "shares_mint",
+            "docs": ["Token-2022 share mint (ERC-4626)."],
             "type": "pubkey"
           },
           {
@@ -4275,23 +4299,39 @@
             "type": "u64"
           },
           {
+            "name": "genesis_done",
+            "docs": [
+              "`0` = not seeded, `1` = seeded. Use `is_genesis_done` / `set_genesis_done`."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "baseline_share_price",
             "docs": [
-              "Genesis baseline share price (PRICE_SCALE units). Set once in",
-              "`create_etf` from the manager's chosen launch tag; never updated."
+              "Genesis baseline share price (PRICE_SCALE units). Set once in `create_etf`; immutable."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "genesis_shares_minted",
+            "docs": [
+              "Shares minted by `genesis_deposit`. Written once; never modified."
             ],
             "type": "u64"
           },
           {
             "name": "ath_share_price",
+            "docs": ["All-time high share price (PRICE_SCALE units)."],
             "type": "u64"
           },
           {
             "name": "rolling_high_price",
+            "docs": ["30-day rolling high share price."],
             "type": "u64"
           },
           {
             "name": "rolling_window_start",
+            "docs": ["Unix timestamp of rolling window start."],
             "type": "i64"
           },
           {
@@ -4335,10 +4375,7 @@
           },
           {
             "name": "usdc_target_amount",
-            "docs": [
-              "USDC pending per asset — DirectUsdc non-native and non-wSOL-native ViaSol",
-              "slots. Zero for USDC-native and wSOL-native slots."
-            ],
+            "docs": ["USDC pending per asset recorded."],
             "type": {
               "array": ["u64", 8]
             }
@@ -4361,18 +4398,22 @@
           },
           {
             "name": "bump",
+            "docs": ["Vault PDA bump (VAULT_SEED)."],
             "type": "u8"
           },
           {
             "name": "authority_bump",
+            "docs": ["Vault authority PDA bump (VAULT_AUTHORITY_SEED)."],
             "type": "u8"
           },
           {
             "name": "share_mint_bump",
+            "docs": ["Share mint PDA bump."],
             "type": "u8"
           },
           {
             "name": "usdc_vault_bump",
+            "docs": ["USDC vault token account bump."],
             "type": "u8"
           },
           {
@@ -4385,22 +4426,17 @@
           },
           {
             "name": "max_shares",
-            "docs": [
-              "Share supply cap. `0` = uncapped (Dynamic); `> 0` = Fixed cap."
-            ],
+            "docs": ["Share supply cap: `0` = uncapped, `> 0` = Fixed cap."],
             "type": "u64"
           },
           {
             "name": "num_assets",
-            "docs": ["Number of active asset slots (1–MAX_ASSETS)."],
             "type": "u8"
           },
           {
             "name": "asset_ids",
             "docs": [
-              "Global asset ids this vault holds (indexes into the admin-managed",
-              "`AssetInfo` PDA registry, `[ASSET_SEED, id]`). Slot `i` here",
-              "corresponds to `asset_allocation_bps[i]`."
+              "Global asset ids, indexed by vault slot. Maps to `asset_allocation_bps[i]`."
             ],
             "type": {
               "array": ["u64", 8]
@@ -4409,9 +4445,7 @@
           {
             "name": "asset_allocation_bps",
             "docs": [
-              "This vault's target weight (basis points) for `asset_ids[i]`.",
-              "Sum across active slots must equal 10_000. Vault-specific — the",
-              "shared `AssetInfo` registry entry has no allocation of its own."
+              "Target weight in bps per asset slot (sums to 10_000 across active slots)."
             ],
             "type": {
               "array": ["u16", 8]
@@ -4420,15 +4454,31 @@
           {
             "name": "asset_ata_address",
             "docs": [
-              "Vault-authority ATA for each active asset slot (owner =",
-              "`vault_authority` PDA, mint = that asset's mint under its token",
-              "program). Derived once in `create_etf` and cached so deposit/redeem/",
-              "view hot paths compare against a stored key instead of re-deriving.",
-              "Slots `[num_assets..MAX_ASSETS)` stay `Pubkey::default()`."
+              "Cached vault-authority ATA per asset slot. Unused slots stay `Pubkey::default()`."
             ],
             "type": {
               "array": ["pubkey", 8]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultDeletedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }

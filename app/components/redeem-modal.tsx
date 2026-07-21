@@ -32,8 +32,8 @@ import { useModalTransition } from './use-modal-transition';
 
 // Two separate actions so a failure in one phase (e.g. an outflow swap leg)
 // doesn't get hidden behind a single "Redeem & Claim" button:
-//  - "Redeem (swap)" — burns shares (request_redeem) if no RedeemState yet,
-//    otherwise (once unlocked) runs the outflow swap legs.
+//  - "Redeem (swap)" — burns shares (request_redeem) if no active redeem yet,
+//    otherwise runs the outflow swap legs.
 //  - "Claim" — only enabled once the outflow legs are done (pendingUsdc > 0);
 //    sends the final `claim` instruction.
 // Nothing is stored off-chain per user — both actions check on-chain state.
@@ -76,8 +76,7 @@ export function RedeemModal({
   const [errorModal, setErrorModal] = useState<UserFacingError | null>(null);
 
   const [pending, setPending] = useState<{
-    redeemableShares: string;
-    unlockTime: string;
+    isRedeemActive: boolean;
     pendingUsdc: string;
   } | null>(null);
   /** Raw share-token base units (Token-2022 amount). */
@@ -116,10 +115,9 @@ export function RedeemModal({
       const pos = await getUserPosition(connection, vault.vault_id, publicKey, network);
       setShareBalance(pos.shareBalance);
       setPending(
-        pos.redeemState && Number(pos.redeemState.redeemableShares) > 0
+        pos.redeemState && pos.redeemState.isRedeemActive
           ? {
-              redeemableShares: pos.redeemState.redeemableShares,
-              unlockTime: pos.redeemState.unlockTime,
+              isRedeemActive: pos.redeemState.isRedeemActive,
               pendingUsdc: pos.redeemState.pendingUsdc,
             }
           : null,
@@ -135,9 +133,6 @@ export function RedeemModal({
     refreshPosition();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicKey]);
-
-  const unlockDate = pending ? new Date(Number(pending.unlockTime) * 1000) : null;
-  const unlocked = unlockDate ? unlockDate.getTime() <= Date.now() : false;
 
   const shareBalanceUi =
     sharesDecimals !== null ? formatTokenUi(shareBalance, sharesDecimals) : null;
@@ -187,7 +182,7 @@ export function RedeemModal({
   };
 
   const pendingUsdc = pending ? BigInt(pending.pendingUsdc) : 0n;
-  const readyToClaim = unlocked && pendingUsdc > 0n;
+  const readyToClaim = pendingUsdc > 0n;
 
   const handleRedeemSwap = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,21 +223,6 @@ export function RedeemModal({
             `${err instanceof Error ? err.message : String(err)}`;
         }
       }
-      if (r.phase === 'requested') {
-        const unlock = r.unlockTime ? new Date(r.unlockTime * 1000).toLocaleString() : '—';
-        setResult({
-          type: 'success',
-          text:
-            `Shares burned for vault №${vault.vault_id}. Unlock at ${unlock} — ` +
-            `press Redeem (swap) again after that time to convert assets → USDC, then claim.` +
-            altNote,
-          solscan: r.link || undefined,
-        });
-        setShares('');
-        await refreshPosition();
-        return;
-      }
-
       // Outflow done (pending_usdc > 0 on-chain). Claim immediately so USDC
       // actually lands in the wallet — the greyed Claim button was easy to
       // miss / stay disabled when refresh lagged.
@@ -383,21 +363,13 @@ export function RedeemModal({
                 Pending redeem
               </p>
               <p className="mt-1.5 font-mono text-xs tabular-nums leading-relaxed text-foreground">
-                {sharesDecimals !== null
-                  ? formatTokenUi(pending.redeemableShares, sharesDecimals)
-                  : pending.redeemableShares}{' '}
-                {vault.symbol} burned
+                Redeem in progress for vault №{vault.vault_id}
                 {pendingUsdc > 0n
                   ? ` · ${formatTokenUi(pending.pendingUsdc, USDC_DECIMALS)} USDC pending`
                   : ''}{' '}
-                · unlocks {unlockDate?.toLocaleString() ?? '—'}
                 {readyToClaim
-                  ? ' — all legs swapped: press Claim (or Redeem to auto-claim)'
-                  : unlocked
-                    ? pendingUsdc > 0n
-                      ? ' — partial USDC already pending; press Redeem (swap) to finish remaining legs, then claim (do not claim early)'
-                      : ' — press Redeem (swap) to convert assets → USDC (then auto-claim)'
-                    : ' — waiting for unlock'}
+                  ? '— all legs swapped: press Claim (or Redeem to auto-claim)'
+                  : '— press Redeem (swap) to convert assets → USDC (then auto-claim)'}
               </p>
             </div>
           )}
