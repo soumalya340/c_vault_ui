@@ -130,6 +130,19 @@ export const SOL_USD_PYTH_FEED_ID: number[] = Array.from(
 export const PRICE_SOURCE_PYTH = 0;
 export const PRICE_SOURCE_DEX = 1;
 
+/** Mirror on-chain `MAX_ASSETS` / fee bounds from `programs/vault/src/constants.rs`. */
+export const MAX_ASSETS = 8;
+export const MAX_DEPOSIT_FEE_BPS = 600;
+export const MIN_REDEEM_FEE_BPS = 50;
+export const MAX_REDEEM_FEE_BPS = 1000;
+
+/**
+ * Anchor's BorshInstructionCoder allocates a fixed 1000-byte buffer for ix data
+ * (`Buffer.alloc(1000)`). name+symbol+uri (+ params) past this throws
+ * "encoding overruns Buffer". Keep metadata comfortably under that limit.
+ */
+export const CREATE_ETF_MAX_METADATA_BYTES = 800;
+
 /** Mirror on-chain TWAP_OBSERVATION_MAX_STALE_SECS (45 minutes). */
 export const TWAP_OBSERVATION_MAX_STALE_SECS = 45 * 60;
 /** Mirror on-chain TWAP_KEEPER_MAX_STALE_SECS (1 hour). */

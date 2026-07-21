@@ -9,6 +9,7 @@ import {
   AddressLookupTableAccount,
   Connection,
   PublicKey,
+  SYSVAR_RENT_PUBKEY,
   SystemProgram,
   TransactionInstruction,
 } from '@solana/web3.js';
@@ -64,6 +65,11 @@ import {
   SWAP_LEGS_PER_TX,
   VAULT_ATA_IXS_PER_TX,
   USDC_DECIMALS,
+  MAX_ASSETS,
+  MAX_DEPOSIT_FEE_BPS,
+  MIN_REDEEM_FEE_BPS,
+  MAX_REDEEM_FEE_BPS,
+  CREATE_ETF_MAX_METADATA_BYTES,
 } from './constants';
 import { formatUserFacingError, parseTxError } from './txError';
 export { parseTxError, formatUserFacingError, type UserFacingError } from './txError';
@@ -852,15 +858,53 @@ export interface CreatedVaultInfo {
 }
 
 /**
+ * Encode instruction args with a buffer large enough for long Token-2022
+ * metadata. Anchor's stock coder uses `Buffer.alloc(1000)` and throws
+ * "encoding overruns Buffer" once name+symbol+uri (+ params) exceed that.
+ * Mirrors `BorshInstructionCoder.encode` but with a 16 KiB scratch buffer.
+ */
+function encodeInstructionData(
+  program: ReturnType<typeof createProgram>,
+  ixName: string,
+  args: Record<string, unknown>,
+): Buffer {
+  const coder = program.coder.instruction as {
+    encode: (name: string, args: unknown) => Buffer;
+    ixLayouts: Map<
+      string,
+      {
+        discriminator: number[] | Buffer;
+        layout: { encode: (data: unknown, buffer: Buffer) => number };
+      }
+    >;
+  };
+
+  try {
+    return coder.encode(ixName, args);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/encoding overruns Buffer/i.test(msg)) throw err;
+  }
+
+  const encoder = coder.ixLayouts.get(ixName);
+  if (!encoder) throw new Error(`Unknown instruction: ${ixName}`);
+  const buffer = Buffer.alloc(16_384);
+  const len = encoder.layout.encode(args, buffer);
+  const disc = Buffer.from(encoder.discriminator);
+  return Buffer.concat([disc, buffer.subarray(0, len)]);
+}
+
+/**
  * Runs create_etf, which also initializes the share mint's Token-2022
  * metadata (name/symbol/uri) inside the same instruction — one signature,
  * one transaction. Returns the assigned vault id and PDAs so the caller can
  * record the vault off-chain.
  *
- * Quote mint is always mainnet USDC (program constant). remaining_accounts is
- * one AssetInfo PDA per `params.assets` entry, in order — every other asset
- * config (mint/pool/pricing/route/swap venue) already lives on that shared,
- * admin-listed AssetInfo (see `createAsset`).
+ * Account list matches `CreateEtf` in `create_etf.rs` and the LiteSVM helper
+ * `build_create_etf_ix` in `deps/c_vault/programs/vault/tests/common/mod.rs`:
+ * remaining_accounts is one AssetInfo PDA per `params.assets` entry, in order.
+ * `etf_creation_authority` is a required signer; while the gate is
+ * `Pubkey::default()` any signer (including the vault manager) is accepted.
  */
 export async function createEtf(
   connection: Connection,
@@ -871,20 +915,57 @@ export async function createEtf(
   uri: string,
   network: Network,
 ): Promise<CreatedVaultInfo> {
+  // ── Client-side mirrors of create_etf_handler validation ─────────────────
+  if (!name.trim()) throw new Error('Vault name is required.');
+  if (!symbol.trim()) throw new Error('Vault symbol is required.');
+  if (params.assets.length === 0) throw new Error('Add at least one asset.');
+  if (params.assets.length > MAX_ASSETS) {
+    throw new Error(`Too many assets (max ${MAX_ASSETS}).`);
+  }
+  if (params.depositFeeBps < 0 || params.depositFeeBps > MAX_DEPOSIT_FEE_BPS) {
+    throw new Error(`Deposit fee must be 0–${MAX_DEPOSIT_FEE_BPS} bps.`);
+  }
+  if (
+    params.redeemFeeBps < MIN_REDEEM_FEE_BPS ||
+    params.redeemFeeBps > MAX_REDEEM_FEE_BPS
+  ) {
+    throw new Error(
+      `Redeem fee must be ${MIN_REDEEM_FEE_BPS}–${MAX_REDEEM_FEE_BPS} bps (on-chain minimum ${MIN_REDEEM_FEE_BPS}).`,
+    );
+  }
+  const totalBps = params.assets.reduce((s, a) => s + a.allocationBps, 0);
+  if (totalBps !== 10_000) {
+    throw new Error(`Allocations must sum to 10_000 bps (got ${totalBps}).`);
+  }
+  const isFixed = 'fixed' in params.fundType;
+  if (isFixed && (!params.maxShares || params.maxShares.isZero())) {
+    throw new Error('Fixed vaults require a positive max shares cap.');
+  }
+
+  const metaBytes =
+    Buffer.byteLength(name, 'utf8') +
+    Buffer.byteLength(symbol, 'utf8') +
+    Buffer.byteLength(uri, 'utf8');
+  if (metaBytes > CREATE_ETF_MAX_METADATA_BYTES) {
+    throw new Error(
+      `Name + symbol + URI is too long (${metaBytes} bytes; max ${CREATE_ETF_MAX_METADATA_BYTES}). ` +
+        `Shorten the metadata — Anchor's instruction encoder hard-caps at 1000 bytes ` +
+        `(this is the "encoding overruns Buffer" failure).`,
+    );
+  }
+
   const program = createProgram(wallet, connection);
 
   // The program assigns vault_id = global_state.total_vaults at execution.
   const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
   const vaultId = (gs.totalVaults as BN).toNumber();
+  const pdas = deriveVaultPdas(vaultId, network);
+  const globalState = deriveGlobalStatePda();
+  const usdcMint = NETWORK_CONSTANTS[network].usdcMint;
 
-  const remaining: AccountMeta[] = params.assets.map((a) => ({
-    pubkey: deriveAssetInfoPda(a.assetId),
-    isSigner: false,
-    isWritable: false,
-  }));
-
-  // Matches on-chain InitializeParams — no usdc_sol_pool; ViaSol uses the
-  // cluster canonical USDC↔wSOL Whirlpool from NETWORK_CONSTANTS at swap time.
+  // Matches on-chain InitializeParams / tests::make_etf_params.
+  // Program.methods camelCases field names; FundType unit variants use
+  // lowercase keys (`{ dynamic: {} }`) which Anchor maps to the rust-repr enum.
   const ixParams = {
     feeRecipient: params.feeRecipient,
     depositFeeBps: params.depositFeeBps,
@@ -894,27 +975,68 @@ export async function createEtf(
       allocationBps: a.allocationBps,
     })),
     fundType: params.fundType,
-    maxShares: params.maxShares,
+    maxShares: isFixed ? params.maxShares : null,
   };
 
-  // Build the instruction and send it through sendV0 rather than Anchor's
-  // `.rpc()`: `.rpc()` confirms via the websocket subscription with a hard 30s
-  // cap, which the public devnet RPC trips even when the tx lands ("not
-  // confirmed / unknown if it succeeded"). sendV0 polls signature status.
-  const createIx = await (program.methods as any)
-    .createEtf(ixParams, name, symbol, uri)
-    .accounts({
-      authority: wallet.publicKey,
-      etfCreationAuthority: wallet.publicKey,
-      usdcMint: NETWORK_CONSTANTS[network].usdcMint,
-      sharesTokenProgram: TOKEN_2022_PROGRAM_ID,
-    } as never)
-    .remainingAccounts(remaining)
-    .instruction();
+  // Explicit account list — same order as CreateEtf in create_etf.rs /
+  // tests::build_create_etf_ix (avoid auto-resolve depth issues).
+  const keys: AccountMeta[] = [
+    { pubkey: globalState, isSigner: false, isWritable: true },
+    { pubkey: pdas.vaultPda, isSigner: false, isWritable: true },
+    { pubkey: pdas.vaultAuthority, isSigner: false, isWritable: false },
+    { pubkey: pdas.sharesMint, isSigner: false, isWritable: true },
+    { pubkey: pdas.usdcVault, isSigner: false, isWritable: true },
+    { pubkey: usdcMint, isSigner: false, isWritable: false },
+    { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+    // Gate disabled while etf_creation_authority == Pubkey::default();
+    // any signer is accepted — use the connected wallet (same as tests).
+    { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+    // remaining_accounts: AssetInfo PDAs in params.assets order (readonly).
+    ...params.assets.map((a) => ({
+      pubkey: deriveAssetInfoPda(a.assetId),
+      isSigner: false,
+      isWritable: false,
+    })),
+  ];
 
+  let data: Buffer;
+  try {
+    data = encodeInstructionData(program, 'createEtf', {
+      params: ixParams,
+      name,
+      symbol,
+      uri,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/encoding overruns Buffer/i.test(msg)) {
+      throw new Error(
+        `create_etf instruction data too large for Anchor's encoder (${msg}). ` +
+          `Shorten name/symbol/uri (combined UTF-8 length is ${metaBytes} bytes).`,
+      );
+    }
+    if (/unable to infer src variant/i.test(msg)) {
+      throw new Error(
+        `create_etf FundType encode failed (${msg}). Expected fundType ` +
+          `{ fixed: {} } or { dynamic: {} }.`,
+      );
+    }
+    throw err;
+  }
+
+  const createIx = new TransactionInstruction({
+    programId: C_VAULT_PROGRAM_ID,
+    keys,
+    data,
+  });
+
+  // sendV0 (not Anchor `.rpc()`): polls signature status instead of the flaky
+  // public-RPC websocket 30s confirm path.
   const sig = await sendV0(connection, wallet, [createIx]);
-
-  const pdas = deriveVaultPdas(vaultId, network);
   return {
     tx: sig,
     link: solscanLink(sig, network),
