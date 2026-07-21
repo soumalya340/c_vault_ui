@@ -18,7 +18,6 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction,
-  createApproveInstruction,
   getMint,
   unpackAccount,
 } from '@solana/spl-token';
@@ -33,7 +32,6 @@ import {
   deriveGlobalStatePda,
   deriveAssetInfoPda,
   deriveVaultPdas,
-  deriveUserInfoPda,
   deriveRedeemStatePda,
 } from './pda';
 import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
@@ -95,7 +93,6 @@ export {
   deriveGlobalStatePda,
   deriveAssetInfoPda,
   deriveVaultPdas,
-  deriveUserInfoPda,
   deriveRedeemStatePda,
 };
 export type { Network };
@@ -908,6 +905,7 @@ export async function createEtf(
     .createEtf(ixParams, name, symbol, uri)
     .accounts({
       authority: wallet.publicKey,
+      etfCreationAuthority: wallet.publicKey,
       usdcMint: NETWORK_CONSTANTS[network].usdcMint,
       sharesTokenProgram: TOKEN_2022_PROGRAM_ID,
     } as never)
@@ -947,7 +945,6 @@ async function buildDepositIxs(
   const userShares = getAssociatedTokenAddressSync(
     ctx.sharesMint, user, false, TOKEN_2022_PROGRAM_ID,
   );
-  const userInfo = deriveUserInfoPda(ctx.vaultPda, user);
   const treasury = await fetchTreasury(connection);
 
   const ensureAtaIxs: TransactionInstruction[] = [
@@ -973,7 +970,6 @@ async function buildDepositIxs(
       user,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       baseTokenProgram: TOKEN_PROGRAM_ID,
-      userInfo,
       treasury,
       feeRecipient: ctx.feeRecipient,
       treasuryUsdcAccount: baseAta(treasury, ctx.baseMint),
@@ -1005,10 +1001,8 @@ export async function deposit(
   return { tx: sig, link: solscanLink(sig, network) };
 }
 
-/**
- * `[approve, request_redeem]` — the program burns shares with vault_authority
- * as the token authority, so the user must delegate `shares` to it first.
- */
+/** `[request_redeem]` — the program burns the user's shares directly
+ * (user-signed CPI), no delegated approve needed. */
 async function buildRequestRedeemIxs(
   program: ReturnType<typeof createProgram>,
   ctx: VaultChainCtx,
@@ -1017,14 +1011,6 @@ async function buildRequestRedeemIxs(
 ): Promise<TransactionInstruction[]> {
   const userShares = getAssociatedTokenAddressSync(
     ctx.sharesMint, user, false, TOKEN_2022_PROGRAM_ID,
-  );
-  const approveIx = createApproveInstruction(
-    userShares,
-    ctx.vaultAuthority,
-    user,
-    BigInt(shares.toString()),
-    [],
-    TOKEN_2022_PROGRAM_ID,
   );
   const redeemIx = await (program.methods as any)
     .requestRedeem(new BN(ctx.vaultId), shares)
@@ -1035,14 +1021,13 @@ async function buildRequestRedeemIxs(
       sharesMint: ctx.sharesMint,
       userShareAccount: userShares,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
-      userInfo: deriveUserInfoPda(ctx.vaultPda, user),
       user,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     } as never)
     .remainingAccounts(assetAtaRemainingAccounts(ctx))
     .instruction();
-  return [approveIx, redeemIx];
+  return [redeemIx];
 }
 
 export async function requestRedeem(
@@ -2095,7 +2080,6 @@ async function buildGenesisDepositIx(
       authority,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       baseTokenProgram: TOKEN_PROGRAM_ID,
-      userInfo: deriveUserInfoPda(ctx.vaultPda, authority),
       systemProgram: SystemProgram.programId,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     } as never)
@@ -2250,8 +2234,7 @@ export async function deployPendingSwaps(
 }
 
 interface RawRedeemState {
-  redeemableShares: BN;
-  unlockTime: BN;
+  isRedeemActive: boolean;
   pendingUsdc: BN;
   numAssets: number;
   assetAmountIn: BN[];
@@ -2272,8 +2255,7 @@ async function tryFetchRedeemState(
     const d = raw as Record<string, unknown>;
     const pick = <T,>(camel: string, snake: string): T => (d[camel] ?? d[snake]) as T;
     return {
-      redeemableShares: pick<BN>('redeemableShares', 'redeemable_shares'),
-      unlockTime: pick<BN>('unlockTime', 'unlock_time'),
+      isRedeemActive: Boolean(pick<boolean>('isRedeemActive', 'is_redeem_active')),
       pendingUsdc: pick<BN>('pendingUsdc', 'pending_usdc'),
       numAssets: Number(pick<number>('numAssets', 'num_assets') ?? 0),
       assetAmountIn: pick<BN[]>('assetAmountIn', 'asset_amount_in') ?? [],
@@ -2315,18 +2297,17 @@ async function waitForWsolIncrease(
 }
 
 export interface RedeemClaimResult {
-  /** 'requested' — shares burned, cooldown running; 'claimed' — payout sent. */
+  /** 'requested' — shares burned, not yet claimed; 'claimed' — payout sent. */
   phase: 'requested' | 'claimed';
-  unlockTime?: number;
   signatures: string[];
   link: string;
 }
 
 export interface RedeemSwapResult {
-  /** 'requested' — shares just burned, cooldown running, no swaps run yet.
-   *  'swapped' — outflow legs ran; call `claim` next. */
-  phase: 'requested' | 'swapped';
-  unlockTime?: number;
+  /** Outflow legs ran to completion; call `claim` next. No cooldown exists
+   *  on-chain — `redeemSwap` always runs request_redeem (if needed) then
+   *  every outflow leg in the same call. */
+  phase: 'swapped';
   signatures: string[];
   link: string;
   altAddress?: string;
@@ -2338,9 +2319,8 @@ export interface RedeemSwapResult {
  * standalone `claim()` export so the UI can show "Redeem (swap)" and "Claim"
  * as two separate actions instead of one combined button:
  *
- *  1. No RedeemState → verify the share balance, then `[approve, request_redeem]`.
- *  2. Cooldown still running → stop and report the unlock time.
- *  3. Unlocked → run the outflow legs (each ViaSol asset→wSOL leg is its own
+ *  1. No active redeem → verify the share balance, then `request_redeem`.
+ *  2. Run the outflow legs (each ViaSol asset→wSOL leg is its own
  *     transaction so the received wSOL can be measured; the wSOL-native slot's
  *     amount is already known from RedeemState), then all →USDC legs in one
  *     ALT-compressed transaction. Does not call `claim`.
@@ -2364,7 +2344,7 @@ export async function redeemSwap(
 
   let redeemState = await tryFetchRedeemState(program, user, vaultId);
 
-  if (!redeemState || redeemState.redeemableShares.isZero()) {
+  if (!redeemState || !redeemState.isRedeemActive) {
     // Phase 1 — on-chain share balance check, then burn.
     if (!shares || shares.isZero()) throw new Error('Enter shares to redeem.');
     const userShares = getAssociatedTokenAddressSync(
@@ -2387,19 +2367,6 @@ export async function redeemSwap(
     signatures.push(await sendV0(connection, wallet, ixs, lut));
     redeemState = await tryFetchRedeemState(program, user, vaultId);
     if (!redeemState) throw new Error('RedeemState not found after request_redeem.');
-  }
-
-  const unlockTime = Number(redeemState.unlockTime.toString());
-  if (unlockTime * 1000 > Date.now()) {
-    const last = signatures[signatures.length - 1];
-    return {
-      phase: 'requested',
-      unlockTime,
-      signatures,
-      link: last ? solscanLink(last, network) : '',
-      altAddress: ensured.altAddress,
-      altCreated: ensured.altCreated,
-    };
   }
 
   // Phase 2 — outflow legs (two-pass, required for multi-asset baskets):
@@ -2563,7 +2530,7 @@ export async function redeemSwap(
     throw new Error(
       `Outflow incomplete — still unswapped asset slots: [${unswapped.map((i) => i + 1).join(', ')}]. ` +
         (pending > 0n
-          ? `Partial USDC pending (${pending} raw) — do NOT claim yet (claim closes RedeemState). Press Redeem (swap) again to finish remaining legs. `
+          ? `Partial USDC pending (${pending} raw) — do NOT claim yet (claim requires all legs swapped). Press Redeem (swap) again to finish remaining legs. `
           : `Press Redeem (swap) again to resume. `) +
         `Do not start a new redeem.`,
     );
@@ -2601,9 +2568,6 @@ export async function redeemAndClaim(
   onProgress?: ProgressFn,
 ): Promise<RedeemClaimResult> {
   const swapResult = await redeemSwap(connection, wallet, vaultId, shares, altAddress, network, onProgress);
-  if (swapResult.phase === 'requested') {
-    return { phase: 'requested', unlockTime: swapResult.unlockTime, signatures: swapResult.signatures, link: swapResult.link };
-  }
 
   onProgress?.('Claiming payout…');
   const claimResult = await claim(connection, wallet, vaultId, network);
@@ -2863,7 +2827,7 @@ export async function getTotalNavView(
     );
   }
 
-  const totalNav = viewFieldToString(raw, 'totalNav', 'total_nav');
+  const totalNav = viewFieldToString(raw, 'tvl', 'tvl');
   const sharePrice = viewFieldToString(raw, 'sharePrice', 'share_price');
   const totalShares = viewFieldToString(raw, 'totalShares', 'total_shares');
 
@@ -2919,7 +2883,7 @@ export async function previewDeposit(
 
   return {
     sharesToMint: viewFieldToString(result, 'sharesToMint', 'shares_to_mint'),
-    totalNav: viewFieldToString(result, 'totalNav', 'total_nav'),
+    totalNav: viewFieldToString(result, 'tvl', 'tvl'),
     sharePrice: viewFieldToString(result, 'sharePrice', 'share_price'),
     totalShares: viewFieldToString(result, 'totalShares', 'total_shares'),
   };
@@ -2983,15 +2947,8 @@ export async function previewRedeem(
 export interface UserPosition {
   user: string;
   shareBalance: string;
-  userInfo?: {
-    totalUsdcDeposited: string;
-    lastUsdcDeposited: string;
-    lastSharesMinted: string;
-    lastDepositTs: string;
-  };
   redeemState?: {
-    redeemableShares: string;
-    unlockTime: string;
+    isRedeemActive: boolean;
     pendingUsdc: string;
     numAssets: number;
     assetAmountIn: string[];
@@ -3007,7 +2964,7 @@ export async function getUserPosition(
   network: Network = 'mainnet',
 ): Promise<UserPosition> {
   const program = createProgram(createDummyWallet(), connection);
-  const { vaultPda, sharesMint } = deriveVaultPdas(vaultId, network);
+  const { sharesMint } = deriveVaultPdas(vaultId, network);
   const userShareAta = getAssociatedTokenAddressSync(sharesMint, user, false, TOKEN_2022_PROGRAM_ID);
 
   let shareBalance = '0';
@@ -3016,14 +2973,6 @@ export async function getUserPosition(
     shareBalance = bal.value.amount;
   } catch {
     // ata may not exist
-  }
-
-  const userInfoPda = deriveUserInfoPda(vaultPda, user);
-  let userInfoData = null;
-  try {
-    userInfoData = await (program.account as any).userInfo.fetch(userInfoPda);
-  } catch {
-    // not created yet
   }
 
   const redeemPda = deriveRedeemStatePda(user, vaultId);
@@ -3037,14 +2986,6 @@ export async function getUserPosition(
   return {
     user: user.toBase58(),
     shareBalance,
-    userInfo: userInfoData
-      ? {
-          totalUsdcDeposited: userInfoData.totalUsdcDeposited.toString(),
-          lastUsdcDeposited: userInfoData.lastUsdcDeposited.toString(),
-          lastSharesMinted: userInfoData.lastSharesMinted.toString(),
-          lastDepositTs: userInfoData.lastDepositTs.toString(),
-        }
-      : undefined,
     redeemState: redeemData
       ? (() => {
           // Program converts IDL to camelCase, but accept snake_case keys too
@@ -3054,8 +2995,7 @@ export async function getUserPosition(
             (d[camel] ?? d[snake]) as T;
           const amountArr = pick<BN[]>('assetAmountIn', 'asset_amount_in') ?? [];
           return {
-            redeemableShares: pick<BN>('redeemableShares', 'redeemable_shares').toString(),
-            unlockTime: pick<BN>('unlockTime', 'unlock_time').toString(),
+            isRedeemActive: Boolean(pick<boolean>('isRedeemActive', 'is_redeem_active')),
             pendingUsdc: pick<BN>('pendingUsdc', 'pending_usdc').toString(),
             numAssets: Number(pick<number>('numAssets', 'num_assets') ?? 0),
             assetAmountIn: amountArr.map((a) => a.toString()),

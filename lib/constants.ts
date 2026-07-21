@@ -24,7 +24,6 @@ export const VAULT_SEED = Buffer.from('etf_vault');
 export const VAULT_AUTHORITY_SEED = Buffer.from('vault_authority');
 export const SHARES_MINT_SEED = Buffer.from('shares_mint');
 export const USDC_VAULT_SEED = Buffer.from('usdc_vault');
-export const USER_INFO_SEED = Buffer.from('user_info');
 export const REDEEM_SEED = Buffer.from('redeem');
 
 /**

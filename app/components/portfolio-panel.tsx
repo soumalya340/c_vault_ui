@@ -40,17 +40,13 @@ function formatOwnership(bps: number | null): string {
   return `${(bps / 100).toFixed(2)}%`;
 }
 
-function redeemStatusLabel(h: PortfolioHolding, nowSec: number): string | null {
+function redeemStatusLabel(h: PortfolioHolding): string | null {
   const pending = h.redeemPendingUsdc;
   if (!pending || BigInt(pending) <= 0n) {
-    if (h.redeemableShares && BigInt(h.redeemableShares) > 0n) {
+    if (h.isRedeemActive) {
       return 'Redeem in progress';
     }
     return null;
-  }
-  const unlock = h.redeemUnlockTime ?? 0;
-  if (unlock > nowSec) {
-    return `Pending ${formatTokenUi(pending, USDC_DECIMALS)} USDC · unlocks ${new Date(unlock * 1000).toLocaleString()}`;
   }
   return `Claim ready · ${formatTokenUi(pending, USDC_DECIMALS)} USDC`;
 }
@@ -72,7 +68,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
   const [redeemTarget, setRedeemTarget] = useState<
     PortfolioHolding['vault'] | null
   >(null);
-  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
 
   const load = useCallback(async () => {
     if (!publicKey) {
@@ -96,7 +91,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
       setCreatedVaults(
         vaults.filter((v) => v.creator === publicKey.toBase58()),
       );
-      setNowSec(Math.floor(Date.now() / 1000));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSnapshot(null);
@@ -458,7 +452,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
 
                   <ul className='divide-y divide-border'>
                     {holdings.map((h) => {
-                      const redeemLabel = redeemStatusLabel(h, nowSec);
+                      const redeemLabel = redeemStatusLabel(h);
                       const sharesUi = formatTokenUi(
                         h.shareBalance,
                         h.sharesDecimals,
@@ -557,25 +551,9 @@ export function PortfolioPanel({ network }: { network: Network }) {
                             </div>
                           </div>
 
-                          {(redeemLabel || h.totalUsdcDeposited) && (
+                          {redeemLabel && (
                             <div className='flex flex-wrap gap-x-4 gap-y-1 border-t border-border/60 pt-2.5 font-mono text-[11px] text-muted-foreground'>
-                              {redeemLabel && (
-                                <span className='text-seal'>{redeemLabel}</span>
-                              )}
-                              {h.totalUsdcDeposited &&
-                                BigInt(h.totalUsdcDeposited) > 0n && (
-                                  <span>
-                                    Tracked deposits{' '}
-                                    {formatTokenUi(
-                                      h.totalUsdcDeposited,
-                                      USDC_DECIMALS,
-                                    )}{' '}
-                                    USDC
-                                    {h.lastDepositTs
-                                      ? ` · last ${new Date(h.lastDepositTs * 1000).toLocaleDateString()}`
-                                      : ''}
-                                  </span>
-                                )}
+                              <span className='text-seal'>{redeemLabel}</span>
                             </div>
                           )}
                         </li>

@@ -1,15 +1,15 @@
 /**
  * Wallet portfolio: which cVault ETF share certificates a pubkey holds, and
  * how much. Reads are RPC-only (no program .view() / simulateTransaction) so
- * the page stays light on quota — share balances from Token-2022 ATAs, optional
- * RedeemState / UserInfo PDAs, and book value from the vault account.
+ * the page stays light on quota — share balances from Token-2022 ATAs, an
+ * optional RedeemState PDA, and book value from the vault account.
  */
 
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import type { Network } from '@/lib/constants';
 import { USDC_DECIMALS } from '@/lib/constants';
-import { deriveRedeemStatePda, deriveUserInfoPda, deriveVaultPdas } from '@/lib/pda';
+import { deriveRedeemStatePda, deriveVaultPdas } from '@/lib/pda';
 import { decodeVaultAccount } from '@/lib/vaultAccount';
 import type { VaultRecord } from '@/lib/registryClient';
 
@@ -33,11 +33,8 @@ export interface PortfolioHolding {
   vaultTotalUsdcValue: string;
   /** Ownership of outstanding shares in bps (0–10_000); null if total is 0. */
   ownershipBps: number | null;
-  totalUsdcDeposited: string | null;
-  lastDepositTs: number | null;
-  redeemableShares: string | null;
+  isRedeemActive: boolean;
   redeemPendingUsdc: string | null;
-  redeemUnlockTime: number | null;
 }
 
 export interface PortfolioSnapshot {
@@ -83,40 +80,19 @@ function amountFromTokenAccount(data: Buffer | null): bigint {
 
 /**
  * RedeemState after 8-byte disc (Borsh):
- *   redeemable_shares: u64
- *   unlock_time: i64
- *   pending_usdc: u64
+ *   is_redeem_active: bool (1 byte, offset 8)
+ *   pending_usdc: u64 (offset 9)
+ * Only these two fields are needed for the portfolio summary.
  */
 function parseRedeemHead(data: Buffer | null): {
-  redeemableShares: bigint;
-  unlockTime: number;
+  isRedeemActive: boolean;
   pendingUsdc: bigint;
 } | null {
-  if (!data || data.length < 8 + 24) return null;
-  const redeemableShares = readU64Le(data, 8);
-  const unlockTime = Number(data.readBigInt64LE(16));
-  const pendingUsdc = readU64Le(data, 24);
-  if (redeemableShares === 0n && pendingUsdc === 0n) return null;
-  return { redeemableShares, unlockTime, pendingUsdc };
-}
-
-/**
- * UserInfo after disc:
- *   user: Pubkey (32)
- *   total_usdc_deposited: u64
- *   last_usdc_deposited: u64
- *   last_shares_minted: u64
- *   last_deposit_ts: i64
- *   shares_held: u64
- */
-function parseUserInfoHead(data: Buffer | null): {
-  totalUsdcDeposited: bigint;
-  lastDepositTs: number;
-} | null {
-  if (!data || data.length < 8 + 32 + 32) return null;
-  const totalUsdcDeposited = readU64Le(data, 8 + 32);
-  const lastDepositTs = Number(data.readBigInt64LE(8 + 32 + 16));
-  return { totalUsdcDeposited, lastDepositTs };
+  if (!data || data.length < 9 + 8) return null;
+  const isRedeemActive = data.readUInt8(8) !== 0;
+  const pendingUsdc = readU64Le(data, 9);
+  if (!isRedeemActive && pendingUsdc === 0n) return null;
+  return { isRedeemActive, pendingUsdc };
 }
 
 function proRataUsdc(
@@ -140,7 +116,7 @@ function ownershipBps(shareBalance: bigint, totalShares: bigint): number | null 
  * RPC plan (bounded, no per-row simulateTransaction):
  *  1. getMultipleAccountsInfo — user share ATAs (Token-2022)
  *  2. getMultipleAccountsInfo — redeem-state PDAs (pending claims with 0 shares)
- *  3. For rows that still look active: vault account + user_info (batched)
+ *  3. For rows that still look active: vault accounts (batched)
  */
 export async function fetchWalletPortfolio(
   connection: Connection,
@@ -199,15 +175,7 @@ export async function fetchWalletPortfolio(
   const vaultPdas = candidates.map((c) =>
     deriveVaultPdas(c.vault.vault_id, network).vaultPda,
   );
-  const userInfoPdas = candidates.map((c) => {
-    const { vaultPda } = deriveVaultPdas(c.vault.vault_id, network);
-    return deriveUserInfoPda(vaultPda, user);
-  });
-
-  const [vaultInfos, userInfoInfos] = await Promise.all([
-    getMultipleAccountsChunked(connection, vaultPdas),
-    getMultipleAccountsChunked(connection, userInfoPdas),
-  ]);
+  const vaultInfos = await getMultipleAccountsChunked(connection, vaultPdas);
 
   const holdings: PortfolioHolding[] = [];
   let totalEstimated = 0n;
@@ -237,7 +205,6 @@ export async function fetchWalletPortfolio(
     const estimatedUsdc = proRataUsdc(c.shareBalance, totalShares, totalUsdcValue);
     if (estimatedUsdc) totalEstimated += BigInt(estimatedUsdc);
 
-    const userInfo = parseUserInfoHead(asBuffer(userInfoInfos[i]?.data));
     const redeemPending = c.redeem?.pendingUsdc ?? null;
     if (redeemPending != null && redeemPending > 0n) pendingRedeemCount += 1;
 
@@ -249,11 +216,8 @@ export async function fetchWalletPortfolio(
       vaultTotalShares: totalShares.toString(),
       vaultTotalUsdcValue: totalUsdcValue.toString(),
       ownershipBps: ownershipBps(c.shareBalance, totalShares),
-      totalUsdcDeposited: userInfo ? userInfo.totalUsdcDeposited.toString() : null,
-      lastDepositTs: userInfo && userInfo.lastDepositTs > 0 ? userInfo.lastDepositTs : null,
-      redeemableShares: c.redeem ? c.redeem.redeemableShares.toString() : null,
+      isRedeemActive: c.redeem?.isRedeemActive ?? false,
       redeemPendingUsdc: redeemPending != null ? redeemPending.toString() : null,
-      redeemUnlockTime: c.redeem ? c.redeem.unlockTime : null,
     });
   }
 
