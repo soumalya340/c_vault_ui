@@ -39,7 +39,7 @@ import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
 import { fetchPoolCtx, ownerAccountsFor, type PoolCtx } from './whirlpool';
 import { fetchDammPoolCtx, type DammPoolCtx } from './damm';
 import { ensureLocalhostSwapPreflight } from './localhost';
-import { assertVaultDexTwapReadyForSwap, ensureVaultDexTwapFresh } from './twap';
+import { ensureVaultDexTwapFresh } from './twap';
 import {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
@@ -1965,12 +1965,14 @@ async function diagnoseMissingNavAccounts(
 /**
  * Shared preflight for NAV / preview views.
  *
- * 1. DEX TWAP (all networks): on-chain pricing for DEX assets still runs
- *    `record_observation` inside `.view()` sims — if observation + keeper are
- *    both stale, the sim fails with LivePriceDiscrepancy (6052). Probe only;
- *    the UI ErrorModal offers **Refresh Price** when the user opts in to pay.
- * 2. Localhost: synthetic Pyth + Whirlpool clock.
- * 3. Missing vault ATAs → idempotent create ixs as `preInstructions` only
+ * On-chain view paths (`get_total_nav_view`, `preview_deposit`,
+ * `preview_redeem`) pass `use_spot = true` and price from live DEX spot —
+ * they do **not** touch TwapState or the staleness/keeper guard. Do not
+ * probe TWAP freshness here (that was the old path and falsely threw 6052).
+ * TWAP readiness stays on mutative deposit/redeem via `prepareSwapPreflight`.
+ *
+ * 1. Localhost: synthetic Pyth + Whirlpool clock.
+ * 2. Missing vault ATAs → idempotent create ixs as `preInstructions` only
  *    (simulated rent payer; not sent for the view itself).
  */
 async function prepareViewAccounts(
@@ -1980,12 +1982,6 @@ async function prepareViewAccounts(
   wallet?: AnchorWallet | null,
   onProgress?: ProgressFn,
 ): Promise<TransactionInstruction[]> {
-  const hasDex = ctx.assets.some((a) => a.priceSourceTag === PRICE_SOURCE_DEX);
-  if (hasDex) {
-    const program = createProgram(wallet ?? createDummyWallet(), connection);
-    await assertVaultDexTwapReadyForSwap(program, ctx, onProgress);
-  }
-
   await prepareLocalhostOracles(connection, network, ctx, onProgress);
 
   const missingAtas = await findMissingVaultAtas(connection, ctx);
@@ -2900,8 +2896,8 @@ async function emptyVaultNavView(
  * UI does not dump opaque raw integers (or empty) in the OUTPUT panel.
  *
  * Pass `wallet` when available: missing vault ATAs are simulated as
- * preInstructions. Stale DEX TWAP (6050 / 6052) is probed first — use
- * ErrorModal → Refresh Price before retrying (never auto-charged).
+ * preInstructions. Views use on-chain spot pricing (`use_spot`) — stale
+ * TWAP does not block this call (deposit/redeem still require TWAP).
  */
 export async function getTotalNavView(
   connection: Connection,
