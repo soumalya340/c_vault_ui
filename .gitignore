@@ -59,4 +59,5 @@ docs
 .agents
 .claude
 skills-lock.json
-ui
+# Design mockups / HTML prototypes only — do NOT ignore components/ui (shadcn).
+/ui
