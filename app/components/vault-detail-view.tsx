@@ -21,7 +21,8 @@ import { assetNameForMint, displayAssetName } from '@/lib/presets/canonical-data
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { PendingClaimButton, formatTokenUi } from './pending-claim-button';
-import { SECTION_STYLE } from './function-defs';
+import { SECTION_STYLE, VIEW_FUNCTIONS, type FunctionDef } from './function-defs';
+import { SectionBlock } from './section-block';
 import { AssetRowsSkeleton } from './loading-skeletons';
 import { SECTION_ROUTES } from './console-routes';
 import {
@@ -30,6 +31,26 @@ import {
   panelClass,
   sectionLabelClass,
 } from './ui-classes';
+
+/** View plate instruments with vault_id locked to this page's vault. */
+function viewFunctionsForVault(vault: VaultRecord): FunctionDef[] {
+  const fixedVault = String(vault.vault_id);
+  const vaultLabel = `№ ${vault.vault_id} · ${vault.symbol} · ${vault.name}`;
+  return VIEW_FUNCTIONS.map((fn) => ({
+    ...fn,
+    fields: fn.fields.map((field) =>
+      field.name === 'vault_id'
+        ? {
+            ...field,
+            // Submit value must stay a bare id — display shows which vault.
+            fixed: fixedVault,
+            label: 'Vault',
+            hint: vaultLabel,
+          }
+        : field,
+    ),
+  }));
+}
 
 function shorten(addr: string): string {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
@@ -398,6 +419,14 @@ function VaultDetailViewInner({
               </ul>
             )}
           </div>
+
+          {/* Full /view plate — vault_id locked to this vault (no picker). */}
+          <SectionBlock
+            id="view"
+            label="Read operations"
+            functions={viewFunctionsForVault(vault)}
+            network={network}
+          />
         </>
       )}
 

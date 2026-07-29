@@ -1,11 +1,14 @@
 import type { SectionId } from './function-defs';
 
-/** URL paths for main-console sections (admin is a separate gated route). */
-export const SECTION_ROUTES: Record<Exclude<SectionId, 'admin'>, string> = {
-  view: '/view',
+/** URL paths for main-console sections (admin is a separate gated route).
+ *  View read-ops are embedded on vault detail pages — not a top-level route. */
+export const SECTION_ROUTES: Record<Exclude<SectionId, 'admin' | 'view'>, string> = {
   vaults: '/discover',
   'vault-ops': '/create',
 };
+
+/** Legacy /view plate — redirects to Discover (read ops live per-vault). */
+export const LEGACY_VIEW_ROUTE = '/view';
 
 export const ADMIN_ROUTE = '/admin';
 export const PORTFOLIO_ROUTE = '/portfolio';
@@ -21,13 +24,14 @@ export function vaultDetailPath(vaultId: number): string {
 
 export type ConsoleView = 'home' | SectionId;
 
-export function sectionPath(id: Exclude<SectionId, 'admin'>): string {
+export function sectionPath(id: Exclude<SectionId, 'admin' | 'view'>): string {
   return SECTION_ROUTES[id];
 }
 
 export function consoleViewPath(view: ConsoleView): string {
   if (view === 'home') return HOME_ROUTE;
   if (view === 'admin') return ADMIN_ROUTE;
+  if (view === 'view') return SECTION_ROUTES.vaults;
   return sectionPath(view);
 }
 

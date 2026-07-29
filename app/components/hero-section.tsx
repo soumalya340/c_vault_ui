@@ -21,9 +21,10 @@ const TICKER_ITEMS = [
 ] as const;
 
 // Admin lives at the gated /admin dashboard — wallet menu "Dashboard" only.
-const SECTION_IDS = ['view', 'vaults', 'vault-ops'] as const satisfies readonly Exclude<
+// View read-ops live on each vault detail page (/discover/{id}), not a home plate.
+const SECTION_IDS = ['vaults', 'vault-ops'] as const satisfies readonly Exclude<
   SectionId,
-  'admin'
+  'admin' | 'view'
 >[];
 
 export function GuillocheRosette({ className }: { className?: string }) {
@@ -187,7 +188,7 @@ export function HeroSection({
 
       <nav
         aria-label="Section index"
-        className="grid grid-cols-2 gap-px border border-border-strong bg-border md:grid-cols-3 motion-safe:animate-[cert-fadeup_0.9s_ease_0.35s_both]"
+        className="grid grid-cols-1 gap-px border border-border-strong bg-border sm:grid-cols-2 motion-safe:animate-[cert-fadeup_0.9s_ease_0.35s_both]"
       >
         {SECTION_IDS.map((id) => {
           const meta = SECTION_META[id];

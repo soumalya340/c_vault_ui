@@ -1,9 +1,10 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { SECTION_ROUTES } from '@/app/components/console-routes';
 
-import { SectionView } from '@/app/components/section-view';
-import { useConsoleNetwork } from '@/app/components/console-shell';
-
+/**
+ * Legacy /view plate. Read operations now live on each vault detail page
+ * (/discover/{vault_id}). Keep this route so old links land somewhere useful.
+ */
 export default function ViewPage() {
-  const { network } = useConsoleNetwork();
-  return <SectionView section="view" network={network} />;
+  redirect(SECTION_ROUTES.vaults);
 }

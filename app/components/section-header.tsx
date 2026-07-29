@@ -7,29 +7,30 @@ export const SECTION_META: Record<
   SectionId,
   { no: string; nav: string; title: string; description: string }
 > = {
+  // View read-ops live on each vault detail page (/discover/{id}), not a top-level tab.
   view: {
-    no: '01',
+    no: '—',
     nav: 'View',
     title: 'Read Operations',
     description:
       'Inspect vault state without signing — NAV, share supply, registry entries, and account data.',
   },
   vaults: {
-    no: '02',
+    no: '01',
     nav: 'Discover',
     title: 'Discover',
     description:
       'Browse every vault in the series. Deposit USDC into a basket or redeem shares back out.',
   },
   'vault-ops': {
-    no: '03',
+    no: '02',
     nav: 'Create',
     title: 'Create ETF',
     description:
       'Create ETF vaults, execute basket swaps, and run the operational instruction set.',
   },
   admin: {
-    no: '04',
+    no: '03',
     nav: 'Admin',
     title: 'Admin Operations',
     description:

@@ -364,22 +364,32 @@ export function AccordionItem({
   // duplicate-mint check refetch the registry instead of serving stale data.
   const [registryVersion, setRegistryVersion] = useState(0);
 
-  const hasVaultIdField = fn.fields.some((f) => f.name === 'vault_id');
-  const hasAssetIdField = fn.fields.some((f) => f.name === 'asset_id');
+  // Fixed id fields (e.g. vault detail page locking vault_id) skip registry dropdowns.
+  const hasVaultIdField = fn.fields.some(
+    (f) => f.name === 'vault_id' && f.fixed === undefined,
+  );
+  const hasAssetIdField = fn.fields.some(
+    (f) => f.name === 'asset_id' && f.fixed === undefined,
+  );
   const vaultIdOptions = useVaultIdOptions(open && hasVaultIdField, network);
   const assetIdOptions = useAssetIdOptions(open && hasAssetIdField, network);
 
   // Ids are per-network — drop any picked id when the cluster changes so a
   // localhost vault id can never be submitted against mainnet (and vice versa).
+  // Fixed id fields are not user-picked and stay with the FunctionDef.
   useEffect(() => {
     setValues((prev) => {
       if (prev.vault_id === undefined && prev.asset_id === undefined) return prev;
       const rest = { ...prev };
-      delete rest.vault_id;
-      delete rest.asset_id;
+      if (fn.fields.every((f) => f.name !== 'vault_id' || f.fixed === undefined)) {
+        delete rest.vault_id;
+      }
+      if (fn.fields.every((f) => f.name !== 'asset_id' || f.fixed === undefined)) {
+        delete rest.asset_id;
+      }
       return rest;
     });
-  }, [network]);
+  }, [network, fn.fields]);
 
   const presetPicker = useUnlistedPresets(open && isCreateAsset, network, registryVersion);
   const fillFromPreset = (presetKey: string) => {
@@ -542,6 +552,16 @@ export function AccordionItem({
     for (const f of fn.fields) {
       if (f.type === 'select' && !submitValues[f.name] && f.options?.length) {
         submitValues = { ...submitValues, [f.name]: f.options[0].value };
+      }
+    }
+
+    // Fixed fields are read-only in the form — inject them into submit so
+    // executors always receive the locked value (e.g. vault detail vault_id).
+    for (const f of fn.fields) {
+      if (f.fixed === undefined) continue;
+      const fixed = resolveFixedValue(f, network);
+      if (fixed !== undefined) {
+        submitValues = { ...submitValues, [f.name]: fixed };
       }
     }
 
@@ -752,7 +772,8 @@ export function AccordionItem({
                     </div>
                     {field.fixed !== undefined ? (
                       <p className="break-all rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-[11px] text-foreground">
-                        {resolveFixedValue(field, network)}
+                        {/* Prefer hint as human label when fixed is a raw id (vault detail). */}
+                        {field.hint?.trim() || resolveFixedValue(field, network)}
                       </p>
                     ) : field.name === 'vault_id' || field.name === 'asset_id' ? (
                       (() => {
@@ -950,7 +971,10 @@ export function AccordionItem({
                           `Already listed as asset #${mintCheck.assetId}.`}
                       </p>
                     )}
-                    {field.hint && field.name !== 'assets_json' && (
+                    {field.hint &&
+                      field.name !== 'assets_json' &&
+                      // Fixed fields that use hint as the read-only display skip the duplicate line.
+                      !(field.fixed !== undefined && field.hint.trim()) && (
                       <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
                         {field.hint}
                       </p>
