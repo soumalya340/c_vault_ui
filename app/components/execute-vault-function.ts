@@ -38,6 +38,7 @@ import {
   saveAssetRegistryEntry,
   fetchVaults,
   updateVaultAlts,
+  updateVaultGenesisStatus,
   FieldError,
 } from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
@@ -273,6 +274,20 @@ export async function executeVaultFunction(
       // fails. Always re-persist the address to Supabase/SQLite after success.
       const vaults = await fetchVaults(net).catch(() => []);
       const row = vaults.find((vrow) => vrow.vault_id === id);
+      if (row?.genesis_deposit_status) {
+        throw new Error('Genesis deposit already completed for this vault.');
+      }
+      // DB may lag on-chain (genesis via CLI / other client) — reconcile once.
+      try {
+        const state = await getVaultState(connection, id, net);
+        if (state.genesisDone) {
+          await updateVaultGenesisStatus(net, id, true).catch(() => undefined);
+          throw new Error('Genesis deposit already completed on-chain for this vault.');
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('already completed')) throw err;
+        // Missing vault / RPC blip — let the on-chain ix surface the real error.
+      }
       const altAddress = row?.alt_address ?? null;
       const r = await genesisDepositAndDeploy(
         connection,
@@ -291,17 +306,30 @@ export async function executeVaultFunction(
         : r.altAddress
           ? `\nALT: ${r.altAddress}`
           : '';
+      // Genesis succeeded on-chain — pin the flag so UI can disable re-entry.
+      let genesisNote = '';
+      try {
+        await updateVaultGenesisStatus(net, id, true);
+        genesisNote = '\nGenesis deposit status: done';
+      } catch (err) {
+        genesisNote = `\nGenesis succeeded on-chain but DB update failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+      }
       const multiTxNote =
         r.signatures.length > 1
           ? `Sent in ${r.signatures.length} transactions (>4 assets).`
           : '';
-      const note = [multiTxNote, altNote.trim()].filter(Boolean).join('') || undefined;
+      const note =
+        [multiTxNote, altNote.trim(), genesisNote.trim()].filter(Boolean).join('') ||
+        undefined;
       return {
         tx: r.tx,
         solscan: r.link,
         altAddress: r.altAddress,
         altCreated: r.altCreated,
         signatures: r.signatures,
+        genesisDone: true,
         note,
       };
     }

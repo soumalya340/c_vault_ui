@@ -6,7 +6,12 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import type { Network } from '@/lib/constants';
 import { USDC_DECIMALS } from '@/lib/constants';
-import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
+import {
+  fetchVaults,
+  updateVaultGenesisStatus,
+  type VaultRecord,
+} from '@/lib/registryClient';
+import { getVaultState } from '@/lib/cvault';
 import {
   fetchWalletPortfolio,
   type PortfolioHolding,
@@ -31,6 +36,7 @@ import {
 } from './ui-classes';
 import { SECTION_STYLE } from './function-defs';
 import { sectionPath } from './console-routes';
+import { Badge } from '@/components/ui/badge';
 
 function shorten(addr: string): string {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
@@ -81,7 +87,32 @@ export function PortfolioPanel({ network }: { network: Network }) {
     setLoading(true);
     setError(null);
     try {
-      const vaults = await fetchVaults(network);
+      let vaults = await fetchVaults(network);
+
+      // DB false → check on-chain genesis_done once; if true, pin the DB flag.
+      const pendingGenesis = vaults.filter((v) => !v.genesis_deposit_status);
+      if (pendingGenesis.length > 0) {
+        const reconciled = await Promise.all(
+          pendingGenesis.map(async (v) => {
+            try {
+              const state = await getVaultState(connection, v.vault_id, network);
+              if (!state.genesisDone) return null;
+              return await updateVaultGenesisStatus(network, v.vault_id, true);
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const byId = new Map(
+          reconciled
+            .filter((r): r is VaultRecord => r != null)
+            .map((r) => [r.vault_id, r]),
+        );
+        if (byId.size > 0) {
+          vaults = vaults.map((v) => byId.get(v.vault_id) ?? v);
+        }
+      }
+
       const next = await fetchWalletPortfolio(
         connection,
         publicKey,
@@ -363,6 +394,15 @@ export function PortfolioPanel({ network }: { network: Network }) {
                                 {v.fund_type === 'fixed' ? 'Fixed' : 'Dynamic'} ·{' '}
                                 {v.num_assets}
                               </span>
+                              {v.genesis_deposit_status ? (
+                                <Badge
+                                  variant="secondary"
+                                  title="On-chain genesis_deposit has seeded this vault"
+                                  className="font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
+                                >
+                                  Genesis-Deposit-Done
+                                </Badge>
+                              ) : null}
                             </div>
                             <div className='mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground'>
                               <span>vault {shorten(v.vault_address)}</span>
@@ -406,7 +446,19 @@ export function PortfolioPanel({ network }: { network: Network }) {
 
                         {isExpanded && (
                           <div className='border-t border-border-strong bg-foreground/[0.015] px-5 py-5 md:px-6'>
-                            <VaultOpsPanel network={network} vault={v} />
+                            <VaultOpsPanel
+                              network={network}
+                              vault={v}
+                              onVaultUpdated={(next) => {
+                                setCreatedVaults((rows) =>
+                                  rows.map((row) =>
+                                    row.vault_id === next.vault_id
+                                      ? { ...row, ...next }
+                                      : row,
+                                  ),
+                                );
+                              }}
+                            />
                           </div>
                         )}
                       </li>

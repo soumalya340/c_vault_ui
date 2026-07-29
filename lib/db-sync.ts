@@ -166,6 +166,7 @@ export async function syncVaultsFromChain(
       asset_ids: state.assetIds,
       asset_allocation_bps: state.assetAllocationBps,
       num_assets: state.numAssets,
+      genesis_deposit_status: Boolean(state.genesisDone),
     });
     syncedIds.push(id);
   }

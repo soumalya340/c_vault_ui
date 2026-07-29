@@ -455,6 +455,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           asset_ids: picked.map((p) => Number(p.entry.asset_id)),
           asset_allocation_bps: picked.map((p) => p.allocationBps),
           num_assets: picked.length,
+          genesis_deposit_status: false,
         });
       } catch (err) {
         registryNote = `\n\nVault created on-chain but recording it failed: ${

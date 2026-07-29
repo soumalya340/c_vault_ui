@@ -58,6 +58,8 @@ export interface VaultRecord {
   asset_ids: number[];
   asset_allocation_bps: number[];
   num_assets: number;
+  /** Mirrors on-chain `Vault.genesis_done` — false until genesis_deposit succeeds. */
+  genesis_deposit_status: boolean;
   created_at?: string;
 }
 
@@ -182,7 +184,11 @@ export async function saveToken(row: {
 export async function fetchVaults(network: string): Promise<VaultRecord[]> {
   const res = await fetch(`/api/vaults?network=${encodeURIComponent(network)}`);
   const { vaults } = await jsonOrThrow<{ vaults: VaultRecord[] }>(res);
-  return vaults;
+  // Older rows / partial selects may omit the flag — treat missing as not done.
+  return vaults.map((v) => ({
+    ...v,
+    genesis_deposit_status: Boolean(v.genesis_deposit_status),
+  }));
 }
 
 export async function saveVault(row: Omit<VaultRecord, 'created_at'>): Promise<void> {
@@ -215,6 +221,25 @@ export async function updateVaultAlts(
       vault_id: vaultId,
       deposit_alt_address: alts.deposit_alt_address,
       redeem_alt_address: alts.redeem_alt_address,
+    }),
+  });
+  const { vault } = await jsonOrThrow<{ vault: VaultRecord }>(res);
+  return vault;
+}
+
+/** Persist `genesis_deposit_status` after a successful genesis or on-chain reconcile. */
+export async function updateVaultGenesisStatus(
+  network: string,
+  vaultId: number,
+  genesisDepositStatus: boolean,
+): Promise<VaultRecord> {
+  const res = await fetch('/api/vaults', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      network,
+      vault_id: vaultId,
+      genesis_deposit_status: genesisDepositStatus,
     }),
   });
   const { vault } = await jsonOrThrow<{ vault: VaultRecord }>(res);

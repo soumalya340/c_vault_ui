@@ -3,13 +3,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { parseUnits, PRICE_SCALE_DECIMALS, type Network } from '@/lib/cvault';
-import type { VaultRecord } from '@/lib/registryClient';
+import {
+  getVaultState,
+  parseUnits,
+  PRICE_SCALE_DECIMALS,
+  type Network,
+} from '@/lib/cvault';
+import {
+  updateVaultGenesisStatus,
+  type VaultRecord,
+} from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
 import { showVaultOpsToast } from './vault-ops-toast';
+import { Badge } from '@/components/ui/badge';
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -120,12 +129,16 @@ function OperationAccordion({
   vault,
   open,
   onToggle,
+  genesisDone,
+  onGenesisDone,
 }: {
   op: OperationDef;
   network: Network;
   vault: VaultRecord;
   open: boolean;
   onToggle: () => void;
+  genesisDone: boolean;
+  onGenesisDone: () => void;
 }) {
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
@@ -133,6 +146,7 @@ function OperationAccordion({
   const { setVisible } = useWalletModal();
 
   const vaultId = String(vault.vault_id);
+  const genesisLocked = op.id === 'genesis_deposit' && genesisDone;
   const [amount, setAmount] = useState('');
   const [pausedTarget, setPausedTarget] = useState<'ACTIVE' | 'PAUSED'>('ACTIVE');
   const [appliedPause, setAppliedPause] = useState<'ACTIVE' | 'PAUSED' | null>(null);
@@ -151,11 +165,12 @@ function OperationAccordion({
     } else if (bodyRef.current) {
       bodyRef.current.style.maxHeight = '0px';
     }
-  }, [open, result, loading]);
+  }, [open, result, loading, genesisLocked]);
 
   const currentPaused = appliedPause ?? (vault.paused ? 'PAUSED' : 'ACTIVE');
 
   const execute = async () => {
+    if (genesisLocked) return;
     if (!connected || !anchorWallet || !publicKey) {
       setVisible(true);
       return;
@@ -198,6 +213,9 @@ function OperationAccordion({
       if (op.id === 'set_paused') {
         setAppliedPause(pausedTarget);
       }
+      if (op.id === 'genesis_deposit') {
+        onGenesisDone();
+      }
     } catch (err: unknown) {
       const parsed = parseTxError(err);
       setLastError(parsed);
@@ -234,9 +252,18 @@ function OperationAccordion({
         <span className="font-mono text-[11px] font-semibold text-seal">№ {op.number}</span>
         <span className="font-display text-lg font-semibold text-foreground">{op.name}</span>
         <span className="mx-1 flex-1 self-center border-b border-dotted border-border-strong" />
-        <span className="hidden font-mono text-[8.5px] uppercase tracking-[0.2em] text-muted-foreground sm:inline">
-          {op.tag}
-        </span>
+        {genesisLocked ? (
+          <Badge
+            variant="secondary"
+            className="font-mono text-[8.5px] font-bold uppercase tracking-[0.14em]"
+          >
+            Genesis-Deposit-Done
+          </Badge>
+        ) : (
+          <span className="hidden font-mono text-[8.5px] uppercase tracking-[0.2em] text-muted-foreground sm:inline">
+            {op.tag}
+          </span>
+        )}
         <span
           className={`text-[11px] text-muted-foreground transition-transform duration-[400ms] ${
             open ? 'rotate-180 text-seal' : ''
@@ -253,11 +280,13 @@ function OperationAccordion({
       >
         <div className="grid items-end gap-6 px-6 pb-7 pt-2 md:grid-cols-[1fr_220px]">
           <p className="text-sm leading-relaxed text-foreground/80 md:col-span-2">
-            {op.description}
+            {genesisLocked
+              ? 'Genesis deposit is already complete for this vault — opening share price is locked and this instruction cannot run again.'
+              : op.description}
           </p>
 
           <div className="space-y-4">
-            {op.id === 'genesis_deposit' && (
+            {op.id === 'genesis_deposit' && !genesisLocked && (
               <div>
                 <FieldLabel>Opening share price ($)</FieldLabel>
                 <TextInput value={amount} onChange={setAmount} placeholder="1.00" inputMode="decimal" />
@@ -306,10 +335,16 @@ function OperationAccordion({
             <button
               type="button"
               onClick={execute}
-              disabled={loading}
+              disabled={loading || genesisLocked}
               className="h-11 w-full bg-foreground font-mono text-[9.5px] font-semibold uppercase tracking-[0.22em] text-background transition-colors hover:bg-seal disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {loading ? 'Processing…' : connected ? `Execute ${op.name.toLowerCase()}` : 'Connect wallet'}
+              {genesisLocked
+                ? 'Genesis complete'
+                : loading
+                  ? 'Processing…'
+                  : connected
+                    ? `Execute ${op.name.toLowerCase()}`
+                    : 'Connect wallet'}
             </button>
           </div>
         </div>
@@ -355,11 +390,57 @@ function OperationAccordion({
 export function VaultOpsPanel({
   network,
   vault,
+  onVaultUpdated,
 }: {
   network: Network;
   vault: VaultRecord;
+  /** Fired when local genesis status becomes true (UI success or on-chain reconcile). */
+  onVaultUpdated?: (next: VaultRecord) => void;
 }) {
-  const [openId, setOpenId] = useState<string>('genesis_deposit');
+  const { connection } = useConnection();
+  const [genesisDone, setGenesisDone] = useState(Boolean(vault.genesis_deposit_status));
+  const [openId, setOpenId] = useState<string>(
+    vault.genesis_deposit_status ? 'set_paused' : 'genesis_deposit',
+  );
+
+  // Keep local flag in sync when parent reloads the vault row.
+  useEffect(() => {
+    setGenesisDone(Boolean(vault.genesis_deposit_status));
+  }, [vault.vault_id, vault.genesis_deposit_status]);
+
+  // DB false → read on-chain once; if genesis_done, write true and keep it.
+  useEffect(() => {
+    if (vault.genesis_deposit_status) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const state = await getVaultState(connection, vault.vault_id, network);
+        if (cancelled || !state.genesisDone) return;
+        const updated = await updateVaultGenesisStatus(network, vault.vault_id, true);
+        if (cancelled) return;
+        setGenesisDone(true);
+        onVaultUpdated?.(updated);
+      } catch {
+        // Non-fatal — user can still attempt genesis; on-chain rejects duplicates.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    connection,
+    network,
+    vault.vault_id,
+    vault.genesis_deposit_status,
+    onVaultUpdated,
+  ]);
+
+  const markGenesisDone = () => {
+    setGenesisDone(true);
+    onVaultUpdated?.({ ...vault, genesis_deposit_status: true });
+  };
 
   return (
     <section
@@ -384,6 +465,8 @@ export function VaultOpsPanel({
             vault={vault}
             open={openId === op.id}
             onToggle={() => setOpenId((cur) => (cur === op.id ? '' : op.id))}
+            genesisDone={genesisDone}
+            onGenesisDone={markGenesisDone}
           />
         ))}
       </div>

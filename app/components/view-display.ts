@@ -129,6 +129,7 @@ function humanizeVaultState(d: Record<string, unknown>): Record<string, unknown>
       : d.assetAllocationBps,
     paused: d.paused,
     adminLocked: d.adminLocked,
+    genesisDone: d.genesisDone,
     feeRecipient: typeof d.feeRecipient === 'string' ? shortPubkey(d.feeRecipient) : d.feeRecipient,
     address: typeof d.address === 'string' ? shortPubkey(d.address) : d.address,
     baseMint: typeof d.baseMint === 'string' ? shortPubkey(d.baseMint) : d.baseMint,

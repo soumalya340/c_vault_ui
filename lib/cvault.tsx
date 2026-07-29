@@ -2737,6 +2737,8 @@ export interface VaultStateView {
   assetAllocationBps: number[];
   paused: boolean;
   adminLocked: boolean;
+  /** On-chain `Vault.genesis_done` — true after genesis_deposit seeds the vault. */
+  genesisDone: boolean;
   usdcSolPool: string | null;
 }
 
@@ -2789,6 +2791,7 @@ export async function getVaultState(
     assetAllocationBps,
     paused: vault.paused !== 0,
     adminLocked: vault.adminLocked !== 0,
+    genesisDone: vault.genesisDone !== 0,
     // Not stored on Vault anymore; ViaSol legs use the cluster canonical pool.
     usdcSolPool: null,
   };

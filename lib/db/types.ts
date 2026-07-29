@@ -28,6 +28,8 @@ export interface UnifiedVaultRow {
   asset_ids: number[];
   asset_allocation_bps: number[];
   num_assets: number;
+  /** Mirrors on-chain `Vault.genesis_done` — false until genesis_deposit succeeds. */
+  genesis_deposit_status: boolean;
   created_at: string | null;
 }
 
@@ -103,6 +105,12 @@ export interface DbDriver {
     network: DbNetwork,
     vaultId: number,
     alts: { deposit_alt_address: string | null; redeem_alt_address: string | null },
+  ): Promise<UnifiedVaultRow>;
+  /** Mark genesis_deposit as done (one-way true). Idempotent. */
+  updateVaultGenesisStatus(
+    network: DbNetwork,
+    vaultId: number,
+    genesisDepositStatus: boolean,
   ): Promise<UnifiedVaultRow>;
 
   listRegistry(network: DbNetwork): Promise<UnifiedRegistryRow[]>;

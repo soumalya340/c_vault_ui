@@ -41,6 +41,7 @@ const LABEL_OVERRIDES: Record<string, string> = {
   registryWarning: 'Registry warning',
   paused: 'Paused',
   adminLocked: 'Admin locked',
+  genesisDone: 'Genesis deposit done',
   emergency: 'Emergency',
   isEmergency: 'Emergency',
   active: 'Active',
