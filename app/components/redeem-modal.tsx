@@ -29,6 +29,7 @@ import {
   outputPanelClass,
 } from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
+import { displayVaultName } from './view-display';
 
 // Two separate actions so a failure in one phase (e.g. an outflow swap leg)
 // doesn't get hidden behind a single "Redeem & Claim" button:
@@ -306,7 +307,7 @@ export function RedeemModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Redeem from ${vault.symbol}`}
+        aria-label={`Redeem from ${displayVaultName(vault.name)}`}
         className={`cert-frame relative z-10 w-full max-w-[480px] overflow-hidden bg-background shadow-2xl ${modalClassName}`}
       >
         <div className="flex items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
@@ -315,7 +316,7 @@ export function RedeemModal({
               № {String(vault.vault_id).padStart(2, '0')} · redeem &amp; claim
             </div>
             <h2 className="mt-1 font-display text-lg font-semibold tracking-[0.02em]">
-              {vault.symbol} · {vault.name}
+              {displayVaultName(vault.name)}
             </h2>
           </div>
           <button

@@ -10,7 +10,7 @@ import {
   PopoverTrigger,
 } from '@/components/animate-ui/components/radix/popover';
 import { formatResult } from './execute-vault-function';
-import { humanizeViewResult } from './view-display';
+import { displayVaultName, humanizeViewResult } from './view-display';
 import { LedgerOutput } from './ledger-output';
 import { OutputPanelSkeleton } from './loading-skeletons';
 import { sectionLabelClass } from './ui-classes';
@@ -22,15 +22,14 @@ import { sectionLabelClass } from './ui-classes';
  */
 export function VaultInfoPopover({
   vaultId,
-  symbol,
   name,
   network,
 }: {
   vaultId: number;
-  symbol: string;
   name: string;
   network: Network;
 }) {
+  const title = displayVaultName(name);
   const { connection } = useConnection();
   const reduceMotion = useReducedMotion();
   const [open, setOpen] = useState(false);
@@ -79,8 +78,8 @@ export function VaultInfoPopover({
           aria-expanded={open}
           aria-label={
             open
-              ? `Hide vault info for ${symbol}`
-              : `View vault info for ${symbol}`
+              ? `Hide vault info for ${title}`
+              : `View vault info for ${title}`
           }
           className="group inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=open]:text-accent"
         >
@@ -110,9 +109,9 @@ export function VaultInfoPopover({
               Vault state
             </span>
             <span className="truncate font-mono text-[11px] font-bold tabular-nums tracking-[0.08em] text-seal">
-              &#8470;&nbsp;CVLT-{vaultId} · {symbol}
+              &#8470;&nbsp;CVLT-{vaultId}
             </span>
-            <span className="truncate text-xs text-muted-foreground">{name}</span>
+            <span className="truncate text-xs text-foreground">{title}</span>
           </div>
           <span className={`${sectionLabelClass} shrink-0 uppercase`}>
             {loading ? 'reading…' : 'on-chain'}

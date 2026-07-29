@@ -17,6 +17,7 @@ import {
 import { assetNameForMint } from '@/lib/presets/canonical-data';
 import { checkPoolExists } from '@/lib/poolExists';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
+import { displayVaultName } from './view-display';
 import {
   REQUIRES_WALLET,
   SECTION_STYLE,
@@ -215,9 +216,7 @@ function useVaultIdOptions(active: boolean, network: Network): IdOptionsState | 
           status: 'ready',
           options: sorted.map((r) => ({
             value: String(r.vault_id),
-            label: `№ ${String(r.vault_id).padStart(2, '0')} · ${r.name}${
-              r.symbol ? ` (${r.symbol})` : ''
-            }`,
+            label: `№ ${String(r.vault_id).padStart(2, '0')} · ${displayVaultName(r.name)}`,
           })),
         });
       })

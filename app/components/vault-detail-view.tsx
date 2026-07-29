@@ -31,6 +31,7 @@ import {
   panelClass,
   sectionLabelClass,
 } from './ui-classes';
+import { displayVaultName } from './view-display';
 
 /**
  * View plate for this vault — vault_id locked, Vault State omitted
@@ -38,7 +39,7 @@ import {
  */
 function viewFunctionsForVault(vault: VaultRecord): FunctionDef[] {
   const fixedVault = String(vault.vault_id);
-  const vaultLabel = `№ ${vault.vault_id} · ${vault.symbol} · ${vault.name}`;
+  const vaultLabel = `№ ${vault.vault_id} · ${displayVaultName(vault.name)}`;
   return VIEW_FUNCTIONS.filter((fn) => fn.id !== 'view_vault_state').map(
     (fn, i) => ({
       ...fn,
@@ -307,13 +308,10 @@ function VaultDetailViewInner({
                   &#8470;&nbsp;CVLT-{vault.vault_id}
                 </span>
                 <span
-                  className="font-display text-base font-semibold uppercase tracking-[0.18em]"
+                  className="font-display text-base font-semibold tracking-[0.04em] text-foreground"
                   style={{ color: style.accent }}
                 >
-                  {vault.symbol}
-                </span>
-                <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
-                  {vault.name}
+                  {displayVaultName(vault.name)}
                 </span>
               </div>
               <span className={`${sectionLabelClass} uppercase`}>

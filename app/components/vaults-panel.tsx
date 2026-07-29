@@ -26,6 +26,7 @@ import { SECTION_STYLE } from './function-defs';
 import { vaultDetailPath } from './console-routes';
 import { AssetRowsSkeleton, VaultListSkeleton } from './loading-skeletons';
 import { btnGhostClass, btnSecondaryClass, panelClass, sectionLabelClass } from './ui-classes';
+import { displayVaultName } from './view-display';
 
 const VAULTS_PER_PAGE = 6;
 
@@ -345,7 +346,7 @@ export function VaultsPanel({ network }: { network: Network }) {
                 {/* Full-row hit target to detail — View assets sits above (z-10). */}
                 <Link
                   href={vaultDetailPath(vault.vault_id)}
-                  aria-label={`Open vault ${vault.symbol} · ${vault.name}`}
+                  aria-label={`Open vault ${displayVaultName(vault.name)}`}
                   className="absolute inset-0 z-0 rounded-[2px] transition-colors duration-150 group-hover/row:bg-foreground/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
                 />
 
@@ -355,7 +356,7 @@ export function VaultsPanel({ network }: { network: Network }) {
                       &#8470;&nbsp;CVLT-{vault.vault_id}
                     </span>
                     <span className="text-sm font-medium tracking-[-0.01em] text-foreground transition-colors duration-150 group-hover/row:text-accent">
-                      {vault.symbol} · {vault.name}
+                      {displayVaultName(vault.name)}
                     </span>
                   </div>
 

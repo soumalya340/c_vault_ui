@@ -17,7 +17,11 @@ import {
   type PortfolioHolding,
   type PortfolioSnapshot,
 } from '@/lib/portfolio';
-import { formatTokenUi, formatUsdUi } from '@/app/components/view-display';
+import {
+  displayVaultName,
+  formatTokenUi,
+  formatUsdUi,
+} from '@/app/components/view-display';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
@@ -381,11 +385,8 @@ export function PortfolioPanel({ network }: { network: Network }) {
                               <span className='font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal'>
                                 &#8470;&nbsp;CVLT-{v.vault_id}
                               </span>
-                              <span className='text-sm font-medium tracking-[-0.01em] text-foreground'>
-                                {v.symbol}
-                              </span>
-                              <span className='truncate text-sm text-muted-foreground'>
-                                {v.name}
+                              <span className='truncate text-sm font-medium tracking-[-0.01em] text-foreground'>
+                                {displayVaultName(v.name)}
                               </span>
                               <span
                                 className='rounded-[2px] border border-border-strong px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase leading-none tracking-[0.1em] text-muted-foreground'
@@ -419,7 +420,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
                                 reads View · Vault State (getVaultState). */}
                             <VaultInfoPopover
                               vaultId={v.vault_id}
-                              symbol={v.symbol}
                               name={v.name}
                               network={network}
                             />
@@ -535,11 +535,8 @@ export function PortfolioPanel({ network }: { network: Network }) {
                                 <span className='font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal'>
                                   &#8470;&nbsp;CVLT-{h.vault.vault_id}
                                 </span>
-                                <span className='text-sm font-medium tracking-[-0.01em] text-foreground'>
-                                  {h.vault.symbol}
-                                </span>
-                                <span className='truncate text-sm text-muted-foreground'>
-                                  {h.vault.name}
+                                <span className='truncate text-sm font-medium tracking-[-0.01em] text-foreground'>
+                                  {displayVaultName(h.vault.name)}
                                 </span>
                               </div>
                               <div className='mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground'>
