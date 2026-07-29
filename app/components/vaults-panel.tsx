@@ -15,7 +15,7 @@ import {
   type VaultRecord,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
-import { assetNameForMint } from '@/lib/presets/canonical-data';
+import { assetNameForMint, displayAssetName } from '@/lib/presets/canonical-data';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { PendingClaimButton } from './pending-claim-button';
@@ -41,22 +41,13 @@ function resolveAssetLabel(
   assetId: number,
   byMint: Map<string, AssetRegistryEntry>,
   byId: Map<number, AssetRegistryEntry>,
-): { title: string; subtitle: string | null } {
+): string {
   const fromDb = byMint.get(mint) ?? byId.get(assetId);
-  const name =
-    fromDb?.asset_name?.trim() ||
+  return (
+    displayAssetName(fromDb?.asset_name ?? '') ||
     assetNameForMint(mint) ||
-    '';
-  if (name) {
-    return {
-      title: name,
-      subtitle: fromDb ? `#${fromDb.asset_id}` : assetId >= 0 ? `#${assetId}` : null,
-    };
-  }
-  return {
-    title: shorten(mint),
-    subtitle: assetId >= 0 ? `asset #${assetId}` : null,
-  };
+    shorten(mint)
+  );
 }
 
 // NAV is intentionally not fetched here — getTotalNavView() is an Anchor
@@ -159,7 +150,7 @@ function VaultAssetsView({
                 <ul className="divide-y divide-border">
                   {assets.map((asset, i) => {
                     const mint = asset.mint.toBase58();
-                    const { title, subtitle } = resolveAssetLabel(
+                    const title = resolveAssetLabel(
                       mint,
                       asset.assetId,
                       byMint,
@@ -169,19 +160,9 @@ function VaultAssetsView({
                     return (
                       <li key={`${mint}-${i}`} className="flex flex-col gap-2 px-4 py-3">
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
-                              {title}
-                            </span>
-                            {subtitle && (
-                              <span className="font-mono text-[11px] text-muted-foreground">
-                                {subtitle}
-                              </span>
-                            )}
-                            <span className="rounded-[2px] border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                              {asset.route}
-                            </span>
-                          </div>
+                          <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
+                            {title}
+                          </span>
                           <span className="font-mono text-xs tabular-nums text-foreground">
                             {pct}%
                           </span>
@@ -195,7 +176,7 @@ function VaultAssetsView({
                           />
                         </div>
                         <span className="font-mono text-[11px] text-muted-foreground/70">
-                          mint {shorten(mint)} · {asset.decimals} dp
+                          mint {shorten(mint)}
                         </span>
                       </li>
                     );

@@ -226,7 +226,7 @@ export async function executeVaultFunction(
         await saveAssetRegistryEntry({
           network: net,
           asset_id: String(WSOL_ASSET_ID),
-          asset_name: 'Wrapped SOL',
+          asset_name: 'SOL',
           mint: WSOL_MINT.toBase58(),
           pool_address: poolAddress.toBase58(),
           pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),

@@ -10,7 +10,7 @@ export const ASSET_PRESETS = [
   {
     key: "wsol",
     aliases: ["sol", "wsol", "wrapped sol"],
-    asset_name: "Wrapped SOL",
+    asset_name: "SOL",
     mint: "So11111111111111111111111111111111111111112",
     pool_address: "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
     pyth_feed_id: "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
@@ -24,7 +24,7 @@ export const ASSET_PRESETS = [
   {
     key: "wbtc",
     aliases: ["btc", "wbtc", "bitcoin", "wrapped bitcoin"],
-    asset_name: "Wrapped BTC",
+    asset_name: "BTC",
     mint: "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
     pool_address: "B5EwJVDuAauzUEEdwvbuXzbFFgEYnUqqS37TUM1c4PQA",
     pyth_feed_id: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -38,7 +38,7 @@ export const ASSET_PRESETS = [
   {
     key: "weth",
     aliases: ["eth", "weth", "ethereum", "wrapped ethereum"],
-    asset_name: "Wrapped ETH",
+    asset_name: "ETH",
     mint: "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
     pool_address: "HktfL7iwGKT5QHjywQkcDnZXScoh811k7akrMZJkCcEF",
     pyth_feed_id: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
@@ -257,8 +257,30 @@ export const VAULT_PRESETS = [
   },
 ] as const;
 
+/**
+ * Shorten verbose registry/preset names for UI showcase.
+ * Keeps legacy "Wrapped SOL" / DB rows readable as SOL / BTC / ETH.
+ */
+const ASSET_DISPLAY_ALIASES: Record<string, string> = {
+  'wrapped sol': 'SOL',
+  'wrapped btc': 'BTC',
+  'wrapped eth': 'ETH',
+  'wrapped bitcoin': 'BTC',
+  'wrapped ethereum': 'ETH',
+  wsol: 'SOL',
+  wbtc: 'BTC',
+  weth: 'ETH',
+};
+
+/** Map a stored asset_name to the short UI label when known. */
+export function displayAssetName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+  return ASSET_DISPLAY_ALIASES[trimmed.toLowerCase()] ?? trimmed;
+}
+
 /** Resolve a display name for a mint from the canonical Pools.md preset catalog. */
 export function assetNameForMint(mint: string): string {
   const preset = ASSET_PRESETS.find((p) => p.mint === mint);
-  return preset?.asset_name ?? '';
+  return preset ? displayAssetName(preset.asset_name) : '';
 }

@@ -107,14 +107,11 @@ export function AssetRowsSkeleton({
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex flex-col gap-2 px-4 py-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <div className="flex items-baseline gap-2">
-              <Skeleton className="h-3.5 w-16 rounded-[2px]" />
-              <Skeleton className="h-2.5 w-14 rounded-[2px]" />
-            </div>
+            <Skeleton className="h-3.5 w-24 rounded-[2px]" />
             <Skeleton className="h-3 w-10 rounded-[2px]" />
           </div>
           <Skeleton className="h-1 w-full rounded-full" />
-          <Skeleton className="h-2.5 w-36 rounded-[2px]" />
+          <Skeleton className="h-2.5 w-28 rounded-[2px]" />
         </div>
       ))}
     </div>

@@ -221,7 +221,7 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
       {
         name: 'asset_name',
         label: 'Asset name',
-        placeholder: 'e.g. Wrapped BTC',
+        placeholder: 'e.g. BTC',
         wide: true,
         hint: 'Display name stored in the registry. Free text — if you pick a preset (or paste a known mint), this is filled from the preset catalog.',
       },
