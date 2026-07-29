@@ -62,7 +62,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * Per-vault detail view backing /vaults-all/{vault_id}.
+ * Per-vault detail view backing /discover/{vault_id}.
  *
  * Vault rows come from the same `/api/vaults` list the Vaults tab uses (there
  * is no single-vault endpoint), filtered by `vault_id`. The basket is read
@@ -253,7 +253,7 @@ function VaultDetailViewInner({
         href={SECTION_ROUTES.vaults}
         className="inline-flex w-fit items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        ← All vaults
+        ← Discover
       </Link>
 
       {loading && (

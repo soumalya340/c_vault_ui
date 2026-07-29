@@ -518,7 +518,7 @@ export function AccordionItem({
         setFieldErrors({
           [name]:
             name === 'vault_id'
-              ? `No vaults recorded on ${network} yet — create one under 02 VAULTS.`
+              ? `No vaults recorded on ${network} yet — create one under 02 DISCOVER.`
               : `No assets recorded on ${network} yet — list one via Admin № 05 Create asset.`,
         });
         setLoading(false);

@@ -303,19 +303,19 @@ export function VaultsPanel({ network }: { network: Network }) {
   }, [network]);
 
   return (
-    <section aria-label="Vaults" className="flex flex-col gap-4">
+    <section aria-label="Discover" className="flex flex-col gap-4">
       <div className={`${panelClass} overflow-hidden`}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">
           <span
             className="font-display text-base font-semibold uppercase tracking-[0.18em]"
             style={{ color: style.accent }}
           >
-            Vaults
+            Discover
           </span>
           <span className={`${sectionLabelClass} uppercase`}>
             {loading
               ? 'loading · series 2026'
-              : `${vaults.length} instrument${vaults.length === 1 ? '' : 's'} · series 2026`}
+              : `${vaults.length} ETF${vaults.length === 1 ? '' : 's'} · series 2026`}
           </span>
         </div>
 

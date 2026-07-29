@@ -16,8 +16,8 @@ export const SECTION_META: Record<
   },
   vaults: {
     no: '02',
-    nav: 'Vaults',
-    title: 'Vault Registry',
+    nav: 'Discover',
+    title: 'Discover',
     description:
       'Browse every vault in the series. Deposit USDC into a basket or redeem shares back out.',
   },

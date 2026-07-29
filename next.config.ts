@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
     return [
       // Section 03 renamed: Vault Ops → Create
       { source: '/vaults-ops', destination: '/create', permanent: true },
+      // Vaults catalogue renamed: vaults-all → discover
+      { source: '/vaults-all', destination: '/discover', permanent: true },
+      { source: '/vaults-all/:vaultId', destination: '/discover/:vaultId', permanent: true },
     ];
   },
 };

@@ -3,7 +3,7 @@ import type { SectionId } from './function-defs';
 /** URL paths for main-console sections (admin is a separate gated route). */
 export const SECTION_ROUTES: Record<Exclude<SectionId, 'admin'>, string> = {
   view: '/view',
-  vaults: '/vaults-all',
+  vaults: '/discover',
   'vault-ops': '/create',
 };
 
@@ -35,7 +35,7 @@ export function pathnameToConsoleView(pathname: string): ConsoleView | null {
   if (pathname === HOME_ROUTE) return 'home';
   if (pathname === ADMIN_ROUTE) return 'admin';
   // Exact match first, then prefix — so nested pages (e.g. the per-vault
-  // detail route /vaults-all/12) keep their parent section tab highlighted.
+  // detail route /discover/12) keep their parent section tab highlighted.
   for (const [id, path] of Object.entries(SECTION_ROUTES)) {
     if (pathname === path) return id as SectionId;
   }

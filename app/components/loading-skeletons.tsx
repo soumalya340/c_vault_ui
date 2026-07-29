@@ -52,7 +52,7 @@ export function ListRowsSkeleton({
   );
 }
 
-/** Vault catalogue cards (Vaults panel). */
+/** Vault catalogue cards (Discover panel). */
 export function VaultListSkeleton({
   rows = 3,
   className,
@@ -67,7 +67,7 @@ export function VaultListSkeleton({
         className,
       )}
       aria-busy="true"
-      aria-label="Loading vaults"
+      aria-label="Loading discover"
     >
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex flex-col gap-3 px-2 py-4 md:px-3">
