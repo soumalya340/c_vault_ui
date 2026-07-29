@@ -7,6 +7,7 @@ import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapte
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 
 import {
+  assertCreateEtfMetadata,
   createEtf,
   deriveGlobalStatePda,
   pythFeedAccount,
@@ -18,6 +19,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
+import { CREATE_ETF_MAX_METADATA_BYTES } from '@/lib/constants';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
 import { fetchPoolCtx } from '@/lib/whirlpool';
 import { fetchDammPoolCtx } from '@/lib/damm';
@@ -321,6 +323,9 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
         return { entry, allocationBps: pctToBps(row.allocationPct) };
       });
 
+      // Fail fast on data:image base64 / oversize metadata (static-tx packet limit).
+      assertCreateEtfMetadata(name, symbol, uri);
+
       setStatus('Creating vault (create_etf)…');
       const created = await createEtf(
         connection,
@@ -562,10 +567,14 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
               <TextInput
                 value={uri}
                 onChange={setUri}
-                placeholder="https://…"
-                maxLength={700}
+                placeholder="https://arweave.net/… or https://…"
+                maxLength={CREATE_ETF_MAX_METADATA_BYTES}
                 required
               />
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
+                Short https link only — no base64 <span className="font-mono">data:</span> images.
+                Name + symbol + URI max {CREATE_ETF_MAX_METADATA_BYTES} bytes total.
+              </p>
             </div>
           </div>
 

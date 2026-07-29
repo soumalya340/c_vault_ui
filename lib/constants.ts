@@ -137,11 +137,13 @@ export const MIN_REDEEM_FEE_BPS = 50;
 export const MAX_REDEEM_FEE_BPS = 1000;
 
 /**
- * Anchor's BorshInstructionCoder allocates a fixed 1000-byte buffer for ix data
- * (`Buffer.alloc(1000)`). name+symbol+uri (+ params) past this throws
- * "encoding overruns Buffer". Keep metadata comfortably under that limit.
+ * Hard cap on name+symbol+uri UTF-8 bytes for `create_etf`.
+ *
+ * Bound by Solana's 1232-byte packet (static keys, no ALT on create) and
+ * Anchor's ~1000-byte instruction encoder. A full base64 `data:image/...` URI
+ * will blow past this — use a short https link to off-chain metadata/JSON.
  */
-export const CREATE_ETF_MAX_METADATA_BYTES = 800;
+export const CREATE_ETF_MAX_METADATA_BYTES = 400;
 
 /** Mirror on-chain TWAP_OBSERVATION_MAX_STALE_SECS (45 minutes). */
 export const TWAP_OBSERVATION_MAX_STALE_SECS = 45 * 60;

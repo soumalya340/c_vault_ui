@@ -227,12 +227,17 @@ export async function sendV0(
   try {
     txBytes = tx.serialize();
   } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    const isOverrun = /encoding overruns (Buffer|Uint8Array)/i.test(raw);
+    // create_etf has no vault ALT yet — oversize ix data (esp. data: URIs) is
+    // the usual cause, not a missing lookup table.
     const hint = lut
       ? `${ixs.length} instruction(s) — split into smaller batches.`
-      : `${ixs.length} instruction(s) — pass the vault ALT to compress account keys.`;
-    throw new Error(
-      `Transaction encoding failed (${err instanceof Error ? err.message : String(err)}). ${hint}`,
-    );
+      : isOverrun
+        ? `${ixs.length} instruction(s) — transaction payload is too large for Solana’s 1232-byte packet. ` +
+          `For Create ETF: use a short https:// metadata URI (not a base64 data: image).`
+        : `${ixs.length} instruction(s) — pass the vault ALT to compress account keys.`;
+    throw new Error(`Transaction encoding failed (${raw}). ${hint}`);
   }
   if (txBytes.length > 1232) {
     throw new Error(
