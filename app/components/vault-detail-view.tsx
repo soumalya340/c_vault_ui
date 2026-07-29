@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useAnchorWallet, useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
   fetchVaultCtx,
+  getTotalNavView,
   getUserPosition,
   NETWORK_CONSTANTS,
   type Network,
+  type NavView,
   type VaultChainAsset,
 } from '@/lib/cvault';
 import { USDC_DECIMALS } from '@/lib/constants';
@@ -17,21 +19,18 @@ import {
   type VaultRecord,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
-import { assetNameForMint, displayAssetName } from '@/lib/presets/canonical-data';
-import { DepositModal } from './deposit-modal';
-import { RedeemModal } from './redeem-modal';
 import { PendingClaimButton, formatTokenUi } from './pending-claim-button';
 import { SECTION_STYLE, VIEW_FUNCTIONS, type FunctionDef } from './function-defs';
 import { SectionBlock } from './section-block';
-import { AssetRowsSkeleton } from './loading-skeletons';
 import { SECTION_ROUTES } from './console-routes';
-import {
-  btnPrimaryClass,
-  btnSecondaryClass,
-  panelClass,
-  sectionLabelClass,
-} from './ui-classes';
+import { panelClass, sectionLabelClass } from './ui-classes';
 import { displayVaultName } from './view-display';
+import { shorten, VaultHoldingsCard } from './vault-holdings-card';
+import { VaultStatCard } from './vault-stat-card';
+import { VaultNavChart } from './vault-nav-chart';
+import { VaultTradePanel } from './vault-trade-panel';
+import { VaultFeesCard } from './vault-fees-card';
+import { VaultContractCard } from './vault-contract-card';
 
 /**
  * View plate for this vault — vault_id locked, Vault State omitted
@@ -56,25 +55,6 @@ function viewFunctionsForVault(vault: VaultRecord): FunctionDef[] {
           : field,
       ),
     }),
-  );
-}
-
-function shorten(addr: string): string {
-  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
-}
-
-/** Display label for a vault basket leg — registry name first, then presets. */
-function resolveAssetLabel(
-  mint: string,
-  assetId: number,
-  byMint: Map<string, AssetRegistryEntry>,
-  byId: Map<number, AssetRegistryEntry>,
-): string {
-  const fromDb = byMint.get(mint) ?? byId.get(assetId);
-  return (
-    displayAssetName(fromDb?.asset_name ?? '') ||
-    assetNameForMint(mint) ||
-    shorten(mint)
   );
 }
 
@@ -126,6 +106,7 @@ function VaultDetailViewInner({
 }) {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
+  const anchorWallet = useAnchorWallet();
   const style = SECTION_STYLE.vaults;
 
   // Route params are user-controlled strings — only a non-negative integer can
@@ -158,8 +139,6 @@ function VaultDetailViewInner({
   const [byId, setById] = useState<Map<number, AssetRegistryEntry>>(new Map());
 
   const [shareBalance, setShareBalance] = useState<string | null>(null);
-  const [depositOpen, setDepositOpen] = useState(false);
-  const [redeemOpen, setRedeemOpen] = useState(false);
 
   // Vault record for this id, scoped to the active network.
   useEffect(() => {
@@ -243,6 +222,35 @@ function VaultDetailViewInner({
   // Bumped after a deposit/redeem/claim to re-read the share balance.
   const [positionNonce, setPositionNonce] = useState(0);
   const loadPosition = useCallback(() => setPositionNonce((n) => n + 1), []);
+
+  type NavState =
+    | { status: 'idle' }
+    | { status: 'loading' }
+    | { status: 'ready'; nav: NavView }
+    | { status: 'error'; message: string };
+
+  const [navState, setNavState] = useState<NavState>({ status: 'idle' });
+
+  const loadNav = useCallback(() => {
+    if (vaultId === null) return;
+    setNavState({ status: 'loading' });
+    fetchVaultCtx(connection, vaultId, network)
+      .then(() => getTotalNavView(connection, vaultId, network, anchorWallet))
+      .then((nav) => setNavState({ status: 'ready', nav }))
+      .catch((err) =>
+        setNavState({
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection, vaultId, network]);
+
+  useEffect(() => {
+    if (vaultId === null || !vault) return;
+    loadNav();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vaultId, vault, network]);
 
   useEffect(() => {
     // No wallet — the render falls back to "wallet not connected", so there's
@@ -345,25 +353,39 @@ function VaultDetailViewInner({
                 network={network}
                 onClaimed={loadPosition}
               />
-              <button
-                type="button"
-                onClick={() => setDepositOpen(true)}
-                className={btnSecondaryClass}
-              >
-                Deposit
-              </button>
-              <button
-                type="button"
-                onClick={() => setRedeemOpen(true)}
-                className={btnPrimaryClass}
-                style={{
-                  borderColor: SECTION_STYLE['vault-ops'].accent,
-                  background: SECTION_STYLE['vault-ops'].accent,
-                }}
-              >
-                Redeem &amp; Claim
-              </button>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <VaultStatCard
+              label="NAV / share"
+              value={navState.status === 'ready' ? navState.nav.sharePriceUsd : '—'}
+              loading={navState.status === 'loading' || navState.status === 'idle'}
+              onRefresh={loadNav}
+              refreshing={navState.status === 'loading'}
+            />
+            <VaultStatCard
+              label="AUM"
+              value={navState.status === 'ready' ? navState.nav.totalNavUsd : '—'}
+              loading={navState.status === 'loading' || navState.status === 'idle'}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_360px]">
+            <VaultNavChart seed={vault.vault_id} />
+            <VaultTradePanel
+              vault={vault}
+              network={network}
+              sharePriceUsd={navState.status === 'ready' ? navState.nav.sharePriceUsd : null}
+              onDeposited={() => {
+                loadPosition();
+                loadNav();
+              }}
+              onRedeemed={() => {
+                loadPosition();
+                loadNav();
+              }}
+            />
           </div>
 
           {/* Read ops minus Vault State (that lives on Portfolio · View vault info). */}
@@ -374,85 +396,23 @@ function VaultDetailViewInner({
             network={network}
           />
 
-          <div className={`${panelClass} overflow-hidden`}>
-            <div className="border-b border-border-strong px-5 py-3 md:px-6">
-              <span className={`${sectionLabelClass} uppercase`}>Basket on-chain</span>
-            </div>
+          <VaultHoldingsCard
+            assets={assets}
+            assetsLoading={assetsLoading}
+            assetsError={assetsError}
+            totalNavUsd={navState.status === 'ready' ? navState.nav.totalNavUsd : null}
+            byMint={byMint}
+            byId={byId}
+            connection={connection}
+          />
 
-            {assetsLoading && <AssetRowsSkeleton rows={3} />}
+          <VaultFeesCard
+            depositFeeBps={vault.deposit_fee_bps}
+            redeemFeeBps={vault.redeem_fee_bps}
+          />
 
-            {!assetsLoading && assetsError && (
-              <p className="px-5 py-5 font-mono text-xs text-destructive md:px-6">
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                assets unavailable — {assetsError}
-              </p>
-            )}
-
-            {!assetsLoading && !assetsError && assets && assets.length === 0 && (
-              <p className="px-5 py-5 font-mono text-xs text-muted-foreground md:px-6">
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                no assets on-chain
-              </p>
-            )}
-
-            {!assetsLoading && !assetsError && assets && assets.length > 0 && (
-              <ul className="divide-y divide-border">
-                {assets.map((asset, i) => {
-                  const mint = asset.mint.toBase58();
-                  const title = resolveAssetLabel(
-                    mint,
-                    asset.assetId,
-                    byMint,
-                    byId,
-                  );
-                  const pct = (asset.allocationBps / 100).toFixed(2);
-                  return (
-                    <li key={`${mint}-${i}`} className="flex flex-col gap-2 px-5 py-3.5 md:px-6">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
-                          {title}
-                        </span>
-                        <span className="font-mono text-xs tabular-nums text-foreground">
-                          {pct}%
-                        </span>
-                      </div>
-                      <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
-                        <div
-                          className="h-full rounded-full bg-accent"
-                          style={{ width: `${Math.min(asset.allocationBps / 100, 100)}%` }}
-                        />
-                      </div>
-                      <span className="font-mono text-[11px] text-muted-foreground/70">
-                        mint {shorten(mint)}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
+          <VaultContractCard vaultAddress={vault.vault_address} network={network} />
         </>
-      )}
-
-      {depositOpen && vault && (
-        <DepositModal
-          vault={vault}
-          network={network}
-          onClose={() => {
-            setDepositOpen(false);
-            loadPosition();
-          }}
-        />
-      )}
-      {redeemOpen && vault && (
-        <RedeemModal
-          vault={vault}
-          network={network}
-          onClose={() => {
-            setRedeemOpen(false);
-            loadPosition();
-          }}
-        />
       )}
     </section>
   );
