@@ -71,20 +71,20 @@ export function VaultListSkeleton({
     >
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex flex-col gap-3 px-2 py-4 md:px-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <div className="flex items-baseline gap-4">
-              <Skeleton className="h-3.5 w-20 rounded-[2px]" />
-              <Skeleton className="h-3.5 w-40 rounded-[2px]" />
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-baseline gap-4">
+                <Skeleton className="h-3.5 w-20 rounded-[2px]" />
+                <Skeleton className="h-3.5 w-40 rounded-[2px]" />
+              </div>
+              <Skeleton className="h-2.5 w-56 max-w-full rounded-[2px]" />
             </div>
-            <Skeleton className="h-3 w-16 rounded-[2px]" />
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Skeleton className="h-2.5 w-56 max-w-full rounded-[2px]" />
-            <div className="flex gap-2">
-              <Skeleton className="h-8 w-20 rounded-[2px]" />
-              <Skeleton className="h-8 w-28 rounded-[2px]" />
+            <div className="flex flex-col items-end gap-1.5">
+              <Skeleton className="h-3 w-16 rounded-[2px]" />
+              <Skeleton className="h-3 w-16 rounded-[2px]" />
             </div>
           </div>
+          <Skeleton className="h-2.5 w-24 rounded-[2px]" />
         </div>
       ))}
     </div>
