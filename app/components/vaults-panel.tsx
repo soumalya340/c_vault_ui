@@ -43,31 +43,6 @@ function formatFeeBps(bps: number): string {
   return `${(n / 100).toFixed(2)}%`;
 }
 
-/**
- * One cell of the entry/exit fee module on a vault row. A zero fee is muted so
- * the eye lands on the fees a depositor actually pays.
- */
-function FeeCell({ label, bps }: { label: string; bps: number }) {
-  const n = Number(bps);
-  const isFree = Number.isFinite(n) && n === 0;
-  return (
-    <div className="flex min-w-[5.75rem] flex-col items-center justify-center gap-1.5 px-3.5 py-2.5 text-center">
-      {/* -mr compensates the trailing letter-space of the tracked uppercase
-          label, which otherwise pulls the centered text visually left. */}
-      <span className="-mr-[0.14em] font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </span>
-      <span
-        className={`font-mono text-sm tabular-nums leading-none ${
-          isFree ? 'text-muted-foreground' : 'text-foreground'
-        }`}
-      >
-        {isFree ? 'None' : formatFeeBps(bps)}
-      </span>
-    </div>
-  );
-}
-
 /** Display label for a vault basket leg — registry name first, then presets. */
 function resolveAssetLabel(
   mint: string,
@@ -374,29 +349,34 @@ export function VaultsPanel({ network }: { network: Network }) {
                   className="absolute inset-0 z-0 rounded-[2px] transition-colors duration-150 group-hover/row:bg-foreground/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
                 />
 
-                <div className="relative z-0 flex items-center justify-between gap-4 pointer-events-none">
-                  <div className="flex min-w-0 flex-col gap-3">
-                    <div className="flex flex-wrap items-baseline gap-4">
-                      <span className="flex-shrink-0 font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal">
-                        &#8470;&nbsp;CVLT-{vault.vault_id}
-                      </span>
-                      <span className="text-sm font-medium tracking-[-0.01em] text-foreground transition-colors duration-150 group-hover/row:text-accent">
-                        {vault.symbol} · {vault.name}
-                      </span>
-                    </div>
-
-                    <span className="font-mono text-[11px] text-muted-foreground">
-                      vault {shorten(vault.vault_address)} · base{' '}
-                      {shorten(NETWORK_CONSTANTS[network].usdcMint.toBase58())} ·{' '}
-                      {vault.num_assets} asset{vault.num_assets === 1 ? '' : 's'}
+                <div className="relative z-0 flex min-w-0 flex-col gap-3 pointer-events-none">
+                  <div className="flex flex-wrap items-baseline gap-4">
+                    <span className="flex-shrink-0 font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal">
+                      &#8470;&nbsp;CVLT-{vault.vault_id}
+                    </span>
+                    <span className="text-sm font-medium tracking-[-0.01em] text-foreground transition-colors duration-150 group-hover/row:text-accent">
+                      {vault.symbol} · {vault.name}
                     </span>
                   </div>
 
-                  {/* vaults.deposit_fee_bps / redeem_fee_bps from DB */}
-                  <div className="flex shrink-0 divide-x divide-border rounded-[2px] border border-border bg-foreground/[0.02] transition-colors duration-150 group-hover/row:border-border-strong">
-                    <FeeCell label="Entry Fee" bps={vault.deposit_fee_bps} />
-                    <FeeCell label="Exit Fee" bps={vault.redeem_fee_bps} />
-                  </div>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    vault {shorten(vault.vault_address)} · base{' '}
+                    {shorten(NETWORK_CONSTANTS[network].usdcMint.toBase58())} ·{' '}
+                    {vault.num_assets} asset{vault.num_assets === 1 ? '' : 's'}
+                    {/* vaults.deposit_fee_bps / redeem_fee_bps from DB — the
+                        pipe marks the step up from identity to economics. */}
+                    <span aria-hidden="true" className="mx-2 text-border-strong">
+                      |
+                    </span>
+                    entry fee{' '}
+                    <span className="tabular-nums text-foreground">
+                      {formatFeeBps(vault.deposit_fee_bps)}
+                    </span>{' '}
+                    · exit fee{' '}
+                    <span className="tabular-nums text-foreground">
+                      {formatFeeBps(vault.redeem_fee_bps)}
+                    </span>
+                  </span>
                 </div>
 
                 <div className="relative z-10">
