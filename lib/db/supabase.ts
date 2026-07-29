@@ -97,6 +97,7 @@ type SupabaseVaultRow = {
   asset_ids: number[];
   asset_allocation_bps: number[];
   num_assets: number;
+  genesis_deposit_status?: boolean | null;
   created_at: string | null;
 };
 
@@ -105,6 +106,7 @@ function toUnifiedVault(row: SupabaseVaultRow): UnifiedVaultRow {
     ...row,
     deposit_alt_address: row.deposit_alt_address ?? row.alt_address,
     redeem_alt_address: row.redeem_alt_address,
+    genesis_deposit_status: Boolean(row.genesis_deposit_status),
   };
 }
 
@@ -187,6 +189,7 @@ export const supabaseDriver: DbDriver = {
         asset_ids: row.asset_ids,
         asset_allocation_bps: row.asset_allocation_bps,
         num_assets: row.num_assets,
+        genesis_deposit_status: row.genesis_deposit_status ?? false,
       },
       { onConflict: "vault_address" },
     );
@@ -202,6 +205,19 @@ export const supabaseDriver: DbDriver = {
         redeem_alt_address: alts.redeem_alt_address,
         alt_address: alts.deposit_alt_address,
       })
+      .eq("network", network)
+      .eq("vault_id", vaultId)
+      .select("*")
+      .single();
+    if (error) wrapMissingColumn(error);
+    return toUnifiedVault(data as SupabaseVaultRow);
+  },
+
+  async updateVaultGenesisStatus(network, vaultId, genesisDepositStatus) {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("vaults")
+      .update({ genesis_deposit_status: genesisDepositStatus })
       .eq("network", network)
       .eq("vault_id", vaultId)
       .select("*")

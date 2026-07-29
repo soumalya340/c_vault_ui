@@ -58,17 +58,17 @@ export function VaultOpsHero({ network }: { network: Network }) {
 
       <div className="relative flex flex-wrap items-baseline justify-between gap-3 font-mono text-[9px] uppercase tracking-[0.28em] text-muted-foreground">
         <span>
-          Plate <span className="text-seal">№ 03</span> · Series 2026
+          Plate <span className="text-seal">№ 02</span> · Series 2026
         </span>
         <span className="hidden sm:inline">Solana · {network}</span>
       </div>
 
       <div className="relative mt-6 grid min-w-0 items-end gap-6 md:grid-cols-[auto_1fr] lg:grid-cols-[auto_1fr_minmax(220px,340px)]">
-        <div className="font-mono text-base font-semibold text-seal md:text-lg">03</div>
+        <div className="font-mono text-base font-semibold text-seal md:text-lg">02</div>
 
         <div className="min-w-0">
           <h1 className="font-display text-[clamp(36px,5vw,72px)] font-bold uppercase leading-[0.95] tracking-[-0.01em]">
-            Vault <em className="not-italic text-seal">Operations</em>
+            Create <em className="not-italic text-seal">ETF</em>
           </h1>
           <div className="mt-5 h-1 w-28 bg-seal" />
           <div className="mt-5 flex flex-wrap gap-2.5">

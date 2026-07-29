@@ -31,6 +31,7 @@ import {
   outputPanelClass,
 } from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
+import { displayVaultName } from './view-display';
 
 /** Human-readable token amount with thousands separators; exact string math. */
 function formatTokenUi(raw: string, decimals: number): string {
@@ -293,7 +294,7 @@ export function DepositModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Deposit into ${vault.symbol}`}
+        aria-label={`Deposit into ${displayVaultName(vault.name)}`}
         className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
@@ -302,7 +303,7 @@ export function DepositModal({
               № {String(vault.vault_id).padStart(2, '0')} · deposit
             </div>
             <h2 className="mt-1 font-display text-lg font-semibold tracking-[0.02em]">
-              {vault.symbol} · {vault.name}
+              {displayVaultName(vault.name)}
             </h2>
           </div>
           <button

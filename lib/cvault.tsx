@@ -223,7 +223,7 @@ async function formatVaultMissingError(
     const gs = await getGlobalState(connection);
     const total = Number(gs.totalVaults);
     if (!Number.isFinite(total) || total <= 0) {
-      rangeHint = 'No vaults exist yet (totalVaults = 0). Create one from Vault Ops.';
+      rangeHint = 'No vaults exist yet (totalVaults = 0). Open Create to mint one.';
     } else if (vaultId >= total) {
       rangeHint = `Only vault ids 0–${total - 1} exist (totalVaults = ${total}). You entered ${vaultId}.`;
     } else {
@@ -883,7 +883,8 @@ function encodeInstructionData(
     return coder.encode(ixName, args);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!/encoding overruns Buffer/i.test(msg)) throw err;
+    // Anchor uses Buffer; some layout paths surface Uint8Array.
+    if (!/encoding overruns (Buffer|Uint8Array)/i.test(msg)) throw err;
   }
 
   const encoder = coder.ixLayouts.get(ixName);
@@ -892,6 +893,40 @@ function encodeInstructionData(
   const len = encoder.layout.encode(args, buffer);
   const disc = Buffer.from(encoder.discriminator);
   return Buffer.concat([disc, buffer.subarray(0, len)]);
+}
+
+/**
+ * Validate share-token metadata for `create_etf` before building the tx.
+ * Rejects embedded `data:` URIs and combined name+symbol+uri over the
+ * static-packet budget (see CREATE_ETF_MAX_METADATA_BYTES).
+ */
+export function assertCreateEtfMetadata(name: string, symbol: string, uri: string): void {
+  const n = name.trim();
+  const s = symbol.trim();
+  const u = uri.trim();
+  if (!n) throw new Error('Vault name is required.');
+  if (!s) throw new Error('Vault symbol is required.');
+  if (!u) throw new Error('Metadata URI is required.');
+
+  if (/^data:/i.test(u)) {
+    throw new Error(
+      'Metadata URI cannot be a data: URL (base64 image/JSON). ' +
+        'Host the image or metadata JSON off-chain and paste a short https:// link. ' +
+        'Embedded data blows past Solana’s 1232-byte transaction limit ' +
+        '(“encoding overruns Uint8Array”).',
+    );
+  }
+
+  const metaBytes =
+    Buffer.byteLength(n, 'utf8') +
+    Buffer.byteLength(s, 'utf8') +
+    Buffer.byteLength(u, 'utf8');
+  if (metaBytes > CREATE_ETF_MAX_METADATA_BYTES) {
+    throw new Error(
+      `Name + symbol + URI is too long (${metaBytes} bytes; max ${CREATE_ETF_MAX_METADATA_BYTES}). ` +
+        `Use a short https metadata URL — do not paste base64 or long data URIs.`,
+    );
+  }
 }
 
 /**
@@ -942,17 +977,9 @@ export async function createEtf(
     throw new Error('Fixed vaults require a positive max shares cap.');
   }
 
-  const metaBytes =
-    Buffer.byteLength(name, 'utf8') +
-    Buffer.byteLength(symbol, 'utf8') +
-    Buffer.byteLength(uri, 'utf8');
-  if (metaBytes > CREATE_ETF_MAX_METADATA_BYTES) {
-    throw new Error(
-      `Name + symbol + URI is too long (${metaBytes} bytes; max ${CREATE_ETF_MAX_METADATA_BYTES}). ` +
-        `Shorten the metadata — Anchor's instruction encoder hard-caps at 1000 bytes ` +
-        `(this is the "encoding overruns Buffer" failure).`,
-    );
-  }
+  // Metadata lives in the instruction data of a single static-key transaction
+  // (no ALT yet). Base64 data:image URIs blow past Solana's 1232-byte packet.
+  assertCreateEtfMetadata(name, symbol, uri);
 
   const program = createProgram(wallet, connection);
 
@@ -1013,10 +1040,15 @@ export async function createEtf(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (/encoding overruns Buffer/i.test(msg)) {
+    if (/encoding overruns (Buffer|Uint8Array)/i.test(msg)) {
+      const metaBytes =
+        Buffer.byteLength(name, 'utf8') +
+        Buffer.byteLength(symbol, 'utf8') +
+        Buffer.byteLength(uri, 'utf8');
       throw new Error(
-        `create_etf instruction data too large for Anchor's encoder (${msg}). ` +
-          `Shorten name/symbol/uri (combined UTF-8 length is ${metaBytes} bytes).`,
+        `create_etf instruction data too large (${msg}). ` +
+          `Shorten name/symbol/uri (combined UTF-8 length is ${metaBytes} bytes; ` +
+          `max ${CREATE_ETF_MAX_METADATA_BYTES}). Use a short https metadata URL.`,
       );
     }
     if (/unable to infer src variant/i.test(msg)) {
@@ -2737,6 +2769,8 @@ export interface VaultStateView {
   assetAllocationBps: number[];
   paused: boolean;
   adminLocked: boolean;
+  /** On-chain `Vault.genesis_done` — true after genesis_deposit seeds the vault. */
+  genesisDone: boolean;
   usdcSolPool: string | null;
 }
 
@@ -2789,6 +2823,7 @@ export async function getVaultState(
     assetAllocationBps,
     paused: vault.paused !== 0,
     adminLocked: vault.adminLocked !== 0,
+    genesisDone: vault.genesisDone !== 0,
     // Not stored on Vault anymore; ViaSol legs use the cluster canonical pool.
     usdcSolPool: null,
   };
@@ -2886,7 +2921,7 @@ async function emptyVaultNavView(
     sharesDecimals,
     note:
       `Vault ${vaultId} is empty — no asset balances and no pending USDC, so NAV is $0 ` +
-      'and no share price exists yet. Fund it with Genesis deposit (Vault Ops №01).',
+      'and no share price exists yet. Fund it with Genesis deposit (Create · №01).',
   };
 }
 

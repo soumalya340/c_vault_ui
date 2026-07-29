@@ -65,6 +65,8 @@ model Vault {
   asset_ids              String
   asset_allocation_bps   String
   num_assets             Int
+  /// Mirrors on-chain `Vault.genesis_done` — false until genesis_deposit succeeds.
+  genesis_deposit_status Boolean @default(false)
 
   @@unique([network, vault_id])
   @@map("vaults")

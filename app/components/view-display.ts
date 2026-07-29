@@ -13,6 +13,16 @@ import {
   WSOL_DECIMALS,
 } from '@/lib/constants';
 
+/**
+ * Showcase vault name only (never the ticker): all caps.
+ * e.g. "HeLlo QuAD" → "HELLO QUAD", "rahul kumar" → "RAHUL KUMAR".
+ */
+export function displayVaultName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+  return trimmed.replace(/\s+/g, ' ').toUpperCase();
+}
+
 /** Insert thousands separators into a decimal string from `formatUnits`. */
 export function withCommas(ui: string): string {
   if (!ui || ui === '—' || ui === '--') return ui;
@@ -129,6 +139,7 @@ function humanizeVaultState(d: Record<string, unknown>): Record<string, unknown>
       : d.assetAllocationBps,
     paused: d.paused,
     adminLocked: d.adminLocked,
+    genesisDone: d.genesisDone,
     feeRecipient: typeof d.feeRecipient === 'string' ? shortPubkey(d.feeRecipient) : d.feeRecipient,
     address: typeof d.address === 'string' ? shortPubkey(d.address) : d.address,
     baseMint: typeof d.baseMint === 'string' ? shortPubkey(d.baseMint) : d.baseMint,

@@ -6,6 +6,7 @@ import { PublicKey } from '@solana/web3.js';
 import type { Network } from '@/app/providers';
 import { formatSyncStatus, syncVaultsFromChain } from '@/lib/db-sync';
 import { inputClass, fieldLabelClass, btnGhostClass, btnPrimaryClass } from '../ui-classes';
+import { displayVaultName } from '../view-display';
 import { DbPanel, DbRowSkeleton } from './db-panel';
 
 type VaultRow = {
@@ -223,7 +224,9 @@ export function DbVaultsTable({ network }: { network: Network }) {
               aria-expanded={expanded === v.vault_id}
             >
               <span className="font-mono text-[11px] text-foreground">
-                <span className="tabular-nums">#{v.vault_id}</span> · {v.name} ({v.symbol}) · <span className="tabular-nums">{v.num_assets}</span> assets
+                <span className="tabular-nums">#{v.vault_id}</span> ·{' '}
+                {displayVaultName(v.name)} ·{' '}
+                <span className="tabular-nums">{v.num_assets}</span> assets
               </span>
               <span className={btnGhostClass}>{expanded === v.vault_id ? 'Collapse' : 'Expand'}</span>
             </button>

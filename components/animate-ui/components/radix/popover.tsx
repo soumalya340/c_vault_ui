@@ -1,0 +1,68 @@
+'use client';
+
+import * as React from 'react';
+
+import {
+  Popover as PopoverPrimitive,
+  PopoverTrigger as PopoverTriggerPrimitive,
+  PopoverPortal as PopoverPortalPrimitive,
+  PopoverContent as PopoverContentPrimitive,
+  PopoverClose as PopoverClosePrimitive,
+  type PopoverProps as PopoverPrimitiveProps,
+  type PopoverTriggerProps as PopoverTriggerPrimitiveProps,
+  type PopoverContentProps as PopoverContentPrimitiveProps,
+  type PopoverCloseProps as PopoverClosePrimitiveProps,
+} from '@/components/animate-ui/primitives/radix/popover';
+import { cn } from '@/lib/utils';
+
+type PopoverProps = PopoverPrimitiveProps;
+
+function Popover(props: PopoverProps) {
+  return <PopoverPrimitive {...props} />;
+}
+
+type PopoverTriggerProps = PopoverTriggerPrimitiveProps;
+
+function PopoverTrigger(props: PopoverTriggerProps) {
+  return <PopoverTriggerPrimitive {...props} />;
+}
+
+type PopoverContentProps = PopoverContentPrimitiveProps;
+
+function PopoverContent({
+  className,
+  align = 'center',
+  sideOffset = 4,
+  ...props
+}: PopoverContentProps) {
+  return (
+    <PopoverPortalPrimitive>
+      <PopoverContentPrimitive
+        align={align}
+        sideOffset={sideOffset}
+        className={cn(
+          'z-50 w-64 origin-(--radix-popover-content-transform-origin) rounded-[2px] border border-border-strong bg-background p-4 text-foreground shadow-[0_18px_48px_-18px_rgba(23,37,28,0.35)] outline-hidden',
+          className,
+        )}
+        {...props}
+      />
+    </PopoverPortalPrimitive>
+  );
+}
+
+type PopoverCloseProps = PopoverClosePrimitiveProps;
+
+function PopoverClose(props: PopoverCloseProps) {
+  return <PopoverClosePrimitive {...props} />;
+}
+
+export {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverClose,
+  type PopoverProps,
+  type PopoverTriggerProps,
+  type PopoverContentProps,
+  type PopoverCloseProps,
+};

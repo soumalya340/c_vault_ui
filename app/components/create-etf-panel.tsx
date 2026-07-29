@@ -7,6 +7,7 @@ import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapte
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 
 import {
+  assertCreateEtfMetadata,
   createEtf,
   deriveGlobalStatePda,
   pythFeedAccount,
@@ -18,6 +19,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
+import { CREATE_ETF_MAX_METADATA_BYTES } from '@/lib/constants';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
 import { fetchPoolCtx } from '@/lib/whirlpool';
 import { fetchDammPoolCtx } from '@/lib/damm';
@@ -160,6 +162,8 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         return { entry, allocationBps: pctToBps(row.allocationPct) };
       });
 
+      assertCreateEtfMetadata(name, symbol, uri);
+
       setStatus('Creating vault (create_etf)…');
       const created = await createEtf(
         connection,
@@ -296,6 +300,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           asset_ids: picked.map((p) => Number(p.entry.asset_id)),
           asset_allocation_bps: picked.map((p) => p.allocationBps),
           num_assets: picked.length,
+          genesis_deposit_status: false,
         });
       } catch (err) {
         registryNote = `\n\nVault created on-chain but recording it failed: ${
@@ -394,10 +399,14 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               className={inputClass}
               value={uri}
               onChange={(e) => setUri(e.target.value)}
-              placeholder="https://…"
-              maxLength={700}
+              placeholder="https://arweave.net/… or https://…"
+              maxLength={CREATE_ETF_MAX_METADATA_BYTES}
               required
             />
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+              Short https link only — no base64 data: images. Name+symbol+URI ≤{' '}
+              {CREATE_ETF_MAX_METADATA_BYTES} bytes.
+            </p>
           </div>
         </div>
 

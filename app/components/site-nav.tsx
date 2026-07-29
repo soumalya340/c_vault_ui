@@ -15,9 +15,10 @@ import {
 import { useConsoleNetwork } from './console-shell';
 
 // Admin lives at the gated /admin dashboard — wallet menu "Dashboard" only, not a tab.
-const NAV_SECTION_IDS = ['view', 'vaults', 'vault-ops'] as const satisfies readonly Exclude<
+// View read-ops live on each vault detail page (/discover/{id}), not a top-level tab.
+const NAV_SECTION_IDS = ['vaults', 'vault-ops'] as const satisfies readonly Exclude<
   SectionId,
-  'admin'
+  'admin' | 'view'
 >[];
 
 function NavTabs({ className }: { className?: string }) {

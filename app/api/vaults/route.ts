@@ -39,6 +39,8 @@ export type VaultRow = {
   /** Target weights in bps, indexed with asset_ids (sum = 10_000). */
   asset_allocation_bps: number[];
   num_assets: number;
+  /** Mirrors on-chain `Vault.genesis_done` — false until genesis_deposit succeeds. */
+  genesis_deposit_status: boolean;
   created_at?: string;
 };
 
@@ -83,6 +85,7 @@ export async function GET(request: Request) {
       asset_ids: v.asset_ids,
       asset_allocation_bps: v.asset_allocation_bps,
       num_assets: v.num_assets,
+      genesis_deposit_status: Boolean(v.genesis_deposit_status),
       created_at: v.created_at ?? undefined,
     }));
     return NextResponse.json({ vaults });
@@ -179,6 +182,7 @@ export async function POST(request: Request) {
       asset_ids: body.asset_ids,
       asset_allocation_bps: body.asset_allocation_bps,
       num_assets: body.num_assets!,
+      genesis_deposit_status: body.genesis_deposit_status ?? false,
       created_at: null,
     });
 
@@ -201,8 +205,9 @@ function isValidPubkeyOrNull(v: unknown): v is string | null {
 }
 
 /**
- * Set deposit/redeem ALT addresses on an existing vault — admin dashboard
- * only (see c_vault_script menus/db.js choice '3'). Blank/null clears.
+ * Patch existing vault fields:
+ * - deposit/redeem ALT addresses (admin / auto-create paths)
+ * - genesis_deposit_status (after genesis_deposit or on-chain reconcile)
  */
 export async function PATCH(request: Request) {
   try {
@@ -211,18 +216,46 @@ export async function PATCH(request: Request) {
       vault_id?: number;
       deposit_alt_address?: string | null;
       redeem_alt_address?: string | null;
+      genesis_deposit_status?: boolean;
     };
     if (body.vault_id === undefined || body.vault_id === null) {
       return NextResponse.json({ error: "vault_id is required." }, { status: 400 });
     }
+    const network = toDbNetwork(body.network ?? null);
+    const vaultId = Number(body.vault_id);
+    const db = getDb(network);
+
+    // Genesis flag only — prefer a dedicated write so ALT-only callers stay unchanged.
+    if (
+      typeof body.genesis_deposit_status === "boolean" &&
+      body.deposit_alt_address === undefined &&
+      body.redeem_alt_address === undefined
+    ) {
+      const updated = await db.updateVaultGenesisStatus(
+        network,
+        vaultId,
+        body.genesis_deposit_status,
+      );
+      return NextResponse.json({ vault: updated });
+    }
+
     if (!isValidPubkeyOrNull(body.deposit_alt_address) || !isValidPubkeyOrNull(body.redeem_alt_address)) {
       return NextResponse.json({ error: "ALT addresses must be valid base58 pubkeys or blank." }, { status: 400 });
     }
-    const network = toDbNetwork(body.network ?? null);
-    const updated = await getDb(network).updateVaultAlts(network, Number(body.vault_id), {
+
+    let updated = await db.updateVaultAlts(network, vaultId, {
       deposit_alt_address: body.deposit_alt_address || null,
       redeem_alt_address: body.redeem_alt_address || null,
     });
+
+    if (typeof body.genesis_deposit_status === "boolean") {
+      updated = await db.updateVaultGenesisStatus(
+        network,
+        vaultId,
+        body.genesis_deposit_status,
+      );
+    }
+
     return NextResponse.json({ vault: updated });
   } catch (err) {
     return NextResponse.json({ error: errorMessage(err) }, { status: 500 });

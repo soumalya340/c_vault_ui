@@ -5,7 +5,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { getUserPosition, type Network } from '@/lib/cvault';
 import type { VaultRecord } from '@/lib/registryClient';
 import { formatResult } from './execute-vault-function';
-import { humanizeViewResult } from './view-display';
+import { displayVaultName, humanizeViewResult } from './view-display';
 import { LedgerOutput } from './ledger-output';
 import { OutputPanelSkeleton } from './loading-skeletons';
 import { btnGhostClass, btnSecondaryClass, outputPanelClass } from './ui-classes';
@@ -102,7 +102,7 @@ export function PositionViewModal({
       <div
         role='dialog'
         aria-modal='true'
-        aria-label={`My position in ${vault.symbol}`}
+        aria-label={`My position in ${displayVaultName(vault.name)}`}
         className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
       >
         <div className='flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4'>
@@ -111,7 +111,7 @@ export function PositionViewModal({
               My position
             </div>
             <h2 className='mt-1 font-display text-lg font-semibold tracking-[0.02em]'>
-              {vault.symbol} · {vault.name}
+              {displayVaultName(vault.name)}
             </h2>
             <p className='mt-1.5 max-w-[40ch] text-sm leading-relaxed text-muted-foreground'>
               Share balance, deposit history, and any active redeem state for
