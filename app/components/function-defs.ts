@@ -87,11 +87,11 @@ export const VIEW_FUNCTIONS: FunctionDef[] = [
   {
     id: 'view_vault_asset_balances',
     number: '03',
-    title: 'Vault Asset Balances',
+    title: 'Proof Reserves Onchain',
     description:
-      'Live token balance the vault holds for each asset — read from each asset ATA on-chain and shown in human-readable units.',
+      'Prove the vault’s reserves: live token balance in each asset ATA, read on-chain and shown in human-readable units.',
     fields: [VIEW_VAULT_ID_FIELD],
-    submitLabel: 'Fetch asset balances',
+    submitLabel: 'Prove reserves',
   },
 ];
 

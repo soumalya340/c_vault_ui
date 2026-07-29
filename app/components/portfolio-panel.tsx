@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { VaultOpsPanel } from './vault-ops-panel';
+import { VaultInfoPopover } from './vault-info-popover';
 import {
   MetricStripSkeleton,
   PortfolioListSkeleton,
@@ -373,7 +374,15 @@ export function PortfolioPanel({ network }: { network: Network }) {
                               )}
                             </div>
                           </div>
-                          <div className='flex items-center gap-4 sm:text-right'>
+                          <div className='flex flex-wrap items-center gap-3 sm:justify-end sm:gap-4'>
+                            {/* Same circular "i" pattern as Discover · View assets;
+                                reads View · Vault State (getVaultState). */}
+                            <VaultInfoPopover
+                              vaultId={v.vault_id}
+                              symbol={v.symbol}
+                              name={v.name}
+                              network={network}
+                            />
                             <button
                               type='button'
                               onClick={() =>

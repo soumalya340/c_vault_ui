@@ -159,7 +159,7 @@ export async function executeVaultFunction(
         }
       }
       if (balances.length === 0) {
-        return { note: 'No vault asset balances on-chain yet.' };
+        return { note: 'No on-chain reserves yet — vault asset ATAs are empty.' };
       }
       // Flat map asset → human amount so LedgerOutput renders certificate rows.
       const out: Record<string, string> = {};

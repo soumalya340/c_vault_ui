@@ -32,24 +32,30 @@ import {
   sectionLabelClass,
 } from './ui-classes';
 
-/** View plate instruments with vault_id locked to this page's vault. */
+/**
+ * View plate for this vault — vault_id locked, Vault State omitted
+ * (Portfolio · View vault info covers that read).
+ */
 function viewFunctionsForVault(vault: VaultRecord): FunctionDef[] {
   const fixedVault = String(vault.vault_id);
   const vaultLabel = `№ ${vault.vault_id} · ${vault.symbol} · ${vault.name}`;
-  return VIEW_FUNCTIONS.map((fn) => ({
-    ...fn,
-    fields: fn.fields.map((field) =>
-      field.name === 'vault_id'
-        ? {
-            ...field,
-            // Submit value must stay a bare id — display shows which vault.
-            fixed: fixedVault,
-            label: 'Vault',
-            hint: vaultLabel,
-          }
-        : field,
-    ),
-  }));
+  return VIEW_FUNCTIONS.filter((fn) => fn.id !== 'view_vault_state').map(
+    (fn, i) => ({
+      ...fn,
+      number: String(i + 1).padStart(2, '0'),
+      fields: fn.fields.map((field) =>
+        field.name === 'vault_id'
+          ? {
+              ...field,
+              // Submit value must stay a bare id — display shows which vault.
+              fixed: fixedVault,
+              label: 'Vault',
+              hint: vaultLabel,
+            }
+          : field,
+      ),
+    }),
+  );
 }
 
 function shorten(addr: string): string {
@@ -362,6 +368,14 @@ function VaultDetailViewInner({
             </div>
           </div>
 
+          {/* Read ops minus Vault State (that lives on Portfolio · View vault info). */}
+          <SectionBlock
+            id="view"
+            label="Read operations"
+            functions={viewFunctionsForVault(vault)}
+            network={network}
+          />
+
           <div className={`${panelClass} overflow-hidden`}>
             <div className="border-b border-border-strong px-5 py-3 md:px-6">
               <span className={`${sectionLabelClass} uppercase`}>Basket on-chain</span>
@@ -419,14 +433,6 @@ function VaultDetailViewInner({
               </ul>
             )}
           </div>
-
-          {/* Full /view plate — vault_id locked to this vault (no picker). */}
-          <SectionBlock
-            id="view"
-            label="Read operations"
-            functions={viewFunctionsForVault(vault)}
-            network={network}
-          />
         </>
       )}
 
