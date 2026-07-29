@@ -23,8 +23,8 @@ export const SECTION_META: Record<
   },
   'vault-ops': {
     no: '03',
-    nav: 'Vault Ops',
-    title: 'Vault Operations',
+    nav: 'Create',
+    title: 'Create ETF',
     description:
       'Create ETF vaults, execute basket swaps, and run the operational instruction set.',
   },

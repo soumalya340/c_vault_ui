@@ -13,7 +13,7 @@ const TICKER_ITEMS = [
   'DEP · Deposit',
   'RDM · Redeem',
   'NAV · Read NAV',
-  'OPS · Vault Ops',
+  'CRT · Create',
   'USDC · Quote mint',
   'ORCA · Whirlpool',
   'DAMM · V2 pools',
@@ -151,7 +151,7 @@ export function HeroSection({
               href={sectionPath('vault-ops')}
               className={`${btnSecondaryClass} min-h-11`}
             >
-              Open vault ops
+              Open create
             </Link>
           </div>
         </div>

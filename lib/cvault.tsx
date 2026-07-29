@@ -223,7 +223,7 @@ async function formatVaultMissingError(
     const gs = await getGlobalState(connection);
     const total = Number(gs.totalVaults);
     if (!Number.isFinite(total) || total <= 0) {
-      rangeHint = 'No vaults exist yet (totalVaults = 0). Create one from Vault Ops.';
+      rangeHint = 'No vaults exist yet (totalVaults = 0). Open Create to mint one.';
     } else if (vaultId >= total) {
       rangeHint = `Only vault ids 0–${total - 1} exist (totalVaults = ${total}). You entered ${vaultId}.`;
     } else {
@@ -2886,7 +2886,7 @@ async function emptyVaultNavView(
     sharesDecimals,
     note:
       `Vault ${vaultId} is empty — no asset balances and no pending USDC, so NAV is $0 ` +
-      'and no share price exists yet. Fund it with Genesis deposit (Vault Ops №01).',
+      'and no share price exists yet. Fund it with Genesis deposit (Create · №01).',
   };
 }
 

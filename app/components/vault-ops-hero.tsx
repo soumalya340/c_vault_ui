@@ -68,7 +68,7 @@ export function VaultOpsHero({ network }: { network: Network }) {
 
         <div className="min-w-0">
           <h1 className="font-display text-[clamp(36px,5vw,72px)] font-bold uppercase leading-[0.95] tracking-[-0.01em]">
-            Vault <em className="not-italic text-seal">Operations</em>
+            Create <em className="not-italic text-seal">ETF</em>
           </h1>
           <div className="mt-5 h-1 w-28 bg-seal" />
           <div className="mt-5 flex flex-wrap gap-2.5">

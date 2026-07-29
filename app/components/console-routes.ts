@@ -4,7 +4,7 @@ import type { SectionId } from './function-defs';
 export const SECTION_ROUTES: Record<Exclude<SectionId, 'admin'>, string> = {
   view: '/view',
   vaults: '/vaults-all',
-  'vault-ops': '/vaults-ops',
+  'vault-ops': '/create',
 };
 
 export const ADMIN_ROUTE = '/admin';

@@ -6,7 +6,7 @@ import { VaultOpsCreatePanel } from '@/app/components/vault-ops-create-panel';
 import { VaultOpsToast } from '@/app/components/vault-ops-toast';
 import { useConsoleNetwork } from '@/app/components/console-shell';
 
-export default function VaultsOpsPage() {
+export default function CreatePage() {
   const { network } = useConsoleNetwork();
 
   return (

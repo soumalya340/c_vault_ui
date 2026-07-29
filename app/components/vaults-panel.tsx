@@ -445,7 +445,7 @@ export function VaultsPanel({ network }: { network: Network }) {
         {!loading && !error && vaults.length === 0 && (
           <p className="px-5 py-6 font-mono text-xs text-muted-foreground md:px-6">
             <span className="mr-2 text-muted-foreground/50">&gt;</span>
-            No vaults yet — create one from Vault Ops.
+            No vaults yet — open Create to mint one.
           </p>
         )}
 
