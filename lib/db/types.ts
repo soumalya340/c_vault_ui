@@ -30,6 +30,8 @@ export interface UnifiedVaultRow {
   num_assets: number;
   /** Mirrors on-chain `Vault.genesis_done` — false until genesis_deposit succeeds. */
   genesis_deposit_status: boolean;
+  /** True once DAMM v2 shares×USDC customizable pool exists on-chain. */
+  is_pool_created: boolean;
   created_at: string | null;
 }
 
@@ -111,6 +113,12 @@ export interface DbDriver {
     network: DbNetwork,
     vaultId: number,
     genesisDepositStatus: boolean,
+  ): Promise<UnifiedVaultRow>;
+  /** Mark DAMM v2 shares×USDC pool as created (one-way true). Idempotent. */
+  updateVaultPoolCreated(
+    network: DbNetwork,
+    vaultId: number,
+    isPoolCreated: boolean,
   ): Promise<UnifiedVaultRow>;
 
   listRegistry(network: DbNetwork): Promise<UnifiedRegistryRow[]>;

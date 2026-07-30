@@ -25,10 +25,14 @@ import {
   type SharePriceQuote,
 } from '@/lib/cvault';
 import { NETWORK_CONSTANTS, USDC_DECIMALS, type Network } from '@/lib/constants';
-import type { VaultRecord } from '@/lib/registryClient';
+import {
+  updateVaultPoolCreated,
+  type VaultRecord,
+} from '@/lib/registryClient';
 import { solscanLink } from '@/lib/solscanLink';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
@@ -343,11 +347,16 @@ export function CreatePoolAccordion({
   vault,
   open,
   onToggle,
+  poolCreated = false,
+  onPoolCreated,
 }: {
   network: Network;
   vault: VaultRecord;
   open: boolean;
   onToggle: () => void;
+  /** When true, create is disabled (pool already on-chain / DB). */
+  poolCreated?: boolean;
+  onPoolCreated?: (next: VaultRecord) => void;
 }) {
   const { connection } = useConnection();
   const { publicKey, connected, signTransaction } = useWallet();
@@ -441,6 +450,13 @@ export function CreatePoolAccordion({
     BigInt(usdcNeededRawStr) > BigInt(walletUsdcRaw);
 
   const execute = async () => {
+    if (poolCreated) {
+      setResult({
+        type: 'info',
+        text: 'Pool already created for this vault — use Stake & Earn on the vault page.',
+      });
+      return;
+    }
     if (!connected || !publicKey || !signTransaction) {
       setVisible(true);
       return;
@@ -555,6 +571,12 @@ export function CreatePoolAccordion({
         solscan: solscanLink(signature, network),
       });
       showVaultOpsToast('DAMM V2 · POOL CREATED');
+      try {
+        const updated = await updateVaultPoolCreated(network, vaultId, true);
+        onPoolCreated?.(updated);
+      } catch {
+        onPoolCreated?.({ ...vault, is_pool_created: true });
+      }
     } catch (err: unknown) {
       const parsed = parseTxError(err);
       setLastError(parsed);
@@ -595,7 +617,23 @@ export function CreatePoolAccordion({
         })
       }
     >
-      <div className="grid gap-4 md:grid-cols-2">
+      {poolCreated ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge
+            variant="secondary"
+            className="font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
+          >
+            Pool-Created
+          </Badge>
+          <p className="font-mono text-[11px] text-muted-foreground">
+            Shares×USDC DAMM pool is live. Create is disabled — use Stake &amp; Earn
+            on the vault page to add liquidity.
+          </p>
+        </div>
+      ) : null}
+      <div
+        className={`grid gap-4 md:grid-cols-2 ${poolCreated ? 'pointer-events-none opacity-40' : ''}`}
+      >
         <div>
           <FieldLabel>Token A · vault share mint</FieldLabel>
           <StaticValue>
@@ -687,10 +725,16 @@ export function CreatePoolAccordion({
       </div>
       <div className="flex justify-end pt-2">
         <ExecuteButton
-          loading={loading}
+          loading={loading || poolCreated}
           connected={connected}
-          label="Create pool + seed"
-          detail={usdcNeededUi != null ? `${usdcNeededUi} USDC` : null}
+          label={poolCreated ? 'Pool already created' : 'Create pool + seed'}
+          detail={
+            poolCreated
+              ? null
+              : usdcNeededUi != null
+                ? `${usdcNeededUi} USDC`
+                : null
+          }
           onClick={execute}
         />
       </div>

@@ -41,6 +41,8 @@ export type VaultRow = {
   num_assets: number;
   /** Mirrors on-chain `Vault.genesis_done` — false until genesis_deposit succeeds. */
   genesis_deposit_status: boolean;
+  /** True once DAMM v2 shares×USDC customizable pool exists on-chain. */
+  is_pool_created: boolean;
   created_at?: string;
 };
 
@@ -86,6 +88,7 @@ export async function GET(request: Request) {
       asset_allocation_bps: v.asset_allocation_bps,
       num_assets: v.num_assets,
       genesis_deposit_status: Boolean(v.genesis_deposit_status),
+      is_pool_created: Boolean(v.is_pool_created),
       created_at: v.created_at ?? undefined,
     }));
     return NextResponse.json({ vaults });
@@ -183,6 +186,7 @@ export async function POST(request: Request) {
       asset_allocation_bps: body.asset_allocation_bps,
       num_assets: body.num_assets!,
       genesis_deposit_status: body.genesis_deposit_status ?? false,
+      is_pool_created: body.is_pool_created ?? false,
       created_at: null,
     });
 
@@ -208,6 +212,7 @@ function isValidPubkeyOrNull(v: unknown): v is string | null {
  * Patch existing vault fields:
  * - deposit/redeem ALT addresses (admin / auto-create paths)
  * - genesis_deposit_status (after genesis_deposit or on-chain reconcile)
+ * - is_pool_created (after DAMM v2 create or on-chain pool reconcile)
  */
 export async function PATCH(request: Request) {
   try {
@@ -217,6 +222,7 @@ export async function PATCH(request: Request) {
       deposit_alt_address?: string | null;
       redeem_alt_address?: string | null;
       genesis_deposit_status?: boolean;
+      is_pool_created?: boolean;
     };
     if (body.vault_id === undefined || body.vault_id === null) {
       return NextResponse.json({ error: "vault_id is required." }, { status: 400 });
@@ -225,17 +231,32 @@ export async function PATCH(request: Request) {
     const vaultId = Number(body.vault_id);
     const db = getDb(network);
 
-    // Genesis flag only — prefer a dedicated write so ALT-only callers stay unchanged.
-    if (
-      typeof body.genesis_deposit_status === "boolean" &&
-      body.deposit_alt_address === undefined &&
-      body.redeem_alt_address === undefined
-    ) {
-      const updated = await db.updateVaultGenesisStatus(
-        network,
-        vaultId,
-        body.genesis_deposit_status,
-      );
+    const hasAlts =
+      body.deposit_alt_address !== undefined || body.redeem_alt_address !== undefined;
+    const hasGenesis = typeof body.genesis_deposit_status === "boolean";
+    const hasPool = typeof body.is_pool_created === "boolean";
+
+    // Flag-only writes — keep ALT patch path separate.
+    if (!hasAlts && (hasGenesis || hasPool)) {
+      let updated =
+        (await db.getVault(network, vaultId)) ??
+        (() => {
+          throw new Error(`Vault ${vaultId} not found on ${network}`);
+        })();
+      if (hasGenesis) {
+        updated = await db.updateVaultGenesisStatus(
+          network,
+          vaultId,
+          body.genesis_deposit_status!,
+        );
+      }
+      if (hasPool) {
+        updated = await db.updateVaultPoolCreated(
+          network,
+          vaultId,
+          body.is_pool_created!,
+        );
+      }
       return NextResponse.json({ vault: updated });
     }
 
@@ -248,11 +269,18 @@ export async function PATCH(request: Request) {
       redeem_alt_address: body.redeem_alt_address || null,
     });
 
-    if (typeof body.genesis_deposit_status === "boolean") {
+    if (hasGenesis) {
       updated = await db.updateVaultGenesisStatus(
         network,
         vaultId,
-        body.genesis_deposit_status,
+        body.genesis_deposit_status!,
+      );
+    }
+    if (hasPool) {
+      updated = await db.updateVaultPoolCreated(
+        network,
+        vaultId,
+        body.is_pool_created!,
       );
     }
 

@@ -9,9 +9,12 @@ import { USDC_DECIMALS } from '@/lib/constants';
 import {
   fetchVaults,
   updateVaultGenesisStatus,
+  updateVaultPoolCreated,
   type VaultRecord,
 } from '@/lib/registryClient';
-import { getVaultState } from '@/lib/cvault';
+import { getVaultState, NETWORK_CONSTANTS } from '@/lib/cvault';
+import { resolveVaultShareUsdcPool } from '@/lib/meteora';
+import { PublicKey } from '@solana/web3.js';
 import {
   fetchWalletPortfolio,
   type PortfolioHolding,
@@ -93,7 +96,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
     try {
       let vaults = await fetchVaults(network);
 
-      // DB false → check on-chain genesis_done once; if true, pin the DB flag.
+      // DB false → check on-chain once; if true, pin the DB flag.
       const pendingGenesis = vaults.filter((v) => !v.genesis_deposit_status);
       if (pendingGenesis.length > 0) {
         const reconciled = await Promise.all(
@@ -102,6 +105,35 @@ export function PortfolioPanel({ network }: { network: Network }) {
               const state = await getVaultState(connection, v.vault_id, network);
               if (!state.genesisDone) return null;
               return await updateVaultGenesisStatus(network, v.vault_id, true);
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const byId = new Map(
+          reconciled
+            .filter((r): r is VaultRecord => r != null)
+            .map((r) => [r.vault_id, r]),
+        );
+        if (byId.size > 0) {
+          vaults = vaults.map((v) => byId.get(v.vault_id) ?? v);
+        }
+      }
+
+      // DB false → derive shares×USDC DAMM pool; if account exists, pin true.
+      const pendingPool = vaults.filter((v) => !v.is_pool_created);
+      if (pendingPool.length > 0) {
+        const usdcMint = NETWORK_CONSTANTS[network].usdcMint;
+        const reconciled = await Promise.all(
+          pendingPool.map(async (v) => {
+            try {
+              const info = await resolveVaultShareUsdcPool(
+                connection,
+                new PublicKey(v.shares_mint),
+                usdcMint,
+              );
+              if (!info.exists) return null;
+              return await updateVaultPoolCreated(network, v.vault_id, true);
             } catch {
               return null;
             }
@@ -402,6 +434,15 @@ export function PortfolioPanel({ network }: { network: Network }) {
                                   className="font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
                                 >
                                   Genesis-Deposit-Done
+                                </Badge>
+                              ) : null}
+                              {v.is_pool_created ? (
+                                <Badge
+                                  variant="secondary"
+                                  title="DAMM v2 shares×USDC pool is live — Stake & Earn on the vault page"
+                                  className="font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
+                                >
+                                  Stake &amp; Earn
                                 </Badge>
                               ) : null}
                             </div>

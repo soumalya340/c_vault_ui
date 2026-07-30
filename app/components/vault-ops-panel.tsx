@@ -3,16 +3,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { PublicKey } from '@solana/web3.js';
 import {
   getVaultState,
+  NETWORK_CONSTANTS,
   parseUnits,
   PRICE_SCALE_DECIMALS,
   type Network,
 } from '@/lib/cvault';
 import {
   updateVaultGenesisStatus,
+  updateVaultPoolCreated,
   type VaultRecord,
 } from '@/lib/registryClient';
+import { resolveVaultShareUsdcPool } from '@/lib/meteora';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
@@ -400,14 +404,16 @@ export function VaultOpsPanel({
 }) {
   const { connection } = useConnection();
   const [genesisDone, setGenesisDone] = useState(Boolean(vault.genesis_deposit_status));
+  const [poolCreated, setPoolCreated] = useState(Boolean(vault.is_pool_created));
   const [openId, setOpenId] = useState<string>(
     vault.genesis_deposit_status ? 'set_paused' : 'genesis_deposit',
   );
 
-  // Keep local flag in sync when parent reloads the vault row.
+  // Keep local flags in sync when parent reloads the vault row.
   useEffect(() => {
     setGenesisDone(Boolean(vault.genesis_deposit_status));
-  }, [vault.vault_id, vault.genesis_deposit_status]);
+    setPoolCreated(Boolean(vault.is_pool_created));
+  }, [vault.vault_id, vault.genesis_deposit_status, vault.is_pool_created]);
 
   // DB false → read on-chain once; if genesis_done, write true and keep it.
   useEffect(() => {
@@ -438,9 +444,48 @@ export function VaultOpsPanel({
     onVaultUpdated,
   ]);
 
+  // DB false → derive shares×USDC pool; if live, pin is_pool_created.
+  useEffect(() => {
+    if (vault.is_pool_created) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const info = await resolveVaultShareUsdcPool(
+          connection,
+          new PublicKey(vault.shares_mint),
+          NETWORK_CONSTANTS[network].usdcMint,
+        );
+        if (cancelled || !info.exists) return;
+        const updated = await updateVaultPoolCreated(network, vault.vault_id, true);
+        if (cancelled) return;
+        setPoolCreated(true);
+        onVaultUpdated?.(updated);
+      } catch {
+        // Non-fatal — create pool remains available.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    connection,
+    network,
+    vault.vault_id,
+    vault.shares_mint,
+    vault.is_pool_created,
+    onVaultUpdated,
+  ]);
+
   const markGenesisDone = () => {
     setGenesisDone(true);
     onVaultUpdated?.({ ...vault, genesis_deposit_status: true });
+  };
+
+  const markPoolCreated = (next: VaultRecord) => {
+    setPoolCreated(true);
+    onVaultUpdated?.(next);
   };
 
   return (
@@ -477,6 +522,8 @@ export function VaultOpsPanel({
           onToggle={() =>
             setOpenId((cur) => (cur === 'create_pool' ? '' : 'create_pool'))
           }
+          poolCreated={poolCreated}
+          onPoolCreated={markPoolCreated}
         />
       </div>
     </section>
