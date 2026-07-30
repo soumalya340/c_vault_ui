@@ -584,6 +584,22 @@ export function parseTxError(err: unknown): UserFacingError {
     };
   }
 
+  // Account lock cap (64) — common when packing too many swap legs into one tx.
+  // ALT shrinks wire size but does NOT raise this runtime limit.
+  if (/locked too many accounts|MaxLoadedAccounts|too many accounts/i.test(blob)) {
+    return {
+      kind: 'error',
+      title: 'Too many accounts in one transaction',
+      summary:
+        'This transaction locks more than Solana’s 64-account limit. Address Lookup Tables compress packet size but not the lock count.',
+      fix: 'Retry — the client now packs fewer swap legs per transaction. If it persists, deposit fewer assets or run Deploy Pending Swaps in smaller batches.',
+      instruction: ixLabel,
+      code: 'TooManyAccountLocks',
+      details,
+      raw,
+    };
+  }
+
   // Simulation failed — strip the noisy "Catch the SendTransactionError…" tail
   if (/Transaction simulation failed/i.test(raw) || /simulation failed/i.test(blob)) {
     const firstLine = raw.split('\n').find((l) => l.trim()) ?? 'Transaction simulation failed.';

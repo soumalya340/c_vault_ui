@@ -18,10 +18,7 @@ import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
 import { showVaultOpsToast } from './vault-ops-toast';
-import {
-  AddPositionLiquidityAccordion,
-  CreatePoolAccordion,
-} from './vault-ops-meteora';
+import { CreatePoolAccordion } from './vault-ops-meteora';
 import { Badge } from '@/components/ui/badge';
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -456,7 +453,7 @@ export function VaultOpsPanel({
           Vault Operations
         </div>
         <span className="min-w-0 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-          5 instruments · series 2026
+          4 instruments · series 2026
         </span>
       </div>
 
@@ -475,20 +472,10 @@ export function VaultOpsPanel({
         ))}
         <CreatePoolAccordion
           network={network}
-          vaultId={vault.vault_id}
+          vault={vault}
           open={openId === 'create_pool'}
           onToggle={() =>
             setOpenId((cur) => (cur === 'create_pool' ? '' : 'create_pool'))
-          }
-        />
-        <AddPositionLiquidityAccordion
-          network={network}
-          vaultId={vault.vault_id}
-          open={openId === 'add_position_liquidity'}
-          onToggle={() =>
-            setOpenId((cur) =>
-              cur === 'add_position_liquidity' ? '' : 'add_position_liquidity',
-            )
           }
         />
       </div>

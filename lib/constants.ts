@@ -175,17 +175,17 @@ export const PRICE_SCALE_DECIMALS = 9;
 export const MULTI_TX_ASSET_THRESHOLD = 4;
 
 /**
- * Max inflow swap legs (Whirlpool/DAMM v2) batched into one v0 transaction
- * once a basket exceeds MULTI_TX_ASSET_THRESHOLD. Each leg locks ~10 unique
- * accounts beyond the ~7-8 shared once per tx (vault, vaultAuthority, signer,
- * programs) — 2 legs stays comfortably under Solana's 64-account lock cap
- * even with an ALT (ALT shrinks message bytes, not the lock count).
+ * Soft guide: per-asset Whirlpool/DAMM legs often add ~8–12 unique accounts.
+ * With shared vault/program keys, ~2–3 legs sit safely under the 64-account
+ * lock when combined with deposit. Runtime packing uses `packIxsForAlt`
+ * (lock count + 1232-byte probe), not this constant, for hard splits.
  */
 export const SWAP_LEGS_PER_TX = 2;
 
 /**
  * Max vault-authority ATA create instructions per v0 tx when a basket exceeds
  * MULTI_TX_ASSET_THRESHOLD. Each ix adds a unique mint + ATA pubkey to the
- * message — batching keeps the serialized tx under the 1232-byte cap.
+ * message — with an ALT these compress to 1-byte indices, so 8 ATAs stay well
+ * under the 1232-byte tx cap.
  */
-export const VAULT_ATA_IXS_PER_TX = 4;
+export const VAULT_ATA_IXS_PER_TX = 8;

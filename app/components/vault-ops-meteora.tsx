@@ -1,25 +1,96 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import {
+  useAnchorWallet,
+  useConnection,
+  useWallet,
+} from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey, type Transaction } from '@solana/web3.js';
+import BN from 'bn.js';
 import {
-  addLiquidity,
   createPool,
-  getCpAmm,
   parseUiAmount,
   resolveMintDecimals,
   resolveTokenProgram,
   sendMeteoraTx,
 } from '@/lib/meteora';
-import type { Network } from '@/lib/constants';
+import {
+  formatUnits,
+  getUserUsdcBalance,
+  getVaultSharePriceQuote,
+  parseUnits,
+  PRICE_SCALE_DECIMALS,
+  type SharePriceQuote,
+} from '@/lib/cvault';
+import { NETWORK_CONSTANTS, USDC_DECIMALS, type Network } from '@/lib/constants';
+import type { VaultRecord } from '@/lib/registryClient';
 import { solscanLink } from '@/lib/solscanLink';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { Button } from '@/components/ui/button';
 import { formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
 import { showVaultOpsToast } from './vault-ops-toast';
+
+/** Human-readable token amount with thousands separators. */
+function formatTokenUi(raw: string, decimals: number): string {
+  const ui = formatUnits(raw, decimals);
+  const [whole, frac] = ui.split('.');
+  const wholeFmt = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return frac ? `${wholeFmt}.${frac}` : wholeFmt;
+}
+
+/**
+ * USDC base units required to seed `shareUi` shares at `sharePrice` (PRICE_SCALE).
+ * Same formula as create-pool execute: amountB = A · price · 10^decB / 10^(decA+9).
+ * Shares and USDC both use 6 decimals in this product.
+ */
+function usdcNeededRaw(
+  shareUi: string,
+  sharePriceRaw: string,
+  sharesDecimals: number = USDC_DECIMALS,
+  usdcDecimals: number = USDC_DECIMALS,
+): string | null {
+  const trimmed = shareUi.trim();
+  if (!trimmed || !/^\d+(\.\d+)?$/.test(trimmed)) return null;
+  try {
+    const amountA = parseUnits(trimmed, sharesDecimals);
+    if (amountA.isZero()) return null;
+    const amountB = amountA
+      .mul(new BN(sharePriceRaw))
+      .mul(new BN(10).pow(new BN(usdcDecimals)))
+      .div(new BN(10).pow(new BN(sharesDecimals + PRICE_SCALE_DECIMALS)));
+    if (amountB.isZero()) return null;
+    return amountB.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * DAMM v2 trading fee as a UI percentage → integer bps for the SDK.
+ * 1 bps = 0.01%. On-chain range is roughly 0.01%–99% (1–9900 bps).
+ */
+function tradingFeePercentToBps(percentUi: string): number {
+  const trimmed = percentUi.trim();
+  if (!trimmed || !/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error('Enter a trading fee percentage (e.g. 0.25 for 0.25%).');
+  }
+  const pct = Number(trimmed);
+  if (!Number.isFinite(pct)) {
+    throw new Error('Enter a trading fee percentage (e.g. 0.25 for 0.25%).');
+  }
+  // bps = percent × 100 (0.25% → 25 bps). Round to nearest integer bps.
+  const bps = Math.round(pct * 100);
+  if (bps < 1 || bps > 9900) {
+    throw new Error(
+      'Trading fee must be between 0.01% and 99% (DAMM v2 limits).',
+    );
+  }
+  return bps;
+}
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -51,6 +122,18 @@ function TextInput({
       autoComplete="off"
     />
   );
+}
+
+function StaticValue({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-11 w-full items-center overflow-hidden border border-border bg-foreground/[0.03] px-3.5 font-mono text-sm text-foreground/80">
+      <span className="truncate">{children}</span>
+    </div>
+  );
+}
+
+function shortenAddress(addr: string): string {
+  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 }
 
 interface OpsResult {
@@ -216,50 +299,146 @@ function ExecuteButton({
   loading,
   connected,
   label,
+  detail,
   onClick,
 }: {
   loading: boolean;
   connected: boolean;
   label: string;
+  /** Optional second line (e.g. USDC needed) — keeps the primary label readable. */
+  detail?: string | null;
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="lg"
       onClick={onClick}
       disabled={loading}
-      className="h-11 w-full bg-foreground font-mono text-[9.5px] font-semibold uppercase tracking-[0.22em] text-background transition-colors hover:bg-seal disabled:cursor-not-allowed disabled:opacity-40 md:w-[220px] md:justify-self-end"
+      className="h-11 w-full min-w-[12rem] gap-2 rounded-[2px] border-border-strong bg-background px-5 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground shadow-none transition-colors duration-[var(--duration-fast)] hover:border-foreground hover:bg-foreground hover:text-background focus-visible:ring-accent disabled:opacity-40 md:w-auto md:min-w-[14rem]"
     >
-      {loading ? 'Processing…' : connected ? label : 'Connect wallet'}
-    </button>
+      {loading ? (
+        'Processing…'
+      ) : !connected ? (
+        'Connect wallet'
+      ) : detail ? (
+        <span className="flex flex-col items-center leading-tight normal-case tracking-normal">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em]">
+            {label}
+          </span>
+          <span className="mt-0.5 font-mono text-[11px] font-medium tabular-nums tracking-normal opacity-80">
+            {detail}
+          </span>
+        </span>
+      ) : (
+        label
+      )}
+    </Button>
   );
 }
 
 export function CreatePoolAccordion({
   network,
-  vaultId,
+  vault,
   open,
   onToggle,
 }: {
   network: Network;
-  vaultId: number;
+  vault: VaultRecord;
   open: boolean;
   onToggle: () => void;
 }) {
   const { connection } = useConnection();
   const { publicKey, connected, signTransaction } = useWallet();
+  const anchorWallet = useAnchorWallet();
   const { setVisible } = useWalletModal();
 
-  const [tokenAMint, setTokenAMint] = useState('');
-  const [tokenBMint, setTokenBMint] = useState('');
-  const [tokenAAmount, setTokenAAmount] = useState('');
-  const [tokenBAmount, setTokenBAmount] = useState('');
-  const [initPrice, setInitPrice] = useState('1');
-  const [startingFeeBps, setStartingFeeBps] = useState('25');
+  const [shareAmount, setShareAmount] = useState('');
+  /** Trading fee as percent UI (0.25 = 0.25% = 25 bps). Converted at execute. */
+  const [tradingFeePercent, setTradingFeePercent] = useState('0.25');
+
+  const [priceQuote, setPriceQuote] = useState<SharePriceQuote | null>(null);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [walletUsdcRaw, setWalletUsdcRaw] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<OpsResult | null>(null);
   const [lastError, setLastError] = useState<UserFacingError | null>(null);
+
+  const vaultId = vault.vault_id;
+  const usdcMint = NETWORK_CONSTANTS[network].usdcMint;
+  const walletKey = publicKey?.toBase58() ?? '';
+
+  // Load share price when the panel opens. Prefer live oracle NAV; fall back
+  // to book (total_usdc_value ÷ shares) or genesis baseline so the field is
+  // never stuck on "—" for a funded vault.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      setPriceLoading(true);
+      setPriceError(null);
+      try {
+        const quote = await getVaultSharePriceQuote(
+          connection,
+          vaultId,
+          network,
+          anchorWallet ?? null,
+        );
+        if (!cancelled) {
+          setPriceQuote(quote);
+          setPriceError(null);
+        }
+      } catch (err: unknown) {
+        if (cancelled) return;
+        setPriceQuote(null);
+        setPriceError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setPriceLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connection, vaultId, network, walletKey, anchorWallet]);
+
+  // Wallet USDC — needed to seed the quote side of the pool.
+  useEffect(() => {
+    if (!open || !publicKey) {
+      setWalletUsdcRaw(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const bal = await getUserUsdcBalance(connection, publicKey, network);
+        if (!cancelled) setWalletUsdcRaw(bal);
+      } catch {
+        if (!cancelled) setWalletUsdcRaw(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connection, publicKey, network, walletKey]);
+
+  // Exact USDC required (same base-unit math as the create tx).
+  const usdcNeededRawStr =
+    priceQuote && BigInt(priceQuote.sharePrice) > 0n
+      ? usdcNeededRaw(shareAmount, priceQuote.sharePrice)
+      : null;
+  const usdcNeededUi =
+    usdcNeededRawStr != null
+      ? formatTokenUi(usdcNeededRawStr, USDC_DECIMALS)
+      : null;
+  const walletUsdcUi =
+    walletUsdcRaw != null ? formatTokenUi(walletUsdcRaw, USDC_DECIMALS) : null;
+  const insufficientUsdc =
+    usdcNeededRawStr != null &&
+    walletUsdcRaw != null &&
+    BigInt(usdcNeededRawStr) > BigInt(walletUsdcRaw);
 
   const execute = async () => {
     if (!connected || !publicKey || !signTransaction) {
@@ -272,19 +451,33 @@ export function CreatePoolAccordion({
     setLastError(null);
 
     try {
-      const mintA = parsePubkey(tokenAMint, 'token A mint');
-      const mintB = parsePubkey(tokenBMint, 'token B mint');
-      if (mintA.equals(mintB)) {
-        throw new Error('Token A and token B mints must be different.');
-      }
-      if (!tokenAAmount.trim() || !tokenBAmount.trim()) {
-        throw new Error('Enter seed amounts for both tokens.');
+      if (!shareAmount.trim()) {
+        throw new Error('Enter the share amount to seed.');
       }
 
-      const feeBps = Number(startingFeeBps);
-      if (!Number.isFinite(feeBps) || feeBps < 0 || feeBps > 10_000) {
-        throw new Error('Starting fee must be between 0 and 10000 bps.');
+      const feeBps = tradingFeePercentToBps(tradingFeePercent);
+
+      // Token A is always this vault's share mint, token B always USDC.
+      const mintA = parsePubkey(vault.shares_mint, 'vault share mint');
+      const mintB = usdcMint;
+      if (mintA.equals(mintB)) {
+        throw new Error('Vault share mint cannot be the USDC mint.');
       }
+
+      // Fresh quote at click — live NAV → book → baseline.
+      const quote = await getVaultSharePriceQuote(
+        connection,
+        vaultId,
+        network,
+        anchorWallet ?? null,
+      );
+      setPriceQuote(quote);
+      if (quote.sharePrice === '0' || BigInt(quote.sharePrice) <= 0n) {
+        throw new Error(
+          'Vault has no usable share price yet — run Genesis deposit (№01) before creating a pool.',
+        );
+      }
+      const initPrice = formatUnits(quote.sharePrice, PRICE_SCALE_DECIMALS);
 
       const [tokenAProgram, tokenBProgram] = await Promise.all([
         resolveTokenProgram(connection, mintA),
@@ -295,8 +488,18 @@ export function CreatePoolAccordion({
         resolveMintDecimals(connection, mintB, tokenBProgram),
       ]);
 
-      const amountA = parseUiAmount(tokenAAmount, decimalsA);
-      const amountB = parseUiAmount(tokenBAmount, decimalsB);
+      const amountA = parseUiAmount(shareAmount, decimalsA);
+      // USDC side derived from the share price, exact base-unit math:
+      // amountB = amountA · sharePrice(1e9) · 10^decimalsB / 10^(decimalsA+9)
+      const amountB = amountA
+        .mul(new BN(quote.sharePrice))
+        .mul(new BN(10).pow(new BN(decimalsB)))
+        .div(new BN(10).pow(new BN(decimalsA + PRICE_SCALE_DECIMALS)));
+      if (amountB.isZero()) {
+        throw new Error(
+          'Seed amount too small — derived USDC side rounds to zero.',
+        );
+      }
 
       const built = await createPool({
         connection,
@@ -313,7 +516,7 @@ export function CreatePoolAccordion({
           decimals: decimalsB,
           tokenProgram: tokenBProgram,
         },
-        initPrice: initPrice.trim() || '1',
+        initPrice,
         fee: {
           startingFeeBps: feeBps,
           endingFeeBps: feeBps,
@@ -322,7 +525,12 @@ export function CreatePoolAccordion({
 
       const signature = await sendMeteoraTx(
         connection,
-        { publicKey, signTransaction: signTransaction as (tx: Transaction) => Promise<Transaction> },
+        {
+          publicKey,
+          signTransaction: signTransaction as (
+            tx: Transaction,
+          ) => Promise<Transaction>,
+        },
         built.tx,
         [built.positionNft],
       );
@@ -331,9 +539,13 @@ export function CreatePoolAccordion({
         pool: built.pool.toBase58(),
         position: built.position.toBase58(),
         positionNft: built.positionNft.publicKey.toBase58(),
-        liquidityDelta: built.liquidityDelta.toString(),
+        tokenAMint: mintA.toBase58(),
+        tokenBMint: mintB.toBase58(),
+        initPrice,
+        priceSource: quote.source,
         tokenAAmount: built.tokenAAmount.toString(),
         tokenBAmount: built.tokenBAmount.toString(),
+        liquidityDelta: built.liquidityDelta.toString(),
         signature,
       };
 
@@ -355,6 +567,14 @@ export function CreatePoolAccordion({
     }
   };
 
+  const priceDisplay = priceLoading
+    ? 'Fetching…'
+    : priceQuote
+      ? `${priceQuote.sharePriceUsd} / share · ${priceQuote.sourceLabel}`
+      : priceError
+        ? 'Unavailable'
+        : '—';
+
   return (
     <AccordionShell
       number="04"
@@ -362,264 +582,115 @@ export function CreatePoolAccordion({
       tag="Meteora"
       open={open}
       onToggle={onToggle}
-      description="Create a Meteora DAMM v2 customizable pool and seed initial liquidity in one transaction. The position NFT is generated client-side and co-signs with your wallet."
+      description="Create a Meteora DAMM v2 pool for this vault's share token against USDC and seed the initial position in one transaction. Token A is the vault share mint, token B is always USDC. Init price prefers live oracle NAV, then falls back to book value (total_usdc_value ÷ shares) or the genesis baseline. Set seed size and trading fee percentage (0.01%–99%)."
       result={result}
       lastError={lastError}
-      loading={loading}
+      loading={loading || priceLoading}
       network={network}
       vaultId={vaultId}
       onTwapRefresh={() =>
         setResult({
           type: 'info',
-          text: 'DEX TWAP refreshed — run the action again if needed.',
+          text: 'DEX TWAP refreshed — re-open this panel or run Create pool again.',
         })
       }
     >
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <FieldLabel>Token A mint</FieldLabel>
-          <TextInput
-            value={tokenAMint}
-            onChange={setTokenAMint}
-            placeholder="Base58 mint…"
-          />
+          <FieldLabel>Token A · vault share mint</FieldLabel>
+          <StaticValue>
+            {vault.symbol} · {shortenAddress(vault.shares_mint)}
+          </StaticValue>
         </div>
         <div>
-          <FieldLabel>Token B mint</FieldLabel>
-          <TextInput
-            value={tokenBMint}
-            onChange={setTokenBMint}
-            placeholder="Base58 mint…"
-          />
+          <FieldLabel>Token B · quote</FieldLabel>
+          <StaticValue>USDC · {shortenAddress(usdcMint.toBase58())}</StaticValue>
         </div>
         <div>
-          <FieldLabel>Token A amount</FieldLabel>
+          <FieldLabel>Init price · share / USDC</FieldLabel>
+          <StaticValue>{priceDisplay}</StaticValue>
+          {priceQuote?.note && (
+            <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+              {priceQuote.note}
+            </p>
+          )}
+          {priceError && !priceQuote && (
+            <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-destructive">
+              {priceError}
+            </p>
+          )}
+        </div>
+        <div>
+          <FieldLabel>Trading fee percentage</FieldLabel>
           <TextInput
-            value={tokenAAmount}
-            onChange={setTokenAAmount}
+            value={tradingFeePercent}
+            onChange={setTradingFeePercent}
+            placeholder="0.25"
+            inputMode="decimal"
+          />
+          <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
+            Pool swap fee in percent (e.g. 0.25 = 0.25%). Range 0.01%–99%.
+          </p>
+        </div>
+        <div>
+          <FieldLabel>Share amount to seed ({vault.symbol})</FieldLabel>
+          <TextInput
+            value={shareAmount}
+            onChange={setShareAmount}
             placeholder="1000"
             inputMode="decimal"
           />
+          <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
+            Your vault share tokens deposited as token A liquidity.
+          </p>
         </div>
         <div>
-          <FieldLabel>Token B amount</FieldLabel>
-          <TextInput
-            value={tokenBAmount}
-            onChange={setTokenBAmount}
-            placeholder="1000"
-            inputMode="decimal"
-          />
-        </div>
-        <div>
-          <FieldLabel>Init price (B per 1 A)</FieldLabel>
-          <TextInput
-            value={initPrice}
-            onChange={setInitPrice}
-            placeholder="1"
-            inputMode="decimal"
-          />
-        </div>
-        <div>
-          <FieldLabel>Base fee (bps)</FieldLabel>
-          <TextInput
-            value={startingFeeBps}
-            onChange={setStartingFeeBps}
-            placeholder="25"
-            inputMode="numeric"
-          />
+          <FieldLabel>USDC needed to seed</FieldLabel>
+          <StaticValue>
+            {priceLoading
+              ? 'Fetching price…'
+              : usdcNeededUi != null
+                ? `${usdcNeededUi} USDC`
+                : shareAmount.trim()
+                  ? priceQuote
+                    ? 'Amount too small (rounds to 0)'
+                    : 'Waiting for share price…'
+                  : 'Enter share amount'}
+          </StaticValue>
+          <p
+            className={`mt-1.5 font-mono text-[10px] leading-relaxed ${
+              insufficientUsdc ? 'text-destructive' : 'text-muted-foreground'
+            }`}
+          >
+            {priceQuote && usdcNeededUi != null ? (
+              <>
+                = {shareAmount.trim() || '0'} × {priceQuote.sharePriceUsd}/share
+                <span className="text-muted-foreground/70">
+                  {' '}
+                  ({priceQuote.sourceLabel})
+                </span>
+                {walletUsdcUi != null && (
+                  <>
+                    <br />
+                    wallet: {walletUsdcUi} USDC
+                    {insufficientUsdc ? ' — not enough to seed' : ' available'}
+                  </>
+                )}
+              </>
+            ) : priceError && !priceQuote ? (
+              'Share price unavailable — cannot size the USDC leg yet.'
+            ) : (
+              'Matched USDC (token B) required at the init price for this seed.'
+            )}
+          </p>
         </div>
       </div>
       <div className="flex justify-end pt-2">
         <ExecuteButton
           loading={loading}
           connected={connected}
-          label="Create pool"
-          onClick={execute}
-        />
-      </div>
-    </AccordionShell>
-  );
-}
-
-export function AddPositionLiquidityAccordion({
-  network,
-  vaultId,
-  open,
-  onToggle,
-}: {
-  network: Network;
-  vaultId: number;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const { connection } = useConnection();
-  const { publicKey, connected, signTransaction } = useWallet();
-  const { setVisible } = useWalletModal();
-
-  const [pool, setPool] = useState('');
-  const [amountA, setAmountA] = useState('');
-  const [amountB, setAmountB] = useState('');
-  const [slippage, setSlippage] = useState('1');
-
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<OpsResult | null>(null);
-  const [lastError, setLastError] = useState<UserFacingError | null>(null);
-
-  const execute = async () => {
-    if (!connected || !publicKey || !signTransaction) {
-      setVisible(true);
-      return;
-    }
-
-    setLoading(true);
-    setResult(null);
-    setLastError(null);
-
-    try {
-      const poolPk = parsePubkey(pool, 'pool');
-      if (!amountA.trim() || !amountB.trim()) {
-        throw new Error('Enter max amounts for both token A and token B.');
-      }
-
-      const slip = Number(slippage);
-      if (!Number.isFinite(slip) || slip < 0 || slip > 50) {
-        throw new Error('Slippage must be between 0 and 50 percent.');
-      }
-
-      const cpAmm = getCpAmm(connection);
-      const poolState = await cpAmm.fetchPoolState(poolPk);
-
-      const [tokenAProgram, tokenBProgram] = await Promise.all([
-        resolveTokenProgram(connection, poolState.tokenAMint),
-        resolveTokenProgram(connection, poolState.tokenBMint),
-      ]);
-      const [decimalsA, decimalsB] = await Promise.all([
-        resolveMintDecimals(connection, poolState.tokenAMint, tokenAProgram),
-        resolveMintDecimals(connection, poolState.tokenBMint, tokenBProgram),
-      ]);
-
-      const maxAmountTokenA = parseUiAmount(amountA, decimalsA);
-      const maxAmountTokenB = parseUiAmount(amountB, decimalsB);
-
-      const built = await addLiquidity({
-        connection,
-        owner: publicKey,
-        pool: poolPk,
-        maxAmountTokenA,
-        maxAmountTokenB,
-        slippagePercent: slip,
-        mode: { kind: 'new_position' },
-      });
-
-      const extraSigners = built.positionNftKeypair
-        ? [built.positionNftKeypair]
-        : [];
-
-      const signature = await sendMeteoraTx(
-        connection,
-        {
-          publicKey,
-          signTransaction: signTransaction as (
-            tx: Transaction,
-          ) => Promise<Transaction>,
-        },
-        built.tx,
-        extraSigners,
-      );
-
-      const payload = {
-        pool: built.pool.toBase58(),
-        position: built.position.toBase58(),
-        positionNft: built.positionNftMint.toBase58(),
-        positionNftAccount: built.positionNftAccount.toBase58(),
-        liquidityDelta: built.liquidityDelta.toString(),
-        maxAmountTokenA: built.maxAmountTokenA.toString(),
-        maxAmountTokenB: built.maxAmountTokenB.toString(),
-        tokenAMint: built.tokenAMint.toBase58(),
-        tokenBMint: built.tokenBMint.toBase58(),
-        signature,
-      };
-
-      setResult({
-        type: 'success',
-        text: formatResult(payload),
-        solscan: solscanLink(signature, network),
-      });
-      showVaultOpsToast('DAMM V2 · POSITION + LIQUIDITY');
-    } catch (err: unknown) {
-      const parsed = parseTxError(err);
-      setLastError(parsed);
-      setResult({
-        type: parsed.kind === 'info' ? 'info' : 'error',
-        text: parsed.title,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <AccordionShell
-      number="05"
-      name="Add position + liquidity"
-      tag="Meteora"
-      open={open}
-      onToggle={onToggle}
-      description="Open a new DAMM v2 position NFT on an existing pool and deposit both sides in one transaction (createPositionAndAddLiquidity). Use the pool address from create pool or any live DAMM v2 pool."
-      result={result}
-      lastError={lastError}
-      loading={loading}
-      network={network}
-      vaultId={vaultId}
-      onTwapRefresh={() =>
-        setResult({
-          type: 'info',
-          text: 'DEX TWAP refreshed — run the action again if needed.',
-        })
-      }
-    >
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="md:col-span-2">
-          <FieldLabel>Pool address</FieldLabel>
-          <TextInput
-            value={pool}
-            onChange={setPool}
-            placeholder="DAMM v2 pool pubkey…"
-          />
-        </div>
-        <div>
-          <FieldLabel>Max token A amount</FieldLabel>
-          <TextInput
-            value={amountA}
-            onChange={setAmountA}
-            placeholder="1000"
-            inputMode="decimal"
-          />
-        </div>
-        <div>
-          <FieldLabel>Max token B amount</FieldLabel>
-          <TextInput
-            value={amountB}
-            onChange={setAmountB}
-            placeholder="1000"
-            inputMode="decimal"
-          />
-        </div>
-        <div>
-          <FieldLabel>Slippage (%)</FieldLabel>
-          <TextInput
-            value={slippage}
-            onChange={setSlippage}
-            placeholder="1"
-            inputMode="decimal"
-          />
-        </div>
-      </div>
-      <div className="flex justify-end pt-2">
-        <ExecuteButton
-          loading={loading}
-          connected={connected}
-          label="Add position + liquidity"
+          label="Create pool + seed"
+          detail={usdcNeededUi != null ? `${usdcNeededUi} USDC` : null}
           onClick={execute}
         />
       </div>
