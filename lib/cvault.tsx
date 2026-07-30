@@ -2465,10 +2465,13 @@ export interface RedeemSwapResult {
  * as two separate actions instead of one combined button:
  *
  *  1. No active redeem → verify the share balance, then `request_redeem`.
- *  2. Run the outflow legs (each ViaSol asset→wSOL leg is its own
- *     transaction so the received wSOL can be measured; the wSOL-native slot's
- *     amount is already known from RedeemState), then all →USDC legs in one
- *     ALT-compressed transaction. Does not call `claim`.
+ *  2. Outflow legs, packed with `sendV0Packed` (ALT) where safe:
+ *     - Pass A (ViaSol asset→wSOL): one ix at a time when multiple legs need
+ *       per-asset wSOL measurement (shared vault wSOL ATA); a single pending
+ *       leg is packed normally.
+ *     - Pass B (everything → USDC): all sol→USDC + DirectUsdc legs packed into
+ *       the fewest ALT v0 txs that fit under account-lock / size limits.
+ *     Does not call `claim`.
  */
 export async function redeemSwap(
   connection: Connection,
@@ -2508,8 +2511,9 @@ export async function redeemSwap(
     }
 
     onProgress?.('Burning shares (request_redeem)…');
-    const ixs = await buildRequestRedeemIxs(program, ctx, user, shares);
-    signatures.push(await sendV0(connection, wallet, ixs, lut));
+    const burnIxs = await buildRequestRedeemIxs(program, ctx, user, shares);
+    // Single ix — sendV0Packed still uses the vault ALT and same path as swaps.
+    signatures.push(...(await sendV0Packed(connection, wallet, burnIxs, lut, onProgress)));
     redeemState = await tryFetchRedeemState(program, user, vaultId);
     if (!redeemState) throw new Error('RedeemState not found after request_redeem.');
   }
@@ -2519,16 +2523,19 @@ export async function redeemSwap(
   // Pass A — all ViaSol asset→wSOL hops while pending_usdc is still 0.
   //   Deployed programs historically require pending_usdc == 0 on
   //   swap_asset_to_sol. Doing sol→USDC between ViaSol assets triggers
-  //   "Redeem already open" on the next asset→wSOL (your Blue Chip case:
-  //   asset 2 converted, asset 3 blocked).
+  //   "Redeem already open" on the next asset→wSOL.
   // Pass B — convert every remaining leg to USDC (DirectUsdc, wSOL-native
-  //   ViaSol, and measured ViaSol wSOL piles).
+  //   ViaSol, and measured ViaSol wSOL piles), packed via sendV0Packed.
   //
   // Resume-safe: asset_to_sol_done skips leg-1; wSOL amounts are measured
   // with RPC retries so we never silently drop sol→USDC.
   const viaSolWsolReceived = new Map<number, bigint>();
 
   // ── Pass A: asset → wSOL ──────────────────────────────────────────────────
+  // Collect pending ViaSol leg-1 work. Multiple legs cannot share one tx when
+  // we need per-asset wSOL deltas (all credit the same vault wSOL ATA).
+  type PassALeg = { index: number; ix: TransactionInstruction };
+  const passALegs: PassALeg[] = [];
   for (let i = 0; i < redeemState.numAssets; i++) {
     if (redeemState.assetSwapped[i]) continue;
     const amountIn = new BN(redeemState.assetAmountIn[i].toString());
@@ -2544,11 +2551,22 @@ export async function redeemSwap(
       continue;
     }
 
-    onProgress?.(`Swapping asset ${i + 1}/${redeemState.numAssets} → wSOL…`);
+    passALegs.push({
+      index: i,
+      ix: await buildSwapAssetToSolIx(connection, program, ctx, i, user, new BN(0)),
+    });
+  }
+
+  const runPassALeg = async (leg: PassALeg): Promise<void> => {
+    const { index: i, ix } = leg;
+    onProgress?.(
+      `Swapping asset ${i + 1}/${redeemState!.numAssets} → wSOL…`,
+    );
     const before = await vaultWsolBalance(connection, ctx);
-    const legIx = await buildSwapAssetToSolIx(connection, program, ctx, i, user, new BN(0));
     try {
-      signatures.push(await sendV0(connection, wallet, [legIx], lut));
+      signatures.push(
+        ...(await sendV0Packed(connection, wallet, [ix], lut, onProgress)),
+      );
     } catch (err) {
       // Old program: pending_usdc already > 0 from a prior partial run blocks
       // further asset→wSOL. Surface a clear recovery message.
@@ -2576,87 +2594,156 @@ export async function redeemSwap(
     }
     viaSolWsolReceived.set(i, received);
     redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
+  };
+
+  if (passALegs.length === 1) {
+    await runPassALeg(passALegs[0]!);
+  } else if (passALegs.length > 1) {
+    // One-at-a-time so each asset's wSOL delta can be measured for pass B.
+    onProgress?.(
+      `ViaSol pass A: ${passALegs.length} asset→wSOL leg(s) (measured one-by-one; shared vault wSOL ATA)…`,
+    );
+    for (const leg of passALegs) {
+      await runPassALeg(leg);
+    }
   }
 
-  // ── Pass B: everything → USDC ─────────────────────────────────────────────
+  // ── Pass B: everything → USDC (packed when amounts are known) ─────────────
   // Refresh once more so flags match chain after pass A.
   redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
 
-  // ViaSol non-native: sol→USDC one tx per asset (uses measured delta, or full
-  // vault wSOL on resume when we didn't measure this session).
+  type PassBItem = { index: number; label: string; ix: TransactionInstruction };
+  const passBItems: PassBItem[] = [];
+  /** ViaSol legs that only know "full vault wSOL" (resume) — cannot pack two of these. */
+  const resumeFullBalanceViaSol: number[] = [];
+
   for (let i = 0; i < redeemState.numAssets; i++) {
     if (redeemState.assetSwapped[i]) continue;
     const amountIn = new BN(redeemState.assetAmountIn[i].toString());
     if (amountIn.isZero()) continue;
     const asset = assetAt(ctx, i);
 
+    // Native wSOL slot — amount already known from RedeemState.
     if (asset.mint.equals(WSOL_MINT) && asset.route === 'ViaSol') {
-      onProgress?.(`Converting wSOL (native slot ${i + 1}) → USDC…`);
-      const ix = await buildSwapSolToUsdcIx(
-        connection, program, ctx, i, amountIn, new BN(0), user,
-      );
-      signatures.push(await sendV0(connection, wallet, [ix], lut));
-      redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
+      passBItems.push({
+        index: i,
+        label: `wSOL-native slot ${i + 1}`,
+        ix: await buildSwapSolToUsdcIx(
+          connection, program, ctx, i, amountIn, new BN(0), user,
+        ),
+      });
       continue;
     }
 
-    if (asset.route !== 'ViaSol') continue;
-
-    let received = viaSolWsolReceived.get(i);
-    if (received == null || received <= 0n) {
-      // Resume: leg-1 done in a prior session — convert remaining vault wSOL.
-      if (!redeemState.assetToSolDone?.[i]) {
+    if (asset.route === 'ViaSol') {
+      let received = viaSolWsolReceived.get(i);
+      let fromResumeBalance = false;
+      if (received == null || received <= 0n) {
+        // Resume: leg-1 done in a prior session — convert remaining vault wSOL.
+        if (!redeemState.assetToSolDone?.[i]) {
+          throw new Error(
+            `ViaSol asset ${i + 1} never completed asset→wSOL. Press Redeem (swap) again.`,
+          );
+        }
+        received = await vaultWsolBalance(connection, ctx);
+        fromResumeBalance = true;
+      }
+      if (received <= 0n) {
         throw new Error(
-          `ViaSol asset ${i + 1} never completed asset→wSOL. Press Redeem (swap) again.`,
+          `ViaSol asset ${i + 1} has no vault wSOL to convert. Press Redeem (swap) again after RPC settles.`,
         );
       }
-      received = await vaultWsolBalance(connection, ctx);
+      if (fromResumeBalance) resumeFullBalanceViaSol.push(i);
+      passBItems.push({
+        index: i,
+        label: `wSOL→USDC asset ${i + 1}`,
+        ix: await buildSwapSolToUsdcIx(
+          connection,
+          program,
+          ctx,
+          i,
+          new BN(received.toString()),
+          new BN(0),
+          user,
+        ),
+      });
+      continue;
     }
-    if (received <= 0n) {
-      throw new Error(
-        `ViaSol asset ${i + 1} has no vault wSOL to convert. Press Redeem (swap) again after RPC settles.`,
+
+    if (asset.route === 'DirectUsdc') {
+      passBItems.push({
+        index: i,
+        label: `DirectUsdc asset ${i + 1}`,
+        ix: await buildSwapAssetToUsdcIx(connection, program, ctx, i, user, new BN(0)),
+      });
+    }
+  }
+
+  // Multiple resume legs each stamped with "full vault wSOL" would over-drain
+  // if packed/sent together. Run those ViaSol sol→USDC legs one-by-one,
+  // re-reading the vault balance for each; pack DirectUsdc + measured legs.
+  if (resumeFullBalanceViaSol.length > 1) {
+    onProgress?.(
+      `Resume: ${resumeFullBalanceViaSol.length} ViaSol →USDC legs need sequential vault wSOL reads…`,
+    );
+    for (const i of resumeFullBalanceViaSol) {
+      const bal = await vaultWsolBalance(connection, ctx);
+      if (bal <= 0n) {
+        throw new Error(
+          `ViaSol asset ${i + 1} has no vault wSOL to convert on resume. ` +
+            `Press Redeem (swap) again after RPC settles.`,
+        );
+      }
+      const ix = await buildSwapSolToUsdcIx(
+        connection, program, ctx, i, new BN(bal.toString()), new BN(0), user,
+      );
+      onProgress?.(`Converting wSOL → USDC for asset ${i + 1} (resume)…`);
+      signatures.push(
+        ...(await sendV0Packed(connection, wallet, [ix], lut, onProgress)),
       );
     }
-
-    onProgress?.(`Converting wSOL → USDC for asset ${i + 1}/${redeemState.numAssets}…`);
-    const solUsdcIx = await buildSwapSolToUsdcIx(
-      connection,
-      program,
-      ctx,
-      i,
-      new BN(received.toString()),
-      new BN(0),
-      user,
-    );
-    signatures.push(await sendV0(connection, wallet, [solUsdcIx], lut));
-    redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
-  }
-
-  // DirectUsdc legs — one tx per asset when basket is large (>4); batched otherwise.
-  const directLegs: { index: number; ix: TransactionInstruction }[] = [];
-  for (let i = 0; i < redeemState.numAssets; i++) {
-    if (redeemState.assetSwapped[i]) continue;
-    const amountIn = new BN(redeemState.assetAmountIn[i].toString());
-    if (amountIn.isZero()) continue;
-    const asset = assetAt(ctx, i);
-    if (asset.route !== 'DirectUsdc') continue;
-    directLegs.push({
-      index: i,
-      ix: await buildSwapAssetToUsdcIx(connection, program, ctx, i, user, new BN(0)),
+    // Drop the stale full-balance ViaSol items; keep DirectUsdc + native + measured.
+    const skip = new Set(resumeFullBalanceViaSol);
+    const rest = passBItems.filter((item) => {
+      const asset = assetAt(ctx, item.index);
+      if (asset.route !== 'ViaSol' || asset.mint.equals(WSOL_MINT)) return true;
+      return !skip.has(item.index);
     });
-  }
-  if (directLegs.length > 0) {
-    if (needsMultiTxBundle(ctx)) {
-      for (const { index, ix } of directLegs) {
-        onProgress?.(
-          `Converting DirectUsdc asset ${index + 1}/${redeemState.numAssets} → base token…`,
-        );
-        signatures.push(await sendV0(connection, wallet, [ix], lut));
-        redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
-      }
-    } else {
-      onProgress?.('Converting DirectUsdc assets to base token…');
-      signatures.push(await sendV0(connection, wallet, directLegs.map((l) => l.ix), lut));
+    if (rest.length > 0) {
+      onProgress?.(
+        `Packing ${rest.length} remaining →USDC leg(s) with ALT (${rest.map((r) => r.label).join(', ')})…`,
+      );
+      signatures.push(
+        ...(await sendV0Packed(
+          connection,
+          wallet,
+          rest.map((r) => r.ix),
+          lut,
+          onProgress,
+        )),
+      );
+    }
+  } else if (passBItems.length > 0) {
+    onProgress?.(
+      `Packing ${passBItems.length} →USDC outflow leg(s) with ALT` +
+        ` (${passBItems.map((r) => r.label).join(', ')})…`,
+    );
+    try {
+      signatures.push(
+        ...(await sendV0Packed(
+          connection,
+          wallet,
+          passBItems.map((r) => r.ix),
+          lut,
+          onProgress,
+        )),
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Redeem outflow (→USDC) failed: ${msg}\n` +
+          `Press Redeem (swap) again to resume remaining legs. Do not start a new redeem.`,
+      );
     }
   }
 
