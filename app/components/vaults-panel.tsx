@@ -26,7 +26,13 @@ import { Badge } from '@/components/ui/badge';
 import { SECTION_STYLE } from './function-defs';
 import { vaultDetailPath } from './console-routes';
 import { AssetRowsSkeleton, VaultListSkeleton } from './loading-skeletons';
-import { btnGhostClass, btnSecondaryClass, panelClass, sectionLabelClass } from './ui-classes';
+import {
+  btnGhostClass,
+  btnSecondaryClass,
+  inputClass,
+  panelClass,
+  sectionLabelClass,
+} from './ui-classes';
 import { displayVaultName } from './view-display';
 
 const VAULTS_PER_PAGE = 6;
@@ -234,6 +240,7 @@ export function VaultsPanel({ network }: { network: Network }) {
   const style = SECTION_STYLE.vaults;
 
   const [vaults, setVaults] = useState<VaultRecord[]>([]);
+  const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -263,7 +270,28 @@ export function VaultsPanel({ network }: { network: Network }) {
     setPage(1);
   }, [network]);
 
-  const totalPages = Math.max(1, Math.ceil(vaults.length / VAULTS_PER_PAGE));
+  const filteredVaults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return vaults;
+    return vaults.filter((vault) => {
+      const haystack = [
+        displayVaultName(vault.name),
+        vault.symbol,
+        `cvlt-${vault.vault_id}`,
+        String(vault.vault_id),
+        vault.vault_address,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [vaults, query]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredVaults.length / VAULTS_PER_PAGE));
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -271,11 +299,11 @@ export function VaultsPanel({ network }: { network: Network }) {
 
   const pageVaults = useMemo(() => {
     const start = (page - 1) * VAULTS_PER_PAGE;
-    return vaults.slice(start, start + VAULTS_PER_PAGE);
-  }, [vaults, page]);
+    return filteredVaults.slice(start, start + VAULTS_PER_PAGE);
+  }, [filteredVaults, page]);
 
-  const pageStart = vaults.length === 0 ? 0 : (page - 1) * VAULTS_PER_PAGE + 1;
-  const pageEnd = Math.min(page * VAULTS_PER_PAGE, vaults.length);
+  const pageStart = filteredVaults.length === 0 ? 0 : (page - 1) * VAULTS_PER_PAGE + 1;
+  const pageEnd = Math.min(page * VAULTS_PER_PAGE, filteredVaults.length);
 
   // Network-scoped asset registry so mints resolve to asset_name. Failure is
   // non-fatal — resolveAssetLabel still falls back to Pools.md presets.
@@ -321,6 +349,32 @@ export function VaultsPanel({ network }: { network: Network }) {
           </span>
         </div>
 
+        {!loading && !error && vaults.length > 0 && (
+          <div className="border-b border-border-strong px-5 py-3 md:px-6">
+            <div className="relative">
+              <input
+                type="text"
+                inputMode="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by name, ticker, ID or address…"
+                aria-label="Search vaults"
+                className={inputClass}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[2px] px-2 py-1 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {loading && <VaultListSkeleton rows={3} />}
 
         {!loading && error && (
@@ -337,7 +391,14 @@ export function VaultsPanel({ network }: { network: Network }) {
           </p>
         )}
 
-        {!loading && !error && vaults.length > 0 && (
+        {!loading && !error && vaults.length > 0 && filteredVaults.length === 0 && (
+          <p className="px-5 py-6 font-mono text-xs text-muted-foreground md:px-6">
+            <span className="mr-2 text-muted-foreground/50">&gt;</span>
+            No vaults match &ldquo;{query}&rdquo;.
+          </p>
+        )}
+
+        {!loading && !error && filteredVaults.length > 0 && (
           <div className="flex flex-col divide-y divide-border px-3 py-1 md:px-4">
             {pageVaults.map((vault) => (
               <div
@@ -403,10 +464,10 @@ export function VaultsPanel({ network }: { network: Network }) {
           </div>
         )}
 
-        {!loading && !error && vaults.length > VAULTS_PER_PAGE && (
+        {!loading && !error && filteredVaults.length > VAULTS_PER_PAGE && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-strong px-5 py-3.5 md:px-6">
             <span className={`${sectionLabelClass} uppercase`}>
-              Showing {pageStart}–{pageEnd} of {vaults.length}
+              Showing {pageStart}–{pageEnd} of {filteredVaults.length}
             </span>
             <div className="flex items-center gap-2">
               <button
