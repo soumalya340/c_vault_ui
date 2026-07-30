@@ -58,6 +58,9 @@ function toUnifiedVault(row: PrismaVault): UnifiedVaultRow {
     asset_allocation_bps: JSON.parse(row.asset_allocation_bps) as number[],
     num_assets: row.num_assets,
     genesis_deposit_status: Boolean(row.genesis_deposit_status),
+    is_pool_created: Boolean(
+      (row as { is_pool_created?: boolean }).is_pool_created,
+    ),
     created_at: row.created_at || null,
   };
 }
@@ -170,6 +173,7 @@ export const sqliteDriver: DbDriver = {
         asset_allocation_bps: JSON.stringify(row.asset_allocation_bps),
         num_assets: row.num_assets,
         genesis_deposit_status: row.genesis_deposit_status ?? false,
+        is_pool_created: row.is_pool_created ?? false,
       },
       update: {
         paused: row.paused,
@@ -179,6 +183,7 @@ export const sqliteDriver: DbDriver = {
         redeem_alt_address: row.redeem_alt_address,
         // Only advance false → true; never clear a completed genesis flag on upsert.
         ...(row.genesis_deposit_status ? { genesis_deposit_status: true } : {}),
+        ...(row.is_pool_created ? { is_pool_created: true } : {}),
       },
     });
   },
@@ -200,6 +205,15 @@ export const sqliteDriver: DbDriver = {
     const row = await prisma.vault.update({
       where: { network_vault_id: { network, vault_id: vaultId } },
       data: { genesis_deposit_status: genesisDepositStatus },
+    });
+    return toUnifiedVault(row);
+  },
+
+  async updateVaultPoolCreated(network, vaultId, isPoolCreated) {
+    const prisma = getPrisma();
+    const row = await prisma.vault.update({
+      where: { network_vault_id: { network, vault_id: vaultId } },
+      data: { is_pool_created: isPoolCreated },
     });
     return toUnifiedVault(row);
   },

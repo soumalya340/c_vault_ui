@@ -22,6 +22,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/animate-ui/components/radix/popover';
+import { Badge } from '@/components/ui/badge';
 import { SECTION_STYLE } from './function-defs';
 import { vaultDetailPath } from './console-routes';
 import { AssetRowsSkeleton, VaultListSkeleton } from './loading-skeletons';
@@ -351,13 +352,22 @@ export function VaultsPanel({ network }: { network: Network }) {
                 />
 
                 <div className="relative z-0 flex min-w-0 flex-col gap-3 pointer-events-none">
-                  <div className="flex flex-wrap items-baseline gap-4">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                     <span className="flex-shrink-0 font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal">
                       &#8470;&nbsp;CVLT-{vault.vault_id}
                     </span>
                     <span className="text-sm font-medium tracking-[-0.01em] text-foreground transition-colors duration-150 group-hover/row:text-accent">
                       {displayVaultName(vault.name)}
                     </span>
+                    {vault.is_pool_created ? (
+                      <Badge
+                        variant="secondary"
+                        title="DAMM v2 shares×USDC pool is live — Stake & Earn on the vault page"
+                        className="align-middle font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
+                      >
+                        Stake &amp; Earn
+                      </Badge>
+                    ) : null}
                   </div>
 
                   <span className="font-mono text-[11px] text-muted-foreground">

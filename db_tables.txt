@@ -61,3 +61,4 @@ vaults (28 column(s)):
   - deposit_alt_address (text)
   - redeem_alt_address (text)
   - genesis_deposit_status (boolean) //  This is new 
+  - is_pool_created (boolean, not null default false)

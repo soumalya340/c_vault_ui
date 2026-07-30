@@ -41,6 +41,11 @@ export {
   createPositionAndAddLiquidity,
 } from './add-liquidity';
 export {
+  deriveVaultShareUsdcPool,
+  resolveVaultShareUsdcPool,
+} from './pool';
+export type { VaultShareUsdcPoolInfo } from './pool';
+export {
   applySlippageMax,
   parseUiAmount,
   prepareTransaction,
@@ -68,6 +73,7 @@ export {
   CpAmm,
   MAX_SQRT_PRICE,
   MIN_SQRT_PRICE,
+  deriveCustomizablePoolAddress,
   derivePositionAddress,
   derivePositionNftAccount,
   getSqrtPriceFromPrice,

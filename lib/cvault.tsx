@@ -27,7 +27,7 @@ import type { AnchorWallet } from '@solana/wallet-adapter-react';
 
 import { solscanLink, type Network } from './solscanLink';
 import { createProgram, createDummyWallet } from './program';
-import { sendV0 } from './alt';
+import { sendV0, sendV0Packed } from './alt';
 import { ensureVaultAlt } from './vaultAlt';
 import {
   deriveGlobalStatePda,
@@ -1787,9 +1787,9 @@ function needsMultiTxBundle(ctx: Pick<VaultChainCtx, 'numAssets'>): boolean {
 }
 
 /**
- * Genesis for >4 assets: vault ATAs → signer ATAs → genesis_deposit → swaps (ALT).
- * ATA-create txs omit the ALT; genesis_deposit and swap legs use it (NAV/asset
- * remaining accounts compress to LUT indices — static keys overflow tx size).
+ * Genesis for >4 assets: vault ATAs (setup, only if missing) → then pack
+ * signer ATAs + genesis + all inflow swaps into as few ALT v0 txs as fit
+ * under the 1232-byte / ~64-account envelope.
  */
 async function sendGenesisBundle(
   connection: Connection,
@@ -1799,15 +1799,13 @@ async function sendGenesisBundle(
   genesisIx: TransactionInstruction,
   swapIxs: TransactionInstruction[],
   lut: AddressLookupTableAccount,
+  _network: Network,
   onProgress?: ProgressFn,
 ): Promise<string[]> {
   const sigs: string[] = [];
-  const vaultAtaBatches = Math.ceil(vaultAtaIxs.length / VAULT_ATA_IXS_PER_TX);
-  const swapBatches = Math.ceil(swapIxs.length / SWAP_LEGS_PER_TX);
-  const totalTxs = vaultAtaBatches + 2 + swapBatches;
 
   onProgress?.(
-    `Genesis: ${vaultAtaIxs.length} vault ATA(s) + signer ATAs + seed + ${swapIxs.length} swap(s) → ${totalTxs} transactions…`,
+    `Genesis: ${vaultAtaIxs.length} vault ATA setup batch(es), then pack seed + ${swapIxs.length} swap(s) into minimal ALT txs…`,
   );
 
   if (vaultAtaIxs.length) {
@@ -1824,19 +1822,15 @@ async function sendGenesisBundle(
     );
   }
 
-  onProgress?.('Tx — signer USDC + shares ATAs…');
-  sigs.push(await sendV0(connection, wallet, signerAtaIxs, null));
-
-  onProgress?.('Tx — genesis_deposit (ALT)…');
-  sigs.push(await sendV0(connection, wallet, [genesisIx], lut));
-
-  for (let i = 0; i < swapIxs.length; i += SWAP_LEGS_PER_TX) {
-    const chunk = swapIxs.slice(i, i + SWAP_LEGS_PER_TX);
-    const batchNum = i / SWAP_LEGS_PER_TX + 1;
-    onProgress?.(`Swap batch ${batchNum}/${swapBatches} (ALT)…`);
-    sigs.push(await sendV0(connection, wallet, chunk, lut));
-  }
-
+  // Pack seed + all swaps together — ALT compresses keys so 5-asset baskets
+  // often land in 1 tx; overflow greedily splits into the fewest packets.
+  const coreIxs = [...signerAtaIxs, genesisIx, ...swapIxs];
+  onProgress?.(
+    `Packing genesis + ${swapIxs.length} swap(s) (${coreIxs.length} ixs) with ALT…`,
+  );
+  sigs.push(
+    ...(await sendV0Packed(connection, wallet, coreIxs, lut, onProgress)),
+  );
   return sigs;
 }
 
@@ -2112,15 +2106,8 @@ export async function depositAndDeploy(
         usdcAmount,
         minSharesOut,
       );
-      const userAtaIxs = depositIxs.slice(0, -1);
-      const depositOnlyIxs = depositIxs.slice(-1);
-      const vaultAtaBatches = Math.ceil(vaultAtaIxs.length / VAULT_ATA_IXS_PER_TX);
-      const swapBatches = Math.ceil(swapIxs.length / SWAP_LEGS_PER_TX);
-      const depositTxCount = (userAtaIxs.length ? 1 : 0) + 1;
       onProgress?.(
-        `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — ` +
-          `${vaultAtaBatches} vault ATA batch(es) → ${depositTxCount} deposit tx(s) → ` +
-          `${swapBatches} swap batch(es) (ALT)…`,
+        `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — setup missing ATAs, then pack deposit + ${swapIxs.length} swap(s) into minimal ALT txs…`,
       );
       signatures = await sendV0Chunks(
         connection,
@@ -2131,18 +2118,21 @@ export async function depositAndDeploy(
         (b, t) => `Vault ATA batch ${b}/${t} (ALT)…`,
         onProgress,
       );
-      if (userAtaIxs.length) {
-        onProgress?.('User USDC + shares ATAs…');
-        signatures.push(await sendV0(connection, wallet, userAtaIxs, null));
-      }
-      onProgress?.('Deposit (ALT)…');
-      signatures.push(await sendV0(connection, wallet, depositOnlyIxs, ensured.lut));
-      for (let i = 0; i < swapIxs.length; i += SWAP_LEGS_PER_TX) {
-        const chunk = swapIxs.slice(i, i + SWAP_LEGS_PER_TX);
-        const batchNum = i / SWAP_LEGS_PER_TX + 1;
-        onProgress?.(`Swap batch ${batchNum}/${swapBatches} (ALT)…`);
-        signatures.push(await sendV0(connection, wallet, chunk, ensured.lut));
-      }
+      // Pack user ATAs + deposit + all swaps with ALT. Greedy pack keeps
+      // signatures minimal under the 1232-byte / ~64-account envelope.
+      const coreIxs = [...depositIxs, ...swapIxs];
+      onProgress?.(
+        `Packing deposit + ${swapIxs.length} swap(s) (${coreIxs.length} ixs) with ALT…`,
+      );
+      signatures.push(
+        ...(await sendV0Packed(
+          connection,
+          wallet,
+          coreIxs,
+          ensured.lut,
+          onProgress,
+        )),
+      );
     } else {
       const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
       const depositIxs = await buildDepositIxs(
@@ -2285,6 +2275,7 @@ export async function genesisDepositAndDeploy(
       genesisIx,
       swapIxs,
       ensured.lut,
+      network,
       onProgress,
     );
   } else {
@@ -2344,11 +2335,8 @@ export async function deployPendingSwaps(
   let signatures: string[];
   if (needsMultiTxBundle(ctx)) {
     const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
-    const vaultAtaBatches = Math.ceil(vaultAtaIxs.length / VAULT_ATA_IXS_PER_TX);
-    const swapBatches = Math.ceil(swapIxs.length / SWAP_LEGS_PER_TX);
     onProgress?.(
-      `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — ` +
-        `${vaultAtaBatches} vault ATA batch(es) → ${swapBatches} swap batch(es) (ALT)…`,
+      `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — setup missing ATAs, then pack ${swapIxs.length} inflow swap(s) into minimal ALT txs…`,
     );
     signatures = await sendV0Chunks(
       connection,
@@ -2359,12 +2347,19 @@ export async function deployPendingSwaps(
       (b, t) => `Vault ATA batch ${b}/${t} (ALT)…`,
       onProgress,
     );
-    for (let i = 0; i < swapIxs.length; i += SWAP_LEGS_PER_TX) {
-      const chunk = swapIxs.slice(i, i + SWAP_LEGS_PER_TX);
-      const batchNum = i / SWAP_LEGS_PER_TX + 1;
-      onProgress?.(`Swap batch ${batchNum}/${swapBatches} (ALT)…`);
-      signatures.push(await sendV0(connection, wallet, chunk, ensured.lut));
+    if (swapIxs.length === 0) {
+      throw new Error('No inflow swap instructions to deploy.');
     }
+    onProgress?.(`Packing ${swapIxs.length} inflow swap(s) with ALT…`);
+    signatures.push(
+      ...(await sendV0Packed(
+        connection,
+        wallet,
+        swapIxs,
+        ensured.lut,
+        onProgress,
+      )),
+    );
   } else {
     const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
     const sig = await sendV0(connection, wallet, [...vaultAtaIxs, ...swapIxs], ensured.lut);
@@ -2998,6 +2993,125 @@ export async function getTotalNavView(
     totalShares,
     sharesDecimals,
   };
+}
+
+/**
+ * Share price used to seed a secondary market (e.g. DAMM share/USDC pool).
+ *
+ * Prefer live oracle NAV via `get_total_nav_view`. If that fails or returns 0
+ * (empty simulation, missing ATAs without a wallet, transient RPC), fall back
+ * to on-chain book price `total_usdc_value / total_shares`, then genesis
+ * `baseline_share_price`. Never invent a $1 default.
+ */
+export type SharePriceSource = 'live_nav' | 'book' | 'baseline';
+
+export interface SharePriceQuote {
+  /** PRICE_SCALE (1e9) raw units — same as NavView.sharePrice. */
+  sharePrice: string;
+  /** Human `$x.xx` for UI. */
+  sharePriceUsd: string;
+  source: SharePriceSource;
+  /** Short label for the Init price field. */
+  sourceLabel: string;
+  totalShares: string;
+  /** Present for live/book paths; book NAV = total_usdc_value. */
+  totalUsdcValue?: string;
+  note?: string;
+}
+
+function formatSharePriceUsd(sharePriceRaw: string): string {
+  return `$${formatUnits(sharePriceRaw, PRICE_SCALE_DECIMALS)}`;
+}
+
+/**
+ * Book share price in PRICE_SCALE units:
+ * `floor(total_usdc_value × PRICE_SCALE / total_shares)`.
+ * USDC and shares share the same decimal convention (6), so the ratio is USD/share.
+ */
+export function bookSharePriceRaw(totalUsdcValue: bigint, totalShares: bigint): bigint {
+  if (totalShares <= 0n || totalUsdcValue <= 0n) return 0n;
+  return (totalUsdcValue * BigInt(PRICE_SCALE)) / totalShares;
+}
+
+export async function getVaultSharePriceQuote(
+  connection: Connection,
+  vaultId: number = DEFAULT_VAULT_ID,
+  network: Network = 'mainnet',
+  wallet?: AnchorWallet | null,
+): Promise<SharePriceQuote> {
+  let liveError: string | null = null;
+
+  try {
+    const nav = await getTotalNavView(connection, vaultId, network, wallet);
+    if (nav.sharePrice !== '0' && BigInt(nav.sharePrice) > 0n) {
+      return {
+        sharePrice: nav.sharePrice,
+        sharePriceUsd: nav.sharePriceUsd.startsWith('$')
+          ? nav.sharePriceUsd
+          : formatSharePriceUsd(nav.sharePrice),
+        source: 'live_nav',
+        sourceLabel: 'live NAV',
+        totalShares: nav.totalShares,
+        totalUsdcValue: nav.totalNav !== '0' ? nav.totalNav : undefined,
+      };
+    }
+    liveError =
+      nav.note ??
+      'Live NAV returned $0 (vault empty or no priced assets yet).';
+  } catch (err) {
+    liveError = err instanceof Error ? err.message : String(err);
+  }
+
+  // Book / baseline from the vault account — no simulation, no oracles.
+  const { vaultPda } = deriveVaultPdas(vaultId, network);
+  const decoded = await fetchDecodedVault(connection, vaultPda);
+  if (!decoded) {
+    throw new Error(
+      liveError
+        ? `Live NAV failed (${liveError.slice(0, 160)}) and vault ${vaultId} is not on-chain.`
+        : `Vault ${vaultId} not found on-chain.`,
+    );
+  }
+
+  const totalShares = BigInt(decoded.totalShares.toString());
+  const totalUsdcValue = BigInt(decoded.totalUsdcValue.toString());
+  const bookRaw = bookSharePriceRaw(totalUsdcValue, totalShares);
+  if (bookRaw > 0n) {
+    const sharePrice = bookRaw.toString();
+    return {
+      sharePrice,
+      sharePriceUsd: formatSharePriceUsd(sharePrice),
+      source: 'book',
+      sourceLabel: 'book (total_usdc_value ÷ shares)',
+      totalShares: totalShares.toString(),
+      totalUsdcValue: totalUsdcValue.toString(),
+      note: liveError
+        ? `Using book price — live NAV unavailable: ${liveError.slice(0, 180)}`
+        : undefined,
+    };
+  }
+
+  const baseline = BigInt(decoded.baselineSharePrice.toString());
+  if (baseline > 0n) {
+    const sharePrice = baseline.toString();
+    return {
+      sharePrice,
+      sharePriceUsd: formatSharePriceUsd(sharePrice),
+      source: 'baseline',
+      sourceLabel: 'genesis baseline',
+      totalShares: totalShares.toString(),
+      totalUsdcValue: totalUsdcValue.toString(),
+      note: liveError
+        ? `Using genesis baseline — live NAV unavailable: ${liveError.slice(0, 180)}`
+        : 'Using genesis baseline (book value is zero).',
+    };
+  }
+
+  throw new Error(
+    (liveError ? `Live NAV: ${liveError.slice(0, 160)}. ` : '') +
+      `Vault ${vaultId} has no usable share price yet (live NAV $0, book $0, baseline unset). ` +
+      'Run Genesis deposit (№01) and wait for asset balances before creating a pool.',
+  );
 }
 
 export interface PreviewDepositResult {

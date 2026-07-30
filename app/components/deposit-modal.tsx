@@ -16,7 +16,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import { PRICE_SCALE_DECIMALS } from '@/lib/constants';
+import { PRICE_SCALE_DECIMALS, USDC_DECIMALS } from '@/lib/constants';
 import { isTwapRefreshableError, parseTxError, type UserFacingError } from '@/lib/txError';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { fetchTokens, updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
@@ -70,13 +70,12 @@ export function DepositModal({
   const [lastError, setLastError] = useState<UserFacingError | null>(null);
   const [errorOpen, setErrorOpen] = useState(false);
 
-  // Base-mint metadata for human-readable amounts. Symbol/decimals come from
-  // the token registry; decimals fall back to the on-chain mint account.
-  const [baseDecimals, setBaseDecimals] = useState<number | null>(null);
-  const [baseSymbol, setBaseSymbol] = useState('base');
-
   // Quote mint is always network USDC (program constant) — not stored on the
-  // vaults row.
+  // vaults row. Label as USDC immediately; registry/on-chain only refine
+  // decimals (and a custom symbol if the catalog ever renames it).
+  const [baseDecimals, setBaseDecimals] = useState<number | null>(USDC_DECIMALS);
+  const [baseSymbol, setBaseSymbol] = useState('USDC');
+
   const baseMint = NETWORK_CONSTANTS[network].usdcMint.toBase58();
 
   // Wallet's USDC balance — what the user can actually deposit.
@@ -133,7 +132,8 @@ export function DepositModal({
         if (match) {
           if (!cancelled) {
             setBaseDecimals(match.decimals);
-            setBaseSymbol(match.symbol);
+            // Keep a readable ticker even if the catalog uses a long name.
+            setBaseSymbol(match.symbol?.trim() || 'USDC');
           }
           return;
         }
@@ -142,9 +142,16 @@ export function DepositModal({
       }
       try {
         const decimals = await fetchMintDecimals(connection, new PublicKey(baseMint));
-        if (!cancelled) setBaseDecimals(decimals);
+        if (!cancelled) {
+          setBaseDecimals(decimals);
+          setBaseSymbol('USDC');
+        }
       } catch {
-        // Leave decimals null — the amount field stays disabled until known.
+        // Keep USDC_DECIMALS + "USDC" defaults — quote mint is always USDC.
+        if (!cancelled) {
+          setBaseDecimals(USDC_DECIMALS);
+          setBaseSymbol('USDC');
+        }
       }
     })();
     return () => {
@@ -199,7 +206,10 @@ export function DepositModal({
     e.preventDefault();
     if (!anchorWallet) return;
     if (baseDecimals === null) {
-      setResult({ type: 'error', text: 'Base token decimals not loaded yet — try again in a moment.' });
+      setResult({
+        type: 'error',
+        text: 'USDC decimals not loaded yet — try again in a moment.',
+      });
       return;
     }
     setLoading(true);
@@ -357,7 +367,7 @@ export function DepositModal({
               }`}
             >
               {baseDecimals === null
-                ? 'Resolving base token decimals…'
+                ? 'Resolving USDC decimals…'
                 : insufficientBalance
                   ? `Exceeds wallet balance (${usdcBalanceUi} ${baseSymbol} available)`
                   : rawUnits

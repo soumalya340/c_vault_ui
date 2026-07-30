@@ -67,6 +67,8 @@ model Vault {
   num_assets             Int
   /// Mirrors on-chain `Vault.genesis_done` — false until genesis_deposit succeeds.
   genesis_deposit_status Boolean @default(false)
+  /// True once the DAMM v2 shares×USDC customizable pool exists on-chain.
+  is_pool_created        Boolean @default(false)
 
   @@unique([network, vault_id])
   @@map("vaults")

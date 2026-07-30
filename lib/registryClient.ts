@@ -60,6 +60,8 @@ export interface VaultRecord {
   num_assets: number;
   /** Mirrors on-chain `Vault.genesis_done` — false until genesis_deposit succeeds. */
   genesis_deposit_status: boolean;
+  /** True once DAMM v2 shares×USDC customizable pool exists on-chain. */
+  is_pool_created: boolean;
   created_at?: string;
 }
 
@@ -184,10 +186,11 @@ export async function saveToken(row: {
 export async function fetchVaults(network: string): Promise<VaultRecord[]> {
   const res = await fetch(`/api/vaults?network=${encodeURIComponent(network)}`);
   const { vaults } = await jsonOrThrow<{ vaults: VaultRecord[] }>(res);
-  // Older rows / partial selects may omit the flag — treat missing as not done.
+  // Older rows / partial selects may omit flags — treat missing as not done.
   return vaults.map((v) => ({
     ...v,
     genesis_deposit_status: Boolean(v.genesis_deposit_status),
+    is_pool_created: Boolean(v.is_pool_created),
   }));
 }
 
@@ -243,7 +246,34 @@ export async function updateVaultGenesisStatus(
     }),
   });
   const { vault } = await jsonOrThrow<{ vault: VaultRecord }>(res);
-  return vault;
+  return {
+    ...vault,
+    genesis_deposit_status: Boolean(vault.genesis_deposit_status),
+    is_pool_created: Boolean(vault.is_pool_created),
+  };
+}
+
+/** Persist `is_pool_created` after DAMM v2 pool create or on-chain reconcile. */
+export async function updateVaultPoolCreated(
+  network: string,
+  vaultId: number,
+  isPoolCreated: boolean,
+): Promise<VaultRecord> {
+  const res = await fetch('/api/vaults', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      network,
+      vault_id: vaultId,
+      is_pool_created: isPoolCreated,
+    }),
+  });
+  const { vault } = await jsonOrThrow<{ vault: VaultRecord }>(res);
+  return {
+    ...vault,
+    genesis_deposit_status: Boolean(vault.genesis_deposit_status),
+    is_pool_created: Boolean(vault.is_pool_created),
+  };
 }
 
 /** Pool for a mint pair (either order) from `orca_pools` — null when absent. */

@@ -14,12 +14,17 @@ import { USDC_DECIMALS } from '@/lib/constants';
 import {
   fetchVaults,
   fetchAssetRegistry,
+  updateVaultPoolCreated,
   type VaultRecord,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
+import { resolveVaultShareUsdcPool } from '@/lib/meteora';
+import { PublicKey } from '@solana/web3.js';
 import { assetNameForMint, displayAssetName } from '@/lib/presets/canonical-data';
+import { Badge } from '@/components/ui/badge';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
+import { StakeEarnModal } from './stake-earn-modal';
 import { PendingClaimButton, formatTokenUi } from './pending-claim-button';
 import { SECTION_STYLE, VIEW_FUNCTIONS, type FunctionDef } from './function-defs';
 import { SectionBlock } from './section-block';
@@ -94,9 +99,8 @@ function MetaRow({ label, value }: { label: string; value: string }) {
  *
  * Vault rows come from the same `/api/vaults` list the Vaults tab uses (there
  * is no single-vault endpoint), filtered by `vault_id`. The basket is read
- * on-chain via fetchVaultCtx. Deposit, Redeem & Claim, and Pending claim reuse
- * the exact components the list rows use, so the transaction paths stay
- * identical across both surfaces.
+ * on-chain via fetchVaultCtx. Deposit, Stake & Earn, Redeem & Claim, and
+ * Pending claim reuse the same modal components as Portfolio where applicable.
  */
 export function VaultDetailView({
   vaultIdParam,
@@ -160,6 +164,7 @@ function VaultDetailViewInner({
   const [shareBalance, setShareBalance] = useState<string | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
+  const [stakeOpen, setStakeOpen] = useState(false);
 
   // Vault record for this id, scoped to the active network.
   useEffect(() => {
@@ -168,14 +173,33 @@ function VaultDetailViewInner({
     let cancelled = false;
 
     fetchVaults(network)
-      .then((rows) => {
+      .then(async (rows) => {
         if (cancelled) return;
-        const found = rows.find((v) => v.vault_id === vaultId);
-        setVaultState(
-          found
-            ? { status: 'ready', vault: found }
-            : { status: 'error', message: 'vault not found on this network' },
-        );
+        let found = rows.find((v) => v.vault_id === vaultId);
+        if (!found) {
+          setVaultState({
+            status: 'error',
+            message: 'vault not found on this network',
+          });
+          return;
+        }
+        // DB false → on-chain pool check once; pin true for Stake & Earn gate.
+        if (!found.is_pool_created) {
+          try {
+            const info = await resolveVaultShareUsdcPool(
+              connection,
+              new PublicKey(found.shares_mint),
+              NETWORK_CONSTANTS[network].usdcMint,
+            );
+            if (!cancelled && info.exists) {
+              found = await updateVaultPoolCreated(network, found.vault_id, true);
+            }
+          } catch {
+            // leave flag false — Stake stays hidden until pool exists
+          }
+        }
+        if (cancelled) return;
+        setVaultState({ status: 'ready', vault: found });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -188,7 +212,7 @@ function VaultDetailViewInner({
     return () => {
       cancelled = true;
     };
-  }, [vaultId, network]);
+  }, [vaultId, network, connection]);
 
   // On-chain basket — resolved atomically, same rationale as vaultState.
   useEffect(() => {
@@ -303,7 +327,7 @@ function VaultDetailViewInner({
         <>
           <div className={`${panelClass} overflow-hidden`}>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">
-              <div className="flex items-baseline gap-4">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 <span className="flex-shrink-0 font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal">
                   &#8470;&nbsp;CVLT-{vault.vault_id}
                 </span>
@@ -313,6 +337,15 @@ function VaultDetailViewInner({
                 >
                   {displayVaultName(vault.name)}
                 </span>
+                {vault.is_pool_created ? (
+                  <Badge
+                    variant="secondary"
+                    title="DAMM v2 shares×USDC pool is live — use Stake & Earn below"
+                    className="font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
+                  >
+                    Stake &amp; Earn
+                  </Badge>
+                ) : null}
               </div>
               <span className={`${sectionLabelClass} uppercase`}>
                 {vault.num_assets} asset{vault.num_assets === 1 ? '' : 's'} ·{' '}
@@ -352,6 +385,15 @@ function VaultDetailViewInner({
               >
                 Deposit
               </button>
+              {vault.is_pool_created ? (
+                <button
+                  type="button"
+                  onClick={() => setStakeOpen(true)}
+                  className={btnSecondaryClass}
+                >
+                  Stake &amp; Earn
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setRedeemOpen(true)}
@@ -450,6 +492,16 @@ function VaultDetailViewInner({
           network={network}
           onClose={() => {
             setRedeemOpen(false);
+            loadPosition();
+          }}
+        />
+      )}
+      {stakeOpen && vault && (
+        <StakeEarnModal
+          vault={vault}
+          network={network}
+          onClose={() => {
+            setStakeOpen(false);
             loadPosition();
           }}
         />
