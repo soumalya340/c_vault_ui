@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useAnchorWallet, useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
   fetchVaultCtx,
+  getTotalNavView,
   getUserPosition,
   NETWORK_CONSTANTS,
   type Network,
@@ -26,43 +27,17 @@ import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { StakeEarnModal } from './stake-earn-modal';
 import { PendingClaimButton, formatTokenUi } from './pending-claim-button';
-import { SECTION_STYLE, VIEW_FUNCTIONS, type FunctionDef } from './function-defs';
-import { SectionBlock } from './section-block';
+import { SECTION_STYLE } from './function-defs';
 import { AssetRowsSkeleton } from './loading-skeletons';
 import { SECTION_ROUTES } from './console-routes';
-import {
-  btnPrimaryClass,
-  btnSecondaryClass,
-  panelClass,
-  sectionLabelClass,
-} from './ui-classes';
+import { panelClass, sectionLabelClass } from './ui-classes';
 import { displayVaultName } from './view-display';
-
-/**
- * View plate for this vault — vault_id locked, Vault State omitted
- * (Portfolio · View vault info covers that read).
- */
-function viewFunctionsForVault(vault: VaultRecord): FunctionDef[] {
-  const fixedVault = String(vault.vault_id);
-  const vaultLabel = `№ ${vault.vault_id} · ${displayVaultName(vault.name)}`;
-  return VIEW_FUNCTIONS.filter((fn) => fn.id !== 'view_vault_state').map(
-    (fn, i) => ({
-      ...fn,
-      number: String(i + 1).padStart(2, '0'),
-      fields: fn.fields.map((field) =>
-        field.name === 'vault_id'
-          ? {
-              ...field,
-              // Submit value must stay a bare id — display shows which vault.
-              fixed: fixedVault,
-              label: 'Vault',
-              hint: vaultLabel,
-            }
-          : field,
-      ),
-    }),
-  );
-}
+import { VaultStatCard } from './vault-stat-card';
+import { VaultNavChart } from './vault-nav-chart';
+import { VaultHoldingsCard, type HoldingRow } from './vault-holdings-card';
+import { VaultContractCard } from './vault-contract-card';
+import { VaultActionPanel } from './vault-action-panel';
+import { VaultSourceTag } from './vault-source-tag';
 
 function shorten(addr: string): string {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
@@ -83,24 +58,24 @@ function resolveAssetLabel(
   );
 }
 
-function MetaRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </span>
-      <span className="font-mono text-xs tabular-nums text-foreground">{value}</span>
-    </div>
-  );
+function parseUsdLabel(label: string | null | undefined): number | null {
+  if (!label) return null;
+  const n = Number(label.replace(/[$,\s]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseUiNumber(ui: string | null | undefined): number | null {
+  if (!ui) return null;
+  const n = Number(ui.replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
  * Per-vault detail view backing /discover/{vault_id}.
  *
- * Vault rows come from the same `/api/vaults` list the Vaults tab uses (there
- * is no single-vault endpoint), filtered by `vault_id`. The basket is read
- * on-chain via fetchVaultCtx. Deposit, Stake & Earn, Redeem & Claim, and
- * Pending claim reuse the same modal components as Portfolio where applicable.
+ * Layout follows `ui/vault-page.jsx` (masthead → stat rail → chart + action
+ * column → basket / reserves / accounts) with real on-chain + registry data.
+ * Chart series is the only mock surface and is labeled as such.
  */
 export function VaultDetailView({
   vaultIdParam,
@@ -130,6 +105,7 @@ function VaultDetailViewInner({
 }) {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
+  const anchorWallet = useAnchorWallet();
   const style = SECTION_STYLE.vaults;
 
   // Route params are user-controlled strings — only a non-negative integer can
@@ -140,9 +116,6 @@ function VaultDetailViewInner({
     return Number.isSafeInteger(n) ? n : null;
   }, [vaultIdParam]);
 
-  // One atomic result per (vaultId, network) resolution — a single setState in
-  // the async callback, so no reset-then-fill cascade and no stale row leaking
-  // across a network switch.
   type VaultState =
     | { status: 'loading' }
     | { status: 'ready'; vault: VaultRecord }
@@ -165,6 +138,20 @@ function VaultDetailViewInner({
   const [depositOpen, setDepositOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [stakeOpen, setStakeOpen] = useState(false);
+
+  type NavState =
+    | { status: 'idle' }
+    | { status: 'loading' }
+    | {
+        status: 'ready';
+        sharePriceUsd: string;
+        totalNavUsd: string;
+        sharesDecimals: number;
+      }
+    | { status: 'error'; message: string };
+
+  const [navState, setNavState] = useState<NavState>({ status: 'idle' });
+  const [navRefreshing, setNavRefreshing] = useState(false);
 
   // Vault record for this id, scoped to the active network.
   useEffect(() => {
@@ -269,8 +256,6 @@ function VaultDetailViewInner({
   const loadPosition = useCallback(() => setPositionNonce((n) => n + 1), []);
 
   useEffect(() => {
-    // No wallet — the render falls back to "wallet not connected", so there's
-    // nothing to reset here.
     if (vaultId === null || !publicKey) return;
 
     let cancelled = false;
@@ -286,7 +271,42 @@ function VaultDetailViewInner({
     };
   }, [connection, vaultId, publicKey, network, positionNonce]);
 
-  // An invalid id never triggers a fetch, so surface it directly from render.
+  const loadNav = useCallback(
+    async (isRefresh = false) => {
+      if (vaultId === null) return;
+      if (isRefresh) setNavRefreshing(true);
+      else setNavState({ status: 'loading' });
+      try {
+        const nav = await getTotalNavView(
+          connection,
+          vaultId,
+          network,
+          anchorWallet ?? null,
+        );
+        setNavState({
+          status: 'ready',
+          sharePriceUsd: nav.sharePriceUsd,
+          totalNavUsd: nav.totalNavUsd,
+          sharesDecimals: nav.sharesDecimals,
+        });
+      } catch (err) {
+        setNavState({
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setNavRefreshing(false);
+      }
+    },
+    [connection, vaultId, network, anchorWallet],
+  );
+
+  // Live NAV once per mount (and when wallet becomes available for ATA simulation).
+  useEffect(() => {
+    if (vaultId === null || !vault) return;
+    void loadNav(false);
+  }, [vaultId, vault, loadNav]);
+
   const loading = vaultId !== null && vaultState.status === 'loading';
   const error =
     vaultId === null
@@ -299,18 +319,84 @@ function VaultDetailViewInner({
   const assetsError = assetsState.status === 'error' ? assetsState.message : null;
   const assets = assetsState.status === 'ready' ? assetsState.assets : null;
 
+  const sharePriceNum =
+    navState.status === 'ready' ? parseUsdLabel(navState.sharePriceUsd) : null;
+  const sharesDecimals =
+    navState.status === 'ready' ? navState.sharesDecimals : USDC_DECIMALS;
+
+  const yourSharesUi =
+    publicKey && shareBalance != null
+      ? formatTokenUi(shareBalance, sharesDecimals)
+      : null;
+  const yourSharesNum = parseUiNumber(yourSharesUi);
+  const yourValueNum =
+    yourSharesNum != null && sharePriceNum != null
+      ? yourSharesNum * sharePriceNum
+      : null;
+
+  const holdingRows: HoldingRow[] = useMemo(() => {
+    if (!assets) return [];
+    return assets.map((asset, i) => {
+      const mint = asset.mint.toBase58();
+      return {
+        key: `${mint}-${i}`,
+        symbol: resolveAssetLabel(mint, asset.assetId, byMint, byId),
+        mint,
+        targetPct: asset.allocationBps / 100,
+        vaultAssetAtaKey: asset.vaultAssetAtaKey,
+        decimals: asset.decimals,
+      };
+    });
+  }, [assets, byMint, byId]);
+
+  const baseMint = NETWORK_CONSTANTS[network].usdcMint.toBase58();
+
   return (
-    <section aria-label="Vault detail" className="flex flex-col gap-4">
-      <Link
-        href={SECTION_ROUTES.vaults}
-        className="inline-flex w-fit items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        ← Discover
-      </Link>
+    <section aria-label="Vault detail" className="flex flex-col gap-5">
+      {/* ---------- crumb ---------- */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href={SECTION_ROUTES.vaults}
+          className="inline-flex w-fit items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:text-seal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          ← Discover
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          {vault ? (
+            <PendingClaimButton
+              vault={vault}
+              network={network}
+              onClaimed={loadPosition}
+            />
+          ) : null}
+          <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                navState.status === 'ready'
+                  ? 'bg-accent'
+                  : navState.status === 'loading'
+                    ? 'bg-muted-foreground animate-pulse'
+                    : 'bg-muted-foreground'
+              }`}
+            />
+            <span>
+              {navState.status === 'ready'
+                ? 'NAV loaded · on-chain view'
+                : navState.status === 'loading'
+                  ? 'reading NAV…'
+                  : navState.status === 'error'
+                    ? 'NAV unavailable'
+                    : 'NAV idle'}
+            </span>
+          </div>
+        </div>
+      </div>
 
       {loading && (
         <div className={`${panelClass} px-5 py-6 md:px-6`}>
-          <span className="font-mono text-xs text-muted-foreground">loading vault…</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            loading vault…
+          </span>
         </div>
       )}
 
@@ -325,153 +411,195 @@ function VaultDetailViewInner({
 
       {!loading && !error && vault && (
         <>
-          <div className={`${panelClass} overflow-hidden`}>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <span className="flex-shrink-0 font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal">
-                  &#8470;&nbsp;CVLT-{vault.vault_id}
-                </span>
-                <span
-                  className="font-display text-base font-semibold tracking-[0.04em] text-foreground"
-                  style={{ color: style.accent }}
+          {/* ---------- masthead ---------- */}
+          <header className="border-t border-border-strong pt-4">
+            <div className="flex flex-wrap items-baseline gap-x-3.5 gap-y-2">
+              <span className="font-mono text-[13px] tracking-[0.12em] text-seal">
+                № CVLT-{vault.vault_id}
+              </span>
+              <h1
+                className="font-display text-[clamp(2.25rem,5vw,4rem)] font-bold leading-[0.9] tracking-[-0.01em] text-foreground"
+                style={{ color: style.accent }}
+              >
+                {displayVaultName(vault.name)}
+              </h1>
+              {vault.is_pool_created ? (
+                <Badge
+                  variant="secondary"
+                  title="DAMM v2 shares×USDC pool is live — use Stake below"
+                  className="border border-border-strong bg-foreground/[0.06] font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
                 >
-                  {displayVaultName(vault.name)}
-                </span>
-                {vault.is_pool_created ? (
-                  <Badge
-                    variant="secondary"
-                    title="DAMM v2 shares×USDC pool is live — use Stake & Earn below"
-                    className="font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
-                  >
-                    Stake &amp; Earn
-                  </Badge>
-                ) : null}
-              </div>
-              <span className={`${sectionLabelClass} uppercase`}>
+                  Stake &amp; earn
+                </Badge>
+              ) : null}
+              <span
+                className={`${sectionLabelClass} border border-border px-2 py-1 uppercase`}
+              >
                 {vault.num_assets} asset{vault.num_assets === 1 ? '' : 's'} ·{' '}
                 {vault.fund_type}
               </span>
             </div>
+            <p className="mt-3.5 max-w-[56ch] text-base leading-relaxed text-foreground/75">
+              On-chain ETF vault. Deposit USDC to mint shares, redeem whenever you
+              want capital back. Basket weights are configured on-chain; NAV is
+              read live from the program view.
+            </p>
+          </header>
 
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4 px-5 py-5 md:grid-cols-4 md:px-6">
-              <MetaRow label="Vault" value={shorten(vault.vault_address)} />
-              <MetaRow
-                label="Base"
-                value={shorten(NETWORK_CONSTANTS[network].usdcMint.toBase58())}
-              />
-              <MetaRow label="Shares mint" value={shorten(vault.shares_mint)} />
-              <MetaRow
-                label="Your shares"
-                value={
-                  !publicKey
-                    ? 'wallet not connected'
-                    : shareBalance === null
-                      ? '—'
-                      : formatTokenUi(shareBalance, USDC_DECIMALS)
-                }
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 border-t border-border-strong px-5 py-4 md:px-6">
-              <PendingClaimButton
-                vault={vault}
-                network={network}
-                onClaimed={loadPosition}
-              />
-              <button
-                type="button"
-                onClick={() => setDepositOpen(true)}
-                className={btnSecondaryClass}
-              >
-                Deposit
-              </button>
-              {vault.is_pool_created ? (
+          {/* ---------- stat rail ---------- */}
+          <div
+            className={`${panelClass} grid grid-cols-1 overflow-hidden sm:grid-cols-2 lg:grid-cols-3`}
+          >
+            <VaultStatCard
+              label="Share price"
+              value={
+                navState.status === 'loading'
+                  ? '…'
+                  : navState.status === 'ready'
+                    ? navState.sharePriceUsd
+                    : '—'
+              }
+              sub={
+                navState.status === 'error' ? navState.message : undefined
+              }
+              source="rpc"
+              trailing={
                 <button
                   type="button"
-                  onClick={() => setStakeOpen(true)}
-                  className={btnSecondaryClass}
+                  onClick={() => void loadNav(true)}
+                  disabled={navRefreshing || navState.status === 'loading'}
+                  aria-label="Refresh share price"
+                  className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-accent disabled:opacity-40"
                 >
-                  Stake &amp; Earn
+                  {navRefreshing ? '…' : '↻'}
                 </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setRedeemOpen(true)}
-                className={btnPrimaryClass}
-                style={{
-                  borderColor: SECTION_STYLE['vault-ops'].accent,
-                  background: SECTION_STYLE['vault-ops'].accent,
-                }}
-              >
-                Redeem &amp; Claim
-              </button>
-            </div>
+              }
+            />
+            <VaultStatCard
+              label="TVL"
+              value={
+                navState.status === 'loading'
+                  ? '…'
+                  : navState.status === 'ready'
+                    ? navState.totalNavUsd
+                    : '—'
+              }
+              sub="total NAV · on-chain view"
+              source="rpc"
+              trailing={
+                <button
+                  type="button"
+                  onClick={() => void loadNav(true)}
+                  disabled={navRefreshing || navState.status === 'loading'}
+                  aria-label="Refresh TVL"
+                  className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-accent disabled:opacity-40"
+                >
+                  {navRefreshing ? '…' : '↻'}
+                </button>
+              }
+            />
+            <VaultStatCard
+              label="Your position"
+              value={
+                !publicKey
+                  ? '—'
+                  : yourValueNum != null
+                    ? `$${yourValueNum.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })}`
+                    : shareBalance === null
+                      ? '…'
+                      : '$0.00'
+              }
+              sub={
+                !publicKey
+                  ? 'wallet not connected'
+                  : yourSharesUi != null
+                    ? `${yourSharesUi} shares`
+                    : 'no shares'
+              }
+              source="rpc"
+            />
           </div>
 
-          {/* Read ops minus Vault State (that lives on Portfolio · View vault info). */}
-          <SectionBlock
-            id="view"
-            label="Read operations"
-            functions={viewFunctionsForVault(vault)}
-            network={network}
-          />
+          {/* ---------- main grid ---------- */}
+          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_348px]">
+            <div className="flex min-w-0 flex-col gap-5">
+              <VaultNavChart sharePriceUsd={sharePriceNum} />
 
-          <div className={`${panelClass} overflow-hidden`}>
-            <div className="border-b border-border-strong px-5 py-3 md:px-6">
-              <span className={`${sectionLabelClass} uppercase`}>Basket on-chain</span>
+              {assetsLoading && (
+                <div className={`${panelClass} overflow-hidden`}>
+                  <div className="border-b border-border-strong px-4 py-2.5 md:px-5">
+                    <span className="font-display text-[17px] font-bold tracking-[0.04em]">
+                      Basket
+                    </span>
+                  </div>
+                  <AssetRowsSkeleton rows={3} />
+                </div>
+              )}
+
+              {!assetsLoading && assetsError && (
+                <div className={`${panelClass} px-4 py-5 md:px-5`}>
+                  <p className="font-mono text-xs text-destructive">
+                    <span className="mr-2 text-muted-foreground/50">&gt;</span>
+                    assets unavailable — {assetsError}
+                  </p>
+                </div>
+              )}
+
+              {!assetsLoading && !assetsError && (
+                <VaultHoldingsCard
+                  rows={holdingRows}
+                  connection={connection}
+                />
+              )}
+
+              <VaultContractCard
+                vaultAddress={vault.vault_address}
+                baseMint={baseMint}
+                sharesMint={vault.shares_mint}
+                network={network}
+              />
             </div>
 
-            {assetsLoading && <AssetRowsSkeleton rows={3} />}
-
-            {!assetsLoading && assetsError && (
-              <p className="px-5 py-5 font-mono text-xs text-destructive md:px-6">
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                assets unavailable — {assetsError}
-              </p>
-            )}
-
-            {!assetsLoading && !assetsError && assets && assets.length === 0 && (
-              <p className="px-5 py-5 font-mono text-xs text-muted-foreground md:px-6">
-                <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                no assets on-chain
-              </p>
-            )}
-
-            {!assetsLoading && !assetsError && assets && assets.length > 0 && (
-              <ul className="divide-y divide-border">
-                {assets.map((asset, i) => {
-                  const mint = asset.mint.toBase58();
-                  const title = resolveAssetLabel(
-                    mint,
-                    asset.assetId,
-                    byMint,
-                    byId,
-                  );
-                  const pct = (asset.allocationBps / 100).toFixed(2);
-                  return (
-                    <li key={`${mint}-${i}`} className="flex flex-col gap-2 px-5 py-3.5 md:px-6">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
-                          {title}
-                        </span>
-                        <span className="font-mono text-xs tabular-nums text-foreground">
-                          {pct}%
-                        </span>
-                      </div>
-                      <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
-                        <div
-                          className="h-full rounded-full bg-accent"
-                          style={{ width: `${Math.min(asset.allocationBps / 100, 100)}%` }}
-                        />
-                      </div>
-                      <span className="font-mono text-[11px] text-muted-foreground/70">
-                        mint {shorten(mint)}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+            {/* ---------- sticky action column ---------- */}
+            <aside className="flex flex-col gap-3.5 xl:sticky xl:top-4">
+              <VaultActionPanel
+                sharePriceLabel={
+                  navState.status === 'ready' ? navState.sharePriceUsd : '—'
+                }
+                entryFeeBps={vault.deposit_fee_bps}
+                exitFeeBps={vault.redeem_fee_bps}
+                stakeable={vault.is_pool_created}
+                walletConnected={!!publicKey}
+                onDeposit={() => setDepositOpen(true)}
+                onRedeem={() => setRedeemOpen(true)}
+                onStake={() => setStakeOpen(true)}
+              />
+              <div className="border border-border px-3.5 py-3">
+                <div className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Where the numbers come from
+                </div>
+                <div className="mb-1.5 flex items-start gap-2 text-[11.5px] leading-snug text-foreground/75">
+                  <VaultSourceTag kind="rpc" />
+                  <span>
+                    Share price, TVL, and position are on-chain reads.
+                  </span>
+                </div>
+                <div className="mb-1.5 flex items-start gap-2 text-[11.5px] leading-snug text-foreground/75">
+                  <VaultSourceTag kind="db" />
+                  <span>Fees and vault metadata come from the vaults registry.</span>
+                </div>
+                <div className="flex items-start gap-2 text-[11.5px] leading-snug text-foreground/75">
+                  <VaultSourceTag kind="mock" />
+                  <span>
+                    NAV history chart is illustrative until a history table
+                    exists.
+                  </span>
+                </div>
+              </div>
+            </aside>
           </div>
         </>
       )}
@@ -483,6 +611,7 @@ function VaultDetailViewInner({
           onClose={() => {
             setDepositOpen(false);
             loadPosition();
+            void loadNav(true);
           }}
         />
       )}
@@ -493,6 +622,7 @@ function VaultDetailViewInner({
           onClose={() => {
             setRedeemOpen(false);
             loadPosition();
+            void loadNav(true);
           }}
         />
       )}
