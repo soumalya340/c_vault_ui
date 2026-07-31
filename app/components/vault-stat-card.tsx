@@ -12,7 +12,8 @@ export function VaultStatCard({
 }: {
   label: string;
   value: string;
-  sub?: string;
+  /** Plain text renders in the muted caption style; a node renders as-is. */
+  sub?: ReactNode;
   source: 'rpc' | 'mock' | 'db';
   tone?: 'up' | 'dn';
   pulse?: boolean;
@@ -44,11 +45,13 @@ export function VaultStatCard({
       >
         {value}
       </div>
-      {sub ? (
+      {typeof sub === 'string' ? (
         <div className="mt-2 font-mono text-[10px] tracking-[0.04em] text-muted-foreground">
           {sub}
         </div>
-      ) : null}
+      ) : (
+        (sub ?? null)
+      )}
     </div>
   );
 }

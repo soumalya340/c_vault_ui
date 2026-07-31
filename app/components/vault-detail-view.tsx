@@ -31,8 +31,9 @@ import { SECTION_STYLE } from './function-defs';
 import { AssetRowsSkeleton } from './loading-skeletons';
 import { SECTION_ROUTES } from './console-routes';
 import { panelClass, sectionLabelClass } from './ui-classes';
-import { displayVaultName } from './view-display';
+import { displayVaultName, withCommas } from './view-display';
 import { VaultStatCard } from './vault-stat-card';
+import { VaultLivePulse } from './vault-live-pulse';
 import { VaultNavChart } from './vault-nav-chart';
 import { VaultHoldingsCard, type HoldingRow } from './vault-holdings-card';
 import { VaultContractCard } from './vault-contract-card';
@@ -147,6 +148,7 @@ function VaultDetailViewInner({
         status: 'ready';
         sharePriceUsd: string;
         totalNavUsd: string;
+        totalSharesUi: string;
         sharesDecimals: number;
       }
     | { status: 'error'; message: string };
@@ -291,6 +293,7 @@ function VaultDetailViewInner({
           status: 'ready',
           sharePriceUsd: nav.sharePriceUsd,
           totalNavUsd: nav.totalNavUsd,
+          totalSharesUi: nav.totalSharesUi,
           sharesDecimals: nav.sharesDecimals,
         });
       } catch (err) {
@@ -330,6 +333,10 @@ function VaultDetailViewInner({
   const displayTotalNavUsd =
     livePrice?.totalNavUsd ??
     (navState.status === 'ready' ? navState.totalNavUsd : null);
+  // `Vault.total_shares` — outstanding supply the TVL is spread across.
+  const displayTotalSharesUi =
+    livePrice?.totalSharesUi ??
+    (navState.status === 'ready' ? navState.totalSharesUi : null);
   const sharePriceNum = parseUsdLabel(displaySharePriceUsd);
   const sharesDecimals =
     navState.status === 'ready' ? navState.sharesDecimals : USDC_DECIMALS;
@@ -384,9 +391,9 @@ function VaultDetailViewInner({
           <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                liveStatus === 'live' && livePrice && !livePrice.stale
+                livePrice
                   ? 'bg-accent'
-                  : liveStatus === 'reconnecting' || liveStatus === 'connecting'
+                  : liveStatus === 'connecting'
                     ? 'bg-muted-foreground animate-pulse'
                     : navState.status === 'ready'
                       ? 'bg-accent'
@@ -396,11 +403,13 @@ function VaultDetailViewInner({
               }`}
             />
             <span>
-              {showLiveStale
-                ? 'reconnecting…'
-                : liveStatus === 'live' && livePrice
-                  ? 'NAV live · stream'
-                  : navState.status === 'ready'
+              {/* A dropped socket is routine (Vercel closes function
+                  WebSockets at max duration) — once a price has landed the
+                  card keeps reading live, and staleness is signalled on the
+                  number itself rather than as an alarm up here. */}
+              {livePrice
+                ? 'NAV live · stream'
+                : navState.status === 'ready'
                     ? 'NAV loaded · on-chain view'
                     : navState.status === 'loading'
                       ? 'reading NAV…'
@@ -482,13 +491,15 @@ function VaultDetailViewInner({
                     : '—'
               }
               sub={
-                showLiveStale
-                  ? 'reconnecting… · last good price'
-                  : navState.status === 'error' && !livePrice
-                    ? navState.message
-                    : livePrice
-                      ? 'live stream'
-                      : undefined
+                navState.status === 'error' && !livePrice ? (
+                  navState.message
+                ) : livePrice && showLiveStale ? (
+                  <VaultLivePulse state="stale" />
+                ) : liveStatus === 'live' && livePrice ? (
+                  <VaultLivePulse state="live" slot={livePrice.slot} />
+                ) : navState.status === 'ready' ? (
+                  <VaultLivePulse state="static" />
+                ) : undefined
               }
               source="rpc"
               trailing={
@@ -513,9 +524,9 @@ function VaultDetailViewInner({
                     : '—'
               }
               sub={
-                showLiveStale
-                  ? 'reconnecting… · last good price'
-                  : 'total NAV · on-chain view'
+                displayTotalSharesUi
+                  ? `${withCommas(displayTotalSharesUi)} shares outstanding`
+                  : undefined
               }
               source="rpc"
               trailing={

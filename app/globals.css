@@ -319,6 +319,33 @@ body {
   }
 }
 
+/* ── Live NAV pulse ──────────────────────────────────────────────────────────
+   The share price is re-derived from chain state every slot. Rather than a
+   badge asserting "live", a hairline sweeps the width of the readout — the
+   ticker-tape idiom from the masthead, scaled down to a single number. */
+@keyframes nav-pulse-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+/* Dot breathes on the same 2.4s cycle as the sweep, so the two read as one
+   instrument rather than two competing animations. */
+@keyframes nav-pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
 @keyframes slidein {
   from {
     opacity: 0;
