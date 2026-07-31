@@ -36,6 +36,7 @@ import {
   groupDecimal,
   settlementRate,
 } from './settlement-receipt';
+import { TransactionPhases } from './transaction-phases';
 import { Spinner } from '@/components/ui/spinner';
 
 // Two separate actions so a failure in one phase (e.g. an outflow swap leg)
@@ -76,6 +77,8 @@ export function RedeemModal({
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<string[]>([]);
+  /** Which button triggered the in-flight transaction — picks the phase list. */
+  const [activeFlow, setActiveFlow] = useState<'redeem' | 'claim'>('redeem');
   const [result, setResult] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -251,6 +254,7 @@ export function RedeemModal({
   const handleRedeemSwap = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!anchorWallet) return;
+    setActiveFlow('redeem');
     setLoading(true);
     setResult(null);
     setSteps([]);
@@ -330,6 +334,7 @@ export function RedeemModal({
 
   const handleClaim = async () => {
     if (!anchorWallet) return;
+    setActiveFlow('claim');
     setLoading(true);
     setResult(null);
     setSteps([]);
@@ -633,17 +638,8 @@ export function RedeemModal({
             </div>
           </form>
 
-          {steps.length > 0 && (
-            <div className="max-h-48 space-y-1 overflow-y-auto overscroll-contain rounded-[2px] border border-border bg-foreground/[0.02] px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
-              {steps.map((step, i) => (
-                <p key={i}>
-                  <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                  {step}
-                </p>
-              ))}
-              <div ref={stepsEndRef} aria-hidden />
-            </div>
-          )}
+          <TransactionPhases flow={activeFlow} steps={steps} active={loading} />
+          <div ref={stepsEndRef} aria-hidden />
         </div>
         )}
       </div>

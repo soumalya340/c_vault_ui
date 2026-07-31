@@ -34,6 +34,7 @@ import {
 import { useModalTransition } from './use-modal-transition';
 import { displayVaultName } from './view-display';
 import { SettlementReceipt, groupDecimal, settlementRate } from './settlement-receipt';
+import { TransactionPhases } from './transaction-phases';
 import { Spinner } from '@/components/ui/spinner';
 
 /** Human-readable token amount with thousands separators; exact string math. */
@@ -525,16 +526,7 @@ export function DepositModal({
             )}
           </button>
 
-          {steps.length > 0 && (
-            <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
-              {steps.map((step, i) => (
-                <p key={i}>
-                  <span className="mr-2 text-muted-foreground/50">&gt;</span>
-                  {step}
-                </p>
-              ))}
-            </div>
-          )}
+          <TransactionPhases flow="deposit" steps={steps} active={loading} />
 
           {result && (
             <div className={outputPanelClass}>
