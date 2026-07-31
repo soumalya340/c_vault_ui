@@ -421,7 +421,7 @@ export async function getAssetState(
   };
 }
 
-type AccountMeta = { pubkey: PublicKey; isSigner: boolean; isWritable: boolean };
+export type AccountMeta = { pubkey: PublicKey; isSigner: boolean; isWritable: boolean };
 
 function readonlyMetas(keys: PublicKey[]): AccountMeta[] {
   return keys.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false }));
@@ -2931,24 +2931,43 @@ async function emptyVaultNavView(
   };
 }
 
+/** Pre-resolved inputs for the NAV view — resolve once, simulate many times. */
+export interface NavViewCtx {
+  ctx: VaultChainCtx;
+  remaining: AccountMeta[];
+  preIxs: TransactionInstruction[];
+}
+
 /**
- * Live NAV view — raw on-chain units plus human-readable USD / share strings.
- * Mirrors `c_vault_script/lib/sdk/views.js` `getTotalNavView` formatting so the
- * UI does not dump opaque raw integers (or empty) in the OUTPUT panel.
- *
- * Pass `wallet` when available: missing vault ATAs are simulated as
- * preInstructions. Views use on-chain spot pricing (`use_spot`) — stale
- * TWAP does not block this call (deposit/redeem still require TWAP).
+ * Resolve everything `get_total_nav_view` needs except the simulation itself.
+ * Costs several RPC round-trips (vault fetch, per-Whirlpool `fetchPoolCtx`,
+ * missing-ATA probe), so realtime callers should do this once per vault and
+ * reuse the result until the vault account changes.
  */
-export async function getTotalNavView(
+export async function resolveNavViewCtx(
   connection: Connection,
   vaultId: number = DEFAULT_VAULT_ID,
   network: Network = 'mainnet',
   wallet?: AnchorWallet | null,
-): Promise<NavView> {
-  const program = createProgram(wallet ?? createDummyWallet(), connection);
+): Promise<NavViewCtx> {
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
+  const remaining = await navRemainingAccounts(connection, ctx);
+  return { ctx, remaining, preIxs };
+}
+
+/**
+ * Run the NAV view against an already-resolved context. Identical output to
+ * {@link getTotalNavView}; the only difference is who pays for resolution.
+ */
+export async function getTotalNavViewWithCtx(
+  connection: Connection,
+  resolved: NavViewCtx,
+  vaultId: number = DEFAULT_VAULT_ID,
+  wallet?: AnchorWallet | null,
+): Promise<NavView> {
+  const { ctx, remaining, preIxs } = resolved;
+  const program = createProgram(wallet ?? createDummyWallet(), connection);
 
   let raw: Record<string, unknown>;
   try {
@@ -2959,7 +2978,7 @@ export async function getTotalNavView(
         vault: ctx.vaultPda,
         vaultAuthority: ctx.vaultAuthority,
       } as never)
-      .remainingAccounts(await navRemainingAccounts(connection, ctx))
+      .remainingAccounts(remaining)
       .preInstructions(preIxs)
       .view();
   } catch (err) {
@@ -2989,7 +3008,6 @@ export async function getTotalNavView(
   const totalNav = viewNavAmountToString(raw);
   const sharePrice = viewFieldToString(raw, 'sharePrice', 'share_price');
   const totalShares = viewFieldToString(raw, 'totalShares', 'total_shares');
-
   const sharesDecimals = await fetchSharesDecimals(connection, ctx);
 
   // totalNav = 6-dec USDC; sharePrice = USDC/share with PRICE_SCALE (1e9);
@@ -3004,6 +3022,25 @@ export async function getTotalNavView(
     totalShares,
     sharesDecimals,
   };
+}
+
+/**
+ * Live NAV view — raw on-chain units plus human-readable USD / share strings.
+ * Mirrors `c_vault_script/lib/sdk/views.js` `getTotalNavView` formatting so the
+ * UI does not dump opaque raw integers (or empty) in the OUTPUT panel.
+ *
+ * Pass `wallet` when available: missing vault ATAs are simulated as
+ * preInstructions. Views use on-chain spot pricing (`use_spot`) — stale
+ * TWAP does not block this call (deposit/redeem still require TWAP).
+ */
+export async function getTotalNavView(
+  connection: Connection,
+  vaultId: number = DEFAULT_VAULT_ID,
+  network: Network = 'mainnet',
+  wallet?: AnchorWallet | null,
+): Promise<NavView> {
+  const resolved = await resolveNavViewCtx(connection, vaultId, network, wallet);
+  return getTotalNavViewWithCtx(connection, resolved, vaultId, wallet);
 }
 
 /**

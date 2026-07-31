@@ -38,6 +38,7 @@ import { VaultHoldingsCard, type HoldingRow } from './vault-holdings-card';
 import { VaultContractCard } from './vault-contract-card';
 import { VaultActionPanel } from './vault-action-panel';
 import { VaultSourceTag } from './vault-source-tag';
+import { useVaultPrice } from '@/hooks/use-vault-price';
 
 function shorten(addr: string): string {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
@@ -152,6 +153,9 @@ function VaultDetailViewInner({
 
   const [navState, setNavState] = useState<NavState>({ status: 'idle' });
   const [navRefreshing, setNavRefreshing] = useState(false);
+  // Live WS price layered on the one-off getTotalNavView paint (initial fetch
+  // still works without a WS connection / when next dev can't upgrade sockets).
+  const { price: livePrice, status: liveStatus } = useVaultPrice(vaultId);
 
   // Vault record for this id, scoped to the active network.
   useEffect(() => {
@@ -319,10 +323,18 @@ function VaultDetailViewInner({
   const assetsError = assetsState.status === 'error' ? assetsState.message : null;
   const assets = assetsState.status === 'ready' ? assetsState.assets : null;
 
-  const sharePriceNum =
-    navState.status === 'ready' ? parseUsdLabel(navState.sharePriceUsd) : null;
+  // Prefer the live stream when available; fall back to the one-off fetch.
+  const displaySharePriceUsd =
+    livePrice?.sharePriceUsd ??
+    (navState.status === 'ready' ? navState.sharePriceUsd : null);
+  const displayTotalNavUsd =
+    livePrice?.totalNavUsd ??
+    (navState.status === 'ready' ? navState.totalNavUsd : null);
+  const sharePriceNum = parseUsdLabel(displaySharePriceUsd);
   const sharesDecimals =
     navState.status === 'ready' ? navState.sharesDecimals : USDC_DECIMALS;
+  const showLiveStale =
+    livePrice?.stale === true || liveStatus === 'reconnecting';
 
   const yourSharesUi =
     publicKey && shareBalance != null
@@ -372,21 +384,31 @@ function VaultDetailViewInner({
           <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                navState.status === 'ready'
+                liveStatus === 'live' && livePrice && !livePrice.stale
                   ? 'bg-accent'
-                  : navState.status === 'loading'
+                  : liveStatus === 'reconnecting' || liveStatus === 'connecting'
                     ? 'bg-muted-foreground animate-pulse'
-                    : 'bg-muted-foreground'
+                    : navState.status === 'ready'
+                      ? 'bg-accent'
+                      : navState.status === 'loading'
+                        ? 'bg-muted-foreground animate-pulse'
+                        : 'bg-muted-foreground'
               }`}
             />
             <span>
-              {navState.status === 'ready'
-                ? 'NAV loaded · on-chain view'
-                : navState.status === 'loading'
-                  ? 'reading NAV…'
-                  : navState.status === 'error'
-                    ? 'NAV unavailable'
-                    : 'NAV idle'}
+              {showLiveStale
+                ? 'reconnecting…'
+                : liveStatus === 'live' && livePrice
+                  ? 'NAV live · stream'
+                  : navState.status === 'ready'
+                    ? 'NAV loaded · on-chain view'
+                    : navState.status === 'loading'
+                      ? 'reading NAV…'
+                      : navState.status === 'error'
+                        ? 'NAV unavailable'
+                        : liveStatus === 'connecting'
+                          ? 'connecting price stream…'
+                          : 'NAV idle'}
             </span>
           </div>
         </div>
@@ -453,14 +475,20 @@ function VaultDetailViewInner({
             <VaultStatCard
               label="Share price"
               value={
-                navState.status === 'loading'
-                  ? '…'
-                  : navState.status === 'ready'
-                    ? navState.sharePriceUsd
+                displaySharePriceUsd
+                  ? displaySharePriceUsd
+                  : navState.status === 'loading' || liveStatus === 'connecting'
+                    ? '…'
                     : '—'
               }
               sub={
-                navState.status === 'error' ? navState.message : undefined
+                showLiveStale
+                  ? 'reconnecting… · last good price'
+                  : navState.status === 'error' && !livePrice
+                    ? navState.message
+                    : livePrice
+                      ? 'live stream'
+                      : undefined
               }
               source="rpc"
               trailing={
@@ -478,13 +506,17 @@ function VaultDetailViewInner({
             <VaultStatCard
               label="TVL"
               value={
-                navState.status === 'loading'
-                  ? '…'
-                  : navState.status === 'ready'
-                    ? navState.totalNavUsd
+                displayTotalNavUsd
+                  ? displayTotalNavUsd
+                  : navState.status === 'loading' || liveStatus === 'connecting'
+                    ? '…'
                     : '—'
               }
-              sub="total NAV · on-chain view"
+              sub={
+                showLiveStale
+                  ? 'reconnecting… · last good price'
+                  : 'total NAV · on-chain view'
+              }
               source="rpc"
               trailing={
                 <button
@@ -567,7 +599,7 @@ function VaultDetailViewInner({
             <aside className="flex flex-col gap-3.5 xl:sticky xl:top-4">
               <VaultActionPanel
                 sharePriceLabel={
-                  navState.status === 'ready' ? navState.sharePriceUsd : '—'
+                  displaySharePriceUsd ?? '—'
                 }
                 entryFeeBps={vault.deposit_fee_bps}
                 exitFeeBps={vault.redeem_fee_bps}
