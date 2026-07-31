@@ -2842,18 +2842,19 @@ export interface NavView {
   note?: string;
 }
 
-/** Read a field from an Anchor `.view()` result under camelCase or snake_case. */
-function viewField(result: Record<string, unknown>, camel: string, snake: string): unknown {
-  if (result[camel] != null) return result[camel];
-  if (result[snake] != null) return result[snake];
+/** Read a field from an Anchor `.view()` result under any of the given key aliases. */
+function viewField(result: Record<string, unknown>, ...keys: string[]): unknown {
+  for (const key of keys) {
+    if (result[key] != null) return result[key];
+  }
   return undefined;
 }
 
-function viewFieldToString(result: Record<string, unknown>, camel: string, snake: string): string {
-  const v = viewField(result, camel, snake);
+function viewFieldToString(result: Record<string, unknown>, ...keys: string[]): string {
+  const v = viewField(result, ...keys);
   if (v == null) {
     throw new Error(
-      `NAV view missing field ${camel}/${snake}. Got: ${JSON.stringify(result, (_k, val) =>
+      `NAV view missing field ${keys.join('/')}. Got: ${JSON.stringify(result, (_k, val) =>
         typeof val === 'bigint' ? val.toString() : val,
       )}`,
     );
@@ -2863,6 +2864,16 @@ function viewFieldToString(result: Record<string, unknown>, camel: string, snake
     return (v as { toString: () => string }).toString();
   }
   return String(v);
+}
+
+/**
+ * Portfolio value field aliases across view return types:
+ * - NavViewResult: `tvl`
+ * - PreviewDepositResult: `total_nav` / `totalNav`
+ * Older builds / mixed IDLs may use either.
+ */
+function viewNavAmountToString(result: Record<string, unknown>): string {
+  return viewFieldToString(result, 'totalNav', 'total_nav', 'tvl');
 }
 
 /** Shares-mint decimals (Token-2022); falls back to 6 when unreadable. */
@@ -2975,7 +2986,7 @@ export async function getTotalNavView(
     );
   }
 
-  const totalNav = viewFieldToString(raw, 'tvl', 'tvl');
+  const totalNav = viewNavAmountToString(raw);
   const sharePrice = viewFieldToString(raw, 'sharePrice', 'share_price');
   const totalShares = viewFieldToString(raw, 'totalShares', 'total_shares');
 
@@ -3150,7 +3161,7 @@ export async function previewDeposit(
 
   return {
     sharesToMint: viewFieldToString(result, 'sharesToMint', 'shares_to_mint'),
-    totalNav: viewFieldToString(result, 'tvl', 'tvl'),
+    totalNav: viewNavAmountToString(result),
     sharePrice: viewFieldToString(result, 'sharePrice', 'share_price'),
     totalShares: viewFieldToString(result, 'totalShares', 'total_shares'),
   };
