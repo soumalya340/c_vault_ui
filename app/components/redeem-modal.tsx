@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BN } from '@coral-xyz/anchor';
 import { getMint, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
@@ -84,6 +84,10 @@ export function RedeemModal({
   const [shareBalance, setShareBalance] = useState<string>('0');
   const [sharesDecimals, setSharesDecimals] = useState<number | null>(null);
   const [checkingPosition, setCheckingPosition] = useState(false);
+  /** Scroll container + anchors so long redeem logs don't hide OUTPUT. */
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
+  const stepsEndRef = useRef<HTMLDivElement>(null);
 
   // Shares mint decimals (authoritative from Token-2022 mint). Needed to show
   // balance / burn amounts in human units instead of raw base units.
@@ -134,6 +138,21 @@ export function RedeemModal({
     refreshPosition();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicKey]);
+
+  // Multi-leg redeem logs fill the viewport; keep the latest step in view while
+  // loading, then jump to OUTPUT when redeem/claim finishes.
+  useEffect(() => {
+    if (result) {
+      // Bring OUTPUT to the top of the scroll body so success/error is never
+      // buried under dozens of "Sending ALT transaction…" lines.
+      bodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+    if (loading && steps.length > 0) {
+      stepsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [result, steps, loading]);
 
   const shareBalanceUi =
     sharesDecimals !== null ? formatTokenUi(shareBalance, sharesDecimals) : null;
@@ -196,6 +215,7 @@ export function RedeemModal({
       if (shares.trim()) {
         sharesBn = parseSharesInput();
       }
+      // Burn + all outflow legs + claim in one wallet approval (signAllTransactions).
       const r = await redeemSwap(
         connection,
         anchorWallet,
@@ -204,6 +224,7 @@ export function RedeemModal({
         vault.alt_address,
         network,
         (message) => setSteps((prev) => [...prev, message]),
+        { includeClaim: true },
       );
       let altNote = '';
       if (
@@ -224,18 +245,13 @@ export function RedeemModal({
             `${err instanceof Error ? err.message : String(err)}`;
         }
       }
-      // Outflow done (pending_usdc > 0 on-chain). Claim immediately so USDC
-      // actually lands in the wallet — the greyed Claim button was easy to
-      // miss / stay disabled when refresh lagged.
-      setSteps((prev) => [...prev, 'Claiming USDC payout…']);
-      const claimResult = await claim(connection, anchorWallet, vault.vault_id, network);
       setResult({
         type: 'success',
         text:
           `Redeem complete for vault №${vault.vault_id}: shares burned, assets swapped, USDC claimed ` +
-          `(${r.signatures.length + 1} transaction${r.signatures.length + 1 === 1 ? '' : 's'}).` +
+          `(${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}, one wallet approval).` +
           altNote,
-        solscan: claimResult.link || r.link,
+        solscan: r.link,
       });
       setShares('');
       await refreshPosition();
@@ -308,9 +324,9 @@ export function RedeemModal({
         role="dialog"
         aria-modal="true"
         aria-label={`Redeem from ${displayVaultName(vault.name)}`}
-        className={`cert-frame relative z-10 w-full max-w-[480px] overflow-hidden bg-background shadow-2xl ${modalClassName}`}
+        className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
           <div>
             <div className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-seal">
               № {String(vault.vault_id).padStart(2, '0')} · redeem &amp; claim
@@ -330,7 +346,7 @@ export function RedeemModal({
           </button>
         </div>
 
-        <div className="space-y-4 px-6 py-5">
+        <div ref={bodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-5">
           {checkingPosition && (
             <p className="font-mono text-xs text-muted-foreground">
               <span className="t-shimmer" data-text="Checking on-chain position…">
@@ -372,6 +388,30 @@ export function RedeemModal({
                   ? '— all legs swapped: press Claim (or Redeem to auto-claim)'
                   : '— press Redeem (swap) to convert assets → USDC (then auto-claim)'}
               </p>
+            </div>
+          )}
+
+          {/* OUTPUT first when present — multi-leg logs used to bury success below the fold. */}
+          {result && (
+            <div ref={resultRef} className={outputPanelClass}>
+              <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
+                OUTPUT
+              </div>
+              <div className="px-4 py-3">
+                <LedgerOutput text={result.text} tone={result.type} />
+                {result.solscan && (
+                  <div className="mt-2 border-t border-border pt-2">
+                    <a
+                      href={result.solscan}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent underline transition-colors hover:text-foreground"
+                    >
+                      View on Solscan
+                    </a>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -471,36 +511,14 @@ export function RedeemModal({
           </form>
 
           {steps.length > 0 && (
-            <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
+            <div className="max-h-48 space-y-1 overflow-y-auto overscroll-contain rounded-[2px] border border-border bg-foreground/[0.02] px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
               {steps.map((step, i) => (
                 <p key={i}>
                   <span className="mr-2 text-muted-foreground/50">&gt;</span>
                   {step}
                 </p>
               ))}
-            </div>
-          )}
-
-          {result && (
-            <div className={outputPanelClass}>
-              <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
-                OUTPUT
-              </div>
-              <div className="px-4 py-3">
-                <LedgerOutput text={result.text} tone={result.type} />
-                {result.solscan && (
-                  <div className="mt-2 border-t border-border pt-2">
-                    <a
-                      href={result.solscan}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-accent underline transition-colors hover:text-foreground"
-                    >
-                      View on Solscan
-                    </a>
-                  </div>
-                )}
-              </div>
+              <div ref={stepsEndRef} aria-hidden />
             </div>
           )}
         </div>

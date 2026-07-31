@@ -356,6 +356,162 @@ export async function sendV0(
   return sig;
 }
 
+function formatSendError(err: unknown): Error {
+  if (err instanceof SendTransactionError) {
+    const logs = err.logs?.length ? err.logs : undefined;
+    const detail = logs?.length ? `\nLogs:\n${logs.join('\n')}` : '';
+    return new Error(`${err.message}${detail}`);
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+/**
+ * Sign N v0 batches in **one wallet prompt** (`signAllTransactions`), then
+ * land them sequentially over plain RPC (confirm each before the next).
+ *
+ * No Jito — transactions are independent on the wire. If tx1 lands and tx2
+ * fails, earlier state stays on-chain; the error message includes confirmed
+ * signatures so the user can resume.
+ *
+ * Requirements (wallet adapters enforce these):
+ * - Shared blockhash + fee payer set on every tx before signing
+ * - Array order preserved on send (later legs may depend on earlier state)
+ */
+export async function signAndSendV0Batches(
+  connection: Connection,
+  wallet: AnchorWallet,
+  batches: TransactionInstruction[][],
+  lut?: AddressLookupTableAccount | null,
+  onProgress?: (msg: string) => void,
+): Promise<string[]> {
+  const nonEmpty = batches.filter((b) => b.length > 0);
+  if (nonEmpty.length === 0) return [];
+
+  if (isLocalRpc(connection)) {
+    await assertLocalProgramDeployed(connection);
+  }
+
+  // Single batch — one popup via the normal path (includes too-many split).
+  if (nonEmpty.length === 1) {
+    const batch = nonEmpty[0]!;
+    try {
+      onProgress?.(
+        `Sending 1 ALT transaction (${batch.length} ix)…`,
+      );
+      return [await sendV0(connection, wallet, batch, lut)];
+    } catch (err) {
+      if (isTooManyAccountsError(err) && batch.length > 1) {
+        const mid = Math.ceil(batch.length / 2);
+        onProgress?.(
+          `Too many accounts locked (${batch.length} ix) — splitting and retrying…`,
+        );
+        return signAndSendV0Batches(
+          connection,
+          wallet,
+          [batch.slice(0, mid), batch.slice(mid)],
+          lut,
+          onProgress,
+        );
+      }
+      throw err;
+    }
+  }
+
+  // Multi-batch: one shared blockhash, one signAllTransactions popup, sequential land.
+  const latest = await connection.getLatestBlockhash('confirmed');
+  const txs = nonEmpty.map((batch) =>
+    buildV0(wallet.publicKey, latest.blockhash, batch, lut),
+  );
+
+  onProgress?.(
+    `Approve ${txs.length} transactions in one wallet prompt…`,
+  );
+
+  let signed: VersionedTransaction[];
+  try {
+    if (typeof wallet.signAllTransactions === 'function') {
+      signed = (await wallet.signAllTransactions(txs)) as VersionedTransaction[];
+    } else {
+      // Rare adapters without signAll — N popups.
+      signed = [];
+      for (let i = 0; i < txs.length; i++) {
+        onProgress?.(
+          `Approve transaction ${i + 1}/${txs.length} (wallet has no signAll)…`,
+        );
+        signed.push(
+          (await wallet.signTransaction(txs[i]!)) as VersionedTransaction,
+        );
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const errName =
+      err instanceof Error && err.constructor?.name ? err.constructor.name : 'SignError';
+    throw new Error(
+      `Wallet could not sign ${txs.length} transactions (${errName}): ${msg}`,
+    );
+  }
+
+  const sigs: string[] = [];
+  for (let i = 0; i < signed.length; i++) {
+    const batch = nonEmpty[i]!;
+    let locked: number | null = null;
+    try {
+      locked = countLockedAccounts(wallet.publicKey, batch, lut);
+    } catch {
+      /* ignore */
+    }
+    onProgress?.(
+      `Landing tx ${i + 1}/${signed.length} (${batch.length} ix` +
+        (locked != null ? `, ~${locked} accounts` : '') +
+        ')…',
+    );
+
+    try {
+      const sig = await connection.sendRawTransaction(signed[i]!.serialize(), {
+        skipPreflight: false,
+        maxRetries: 5,
+      });
+      await confirmBySignaturePolling(connection, sig, {
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      });
+      sigs.push(sig);
+    } catch (err) {
+      // Packing edge case: re-split the failed batch + any not-yet-sent batches.
+      // Already-landed txs stay; only the remainder needs a new wallet prompt.
+      if (isTooManyAccountsError(err) && batch.length > 1) {
+        const mid = Math.ceil(batch.length / 2);
+        const remaining = [
+          batch.slice(0, mid),
+          batch.slice(mid),
+          ...nonEmpty.slice(i + 1),
+        ];
+        onProgress?.(
+          `Too many accounts on tx ${i + 1}/${signed.length} — re-splitting remaining ${remaining.length} batch(es)…`,
+        );
+        const rest = await signAndSendV0Batches(
+          connection,
+          wallet,
+          remaining,
+          lut,
+          onProgress,
+        );
+        return [...sigs, ...rest];
+      }
+
+      const formatted = formatSendError(err);
+      if (sigs.length > 0) {
+        throw new Error(
+          `Transaction ${i + 1}/${signed.length} failed after ${sigs.length} earlier tx(s) confirmed: ${formatted.message}. ` +
+            `Confirmed: ${sigs.join(', ')}. Retry remaining instructions if the flow is resumable.`,
+        );
+      }
+      throw formatted;
+    }
+  }
+  return sigs;
+}
+
 /**
  * True when `ixs` fit **both** envelopes:
  * 1. ≤ `SAFE_TX_ACCOUNT_LOCKS` unique locked accounts (runtime hard limit is 64)
@@ -439,11 +595,14 @@ function isTooManyAccountsError(err: unknown): boolean {
 
 /**
  * Pack `ixs` into the fewest ALT v0 transactions that fit under the account
- * lock + packet size, then send each sequentially (confirm before the next —
- * later legs often depend on earlier state, e.g. deposit → swaps).
+ * lock + packet size, then **sign once** (`signAllTransactions`) and land
+ * each sequentially over plain RPC (confirm before the next — later legs
+ * often depend on earlier state, e.g. deposit → swaps).
  *
  * If a batch still fails simulation with "too many accounts" (edge case),
- * that batch is split in half and retried.
+ * that batch is split in half and re-signed (extra popup only on that path).
+ *
+ * No Jito for now — partial failure across the batch is possible.
  */
 export async function sendV0Packed(
   connection: Connection,
@@ -475,53 +634,9 @@ export async function sendV0Packed(
   } else {
     onProgress?.(
       `Packed ${ixs.length} instruction(s) into ${batches.length} ALT transactions ` +
-        `(≤${SAFE_TX_ACCOUNT_LOCKS} accounts / 1232 bytes each)…`,
+        `(≤${SAFE_TX_ACCOUNT_LOCKS} accounts / 1232 bytes each) — one wallet approval…`,
     );
   }
 
-  const sigs: string[] = [];
-
-  const sendBatch = async (
-    batch: TransactionInstruction[],
-    label: string,
-  ): Promise<void> => {
-    try {
-      onProgress?.(label);
-      sigs.push(await sendV0(connection, wallet, batch, lut));
-    } catch (err) {
-      if (isTooManyAccountsError(err) && batch.length > 1) {
-        const mid = Math.ceil(batch.length / 2);
-        onProgress?.(
-          `Too many accounts locked (${batch.length} ix) — splitting and retrying…`,
-        );
-        await sendBatch(
-          batch.slice(0, mid),
-          `Retry half A (${mid} ix)…`,
-        );
-        await sendBatch(
-          batch.slice(mid),
-          `Retry half B (${batch.length - mid} ix)…`,
-        );
-        return;
-      }
-      throw err;
-    }
-  };
-
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i]!;
-    let locked: number | null = null;
-    try {
-      locked = countLockedAccounts(wallet.publicKey, batch, lut);
-    } catch {
-      /* ignore */
-    }
-    await sendBatch(
-      batch,
-      `ALT tx ${i + 1}/${batches.length} (${batch.length} ix` +
-        (locked != null ? `, ~${locked} accounts` : '') +
-        ')…',
-    );
-  }
-  return sigs;
+  return signAndSendV0Batches(connection, wallet, batches, lut, onProgress);
 }

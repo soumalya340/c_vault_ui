@@ -7,6 +7,20 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { WalletReadyState, type WalletName } from '@solana/wallet-adapter-base';
 import { useControlledModalTransition } from './use-modal-transition';
 
+/** Install links for common wallets when Wallet Standard has not registered them. */
+const INSTALL_WALLETS: ReadonlyArray<{ name: string; url: string; icon: string }> = [
+  {
+    name: 'Phantom',
+    url: 'https://phantom.app/download',
+    icon: 'https://raw.githubusercontent.com/solana-labs/wallet-adapter/master/packages/wallets/icons/phantom.svg',
+  },
+  {
+    name: 'Solflare',
+    url: 'https://solflare.com/download',
+    icon: 'https://raw.githubusercontent.com/solana-labs/wallet-adapter/master/packages/wallets/icons/solflare.svg',
+  },
+];
+
 function useFocusTrap(active: boolean, containerRef: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!active) return;
@@ -49,7 +63,7 @@ function useFocusTrap(active: boolean, containerRef: React.RefObject<HTMLElement
 
 export function WalletModal() {
   const { visible, setVisible } = useWalletModal();
-  const { wallets, select, connecting } = useWallet();
+  const { wallets, select, connecting, connected } = useWallet();
   const dialogRef = useRef<HTMLDivElement>(null);
   const client = useIsClient();
   const { mounted: transitionMounted, modalClassName, backdropClassName } =
@@ -72,16 +86,35 @@ export function WalletModal() {
     };
   }, [visible, setVisible]);
 
-  const { detected, undetected } = useMemo(() => {
+  const { detected, installOptions } = useMemo(() => {
     const detected = wallets.filter((w) => w.readyState === WalletReadyState.Installed);
-    const undetected = wallets.filter((w) => w.readyState !== WalletReadyState.Installed);
-    return { detected, undetected };
+    const detectedNames = new Set(detected.map((w) => w.adapter.name.toLowerCase()));
+    // Prefer Wallet Standard / adapter "not installed" entries; fall back to known install links.
+    const fromAdapter = wallets
+      .filter((w) => w.readyState !== WalletReadyState.Installed)
+      .map((w) => ({
+        key: w.adapter.name,
+        name: w.adapter.name,
+        url: w.adapter.url,
+        icon: w.adapter.icon,
+      }));
+    const fromKnown = INSTALL_WALLETS.filter(
+      (w) =>
+        !detectedNames.has(w.name.toLowerCase()) &&
+        !fromAdapter.some((a) => a.name.toLowerCase() === w.name.toLowerCase()),
+    ).map((w) => ({ key: w.name, name: w.name, url: w.url, icon: w.icon }));
+    return { detected, installOptions: [...fromAdapter, ...fromKnown] };
   }, [wallets]);
 
   function handleSelect(name: WalletName) {
     select(name);
-    setVisible(false);
+    // Modal stays open while connecting; closes on success via effect below.
   }
+
+  // Close once the selected wallet finishes connecting successfully.
+  useEffect(() => {
+    if (connected && visible) setVisible(false);
+  }, [connected, visible, setVisible]);
 
   if (!client || !transitionMounted) return null;
 
@@ -130,7 +163,7 @@ export function WalletModal() {
         </div>
 
         <div className="mt-4 flex flex-col gap-4 px-6 pb-6">
-          {detected.length > 0 && (
+          {detected.length > 0 ? (
             <ul className="flex flex-col gap-2">
               {detected.map((w) => (
                 <li key={w.adapter.name}>
@@ -150,18 +183,22 @@ export function WalletModal() {
                       {w.adapter.name}
                     </span>
                     <span className="rounded-[2px] border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent">
-                      Detected
+                      {connecting ? 'Connecting…' : 'Detected'}
                     </span>
                   </button>
                 </li>
               ))}
             </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No wallet extension detected in this browser. Install one below, then refresh.
+            </p>
           )}
 
-          {undetected.length > 0 && (
-            <details className="group/details">
+          {installOptions.length > 0 && (
+            <details className="group/details" open={detected.length === 0}>
               <summary className="flex cursor-pointer select-none list-none items-center gap-1.5 text-sm text-muted-foreground transition-colors duration-100 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background [&::-webkit-details-marker]:hidden">
-                More options
+                {detected.length === 0 ? 'Install a wallet' : 'More options'}
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 20 20"
@@ -177,27 +214,27 @@ export function WalletModal() {
                 </svg>
               </summary>
               <ul className="mt-2 flex flex-col gap-2">
-                {undetected.map((w) => (
-                  <li key={w.adapter.name}>
-                    <button
-                      type="button"
-                      onClick={() => handleSelect(w.adapter.name)}
-                      disabled={connecting}
-                      className="group flex w-full items-center gap-3 rounded-[2px] border border-border bg-foreground/[0.03] px-4 py-3 text-left transition-colors duration-100 hover:border-foreground/25 hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                {installOptions.map((w) => (
+                  <li key={w.key}>
+                    <a
+                      href={w.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex w-full items-center gap-3 rounded-[2px] border border-border bg-foreground/[0.03] px-4 py-3 text-left transition-colors duration-100 hover:border-foreground/25 hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={w.adapter.icon}
+                        src={w.icon}
                         alt=""
                         className="h-7 w-7 flex-shrink-0 rounded-md object-contain opacity-70"
                       />
                       <span className="flex-1 text-sm font-medium text-muted-foreground">
-                        {w.adapter.name}
+                        {w.name}
                       </span>
                       <span className="font-mono text-[11px] text-muted-foreground/60">
                         Install
                       </span>
-                    </button>
+                    </a>
                   </li>
                 ))}
               </ul>
