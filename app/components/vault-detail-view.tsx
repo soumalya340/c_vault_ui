@@ -146,6 +146,8 @@ function VaultDetailViewInner({
         status: 'ready';
         sharePriceUsd: string;
         totalNavUsd: string;
+        /** Raw share supply (Token-2022 base units) — `Vault.total_shares`. */
+        totalShares: string;
         sharesDecimals: number;
       }
     | { status: 'error'; message: string };
@@ -287,6 +289,7 @@ function VaultDetailViewInner({
           status: 'ready',
           sharePriceUsd: nav.sharePriceUsd,
           totalNavUsd: nav.totalNavUsd,
+          totalShares: nav.totalShares,
           sharesDecimals: nav.sharesDecimals,
         });
       } catch (err) {
@@ -327,6 +330,13 @@ function VaultDetailViewInner({
   const yourSharesUi =
     publicKey && shareBalance != null
       ? formatTokenUi(shareBalance, sharesDecimals)
+      : null;
+
+  // Outstanding share supply behind the TVL figure — `Vault.total_shares`,
+  // read from the same NAV call, so the two never disagree.
+  const totalSharesUi =
+    navState.status === 'ready'
+      ? formatTokenUi(navState.totalShares, sharesDecimals)
       : null;
   const yourSharesNum = parseUiNumber(yourSharesUi);
   const yourValueNum =
@@ -460,8 +470,13 @@ function VaultDetailViewInner({
                     : '—'
               }
               sub={
-                navState.status === 'error' ? navState.message : undefined
+                navState.status === 'error'
+                  ? navState.message
+                  : navState.status === 'ready'
+                    ? 'Live'
+                    : undefined
               }
+              subLive={navState.status === 'ready'}
               source="rpc"
               trailing={
                 <button
@@ -484,7 +499,13 @@ function VaultDetailViewInner({
                     ? navState.totalNavUsd
                     : '—'
               }
-              sub="total NAV · on-chain view"
+              sub={
+                navState.status === 'error'
+                  ? navState.message
+                  : totalSharesUi != null
+                    ? `${totalSharesUi} shares outstanding`
+                    : undefined
+              }
               source="rpc"
               trailing={
                 <button
