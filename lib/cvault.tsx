@@ -21,13 +21,20 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
   getMint,
   unpackAccount,
+  AccountLayout,
 } from '@solana/spl-token';
 import { BN } from '@coral-xyz/anchor';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
 
 import { solscanLink, type Network } from './solscanLink';
 import { createProgram, createDummyWallet } from './program';
-import { sendV0, sendV0Packed } from './alt';
+import {
+  buildV0,
+  packIxsForAlt,
+  sendV0,
+  sendV0Packed,
+  signAndSendV0Batches,
+} from './alt';
 import { ensureVaultAlt } from './vaultAlt';
 import {
   deriveGlobalStatePda,
@@ -1790,6 +1797,9 @@ function needsMultiTxBundle(ctx: Pick<VaultChainCtx, 'numAssets'>): boolean {
  * Genesis for >4 assets: vault ATAs (setup, only if missing) → then pack
  * signer ATAs + genesis + all inflow swaps into as few ALT v0 txs as fit
  * under the 1232-byte / ~64-account envelope.
+ *
+ * All resulting transactions share **one** wallet approval (`signAllTransactions`),
+ * then land sequentially over plain RPC (no Jito).
  */
 async function sendGenesisBundle(
   connection: Connection,
@@ -1802,57 +1812,32 @@ async function sendGenesisBundle(
   _network: Network,
   onProgress?: ProgressFn,
 ): Promise<string[]> {
-  const sigs: string[] = [];
-
-  onProgress?.(
-    `Genesis: ${vaultAtaIxs.length} vault ATA setup batch(es), then pack seed + ${swapIxs.length} swap(s) into minimal ALT txs…`,
-  );
-
-  if (vaultAtaIxs.length) {
-    sigs.push(
-      ...(await sendV0Chunks(
-        connection,
-        wallet,
-        vaultAtaIxs,
-        VAULT_ATA_IXS_PER_TX,
-        lut,
-        (b, t) => `Vault ATA batch ${b}/${t} (ALT)…`,
-        onProgress,
-      )),
-    );
-  }
-
   // Pack seed + all swaps together — ALT compresses keys so 5-asset baskets
   // often land in 1 tx; overflow greedily splits into the fewest packets.
   const coreIxs = [...signerAtaIxs, genesisIx, ...swapIxs];
+  const setupBatches = chunkIxs(vaultAtaIxs, VAULT_ATA_IXS_PER_TX);
+  const coreBatches = packIxsForAlt(wallet.publicKey, coreIxs, lut);
+  const allBatches = [...setupBatches, ...coreBatches];
+
   onProgress?.(
-    `Packing genesis + ${swapIxs.length} swap(s) (${coreIxs.length} ixs) with ALT…`,
+    `Genesis: ${vaultAtaIxs.length} vault ATA ix(s) + seed + ${swapIxs.length} swap(s) ` +
+      `→ ${allBatches.length} ALT tx(s), one wallet approval…`,
   );
-  sigs.push(
-    ...(await sendV0Packed(connection, wallet, coreIxs, lut, onProgress)),
-  );
-  return sigs;
+
+  return signAndSendV0Batches(connection, wallet, allBatches, lut, onProgress);
 }
 
-/** Send `ixs` in fixed-size chunks; returns one signature per chunk. */
-async function sendV0Chunks(
-  connection: Connection,
-  wallet: AnchorWallet,
+/** Split instructions into fixed-size batches (no packing / size checks). */
+function chunkIxs(
   ixs: TransactionInstruction[],
   perTx: number,
-  lut: AddressLookupTableAccount | null,
-  progress: (batch: number, total: number) => string,
-  onProgress?: ProgressFn,
-): Promise<string[]> {
+): TransactionInstruction[][] {
   if (!ixs.length) return [];
-  const total = Math.ceil(ixs.length / perTx);
-  const sigs: string[] = [];
+  const batches: TransactionInstruction[][] = [];
   for (let i = 0; i < ixs.length; i += perTx) {
-    const batch = i / perTx + 1;
-    onProgress?.(progress(batch, total));
-    sigs.push(await sendV0(connection, wallet, ixs.slice(i, i + perTx), lut));
+    batches.push(ixs.slice(i, i + perTx));
   }
-  return sigs;
+  return batches;
 }
 
 /** Idempotent creates for the vault-authority ATAs the swap legs write to. */
@@ -2106,32 +2091,24 @@ export async function depositAndDeploy(
         usdcAmount,
         minSharesOut,
       );
-      onProgress?.(
-        `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — setup missing ATAs, then pack deposit + ${swapIxs.length} swap(s) into minimal ALT txs…`,
-      );
-      signatures = await sendV0Chunks(
-        connection,
-        wallet,
-        vaultAtaIxs,
-        VAULT_ATA_IXS_PER_TX,
-        ensured.lut,
-        (b, t) => `Vault ATA batch ${b}/${t} (ALT)…`,
-        onProgress,
-      );
       // Pack user ATAs + deposit + all swaps with ALT. Greedy pack keeps
       // signatures minimal under the 1232-byte / ~64-account envelope.
+      // Setup + core share one signAllTransactions popup (plain RPC, no Jito).
       const coreIxs = [...depositIxs, ...swapIxs];
+      const setupBatches = chunkIxs(vaultAtaIxs, VAULT_ATA_IXS_PER_TX);
+      const coreBatches = packIxsForAlt(wallet.publicKey, coreIxs, ensured.lut);
+      const allBatches = [...setupBatches, ...coreBatches];
       onProgress?.(
-        `Packing deposit + ${swapIxs.length} swap(s) (${coreIxs.length} ixs) with ALT…`,
+        `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — ` +
+          `${vaultAtaIxs.length} ATA ix(s) + deposit + ${swapIxs.length} swap(s) → ` +
+          `${allBatches.length} ALT tx(s), one wallet approval…`,
       );
-      signatures.push(
-        ...(await sendV0Packed(
-          connection,
-          wallet,
-          coreIxs,
-          ensured.lut,
-          onProgress,
-        )),
+      signatures = await signAndSendV0Batches(
+        connection,
+        wallet,
+        allBatches,
+        ensured.lut,
+        onProgress,
       );
     } else {
       const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
@@ -2334,31 +2311,25 @@ export async function deployPendingSwaps(
 
   let signatures: string[];
   if (needsMultiTxBundle(ctx)) {
-    const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
-    onProgress?.(
-      `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — setup missing ATAs, then pack ${swapIxs.length} inflow swap(s) into minimal ALT txs…`,
-    );
-    signatures = await sendV0Chunks(
-      connection,
-      wallet,
-      vaultAtaIxs,
-      VAULT_ATA_IXS_PER_TX,
-      ensured.lut,
-      (b, t) => `Vault ATA batch ${b}/${t} (ALT)…`,
-      onProgress,
-    );
     if (swapIxs.length === 0) {
       throw new Error('No inflow swap instructions to deploy.');
     }
-    onProgress?.(`Packing ${swapIxs.length} inflow swap(s) with ALT…`);
-    signatures.push(
-      ...(await sendV0Packed(
-        connection,
-        wallet,
-        swapIxs,
-        ensured.lut,
-        onProgress,
-      )),
+    const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
+    // Setup + inflow swaps: one signAllTransactions popup, sequential plain RPC.
+    const setupBatches = chunkIxs(vaultAtaIxs, VAULT_ATA_IXS_PER_TX);
+    const swapBatches = packIxsForAlt(wallet.publicKey, swapIxs, ensured.lut);
+    const allBatches = [...setupBatches, ...swapBatches];
+    onProgress?.(
+      `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — ` +
+        `${vaultAtaIxs.length} ATA ix(s) + ${swapIxs.length} inflow swap(s) → ` +
+        `${allBatches.length} ALT tx(s), one wallet approval…`,
+    );
+    signatures = await signAndSendV0Batches(
+      connection,
+      wallet,
+      allBatches,
+      ensured.lut,
+      onProgress,
     );
   } else {
     const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
@@ -2413,32 +2384,47 @@ async function tryFetchRedeemState(
 }
 
 /**
- * Poll vault wSOL balance until it increases past `before`, or give up.
- * Confirmed txs can still lag on public RPCs; a single post-tx read often
- * returns the pre-swap balance and used to drop the sol→USDC leg forever
- * (asset_to_sol_done already true, no retry of leg-1).
+ * Simulate unsigned ixs and return the vault wSOL ATA balance delta.
+ * Used to pre-size `swap_sol_to_usdc` so Pass A + Pass B can share one
+ * wallet approval (amounts must be known before signing).
  */
-async function waitForWsolIncrease(
+async function simulateVaultWsolDelta(
   connection: Connection,
-  ctx: VaultChainCtx,
-  before: bigint,
-  onProgress?: ProgressFn,
+  payer: PublicKey,
+  ixs: TransactionInstruction[],
+  lut: AddressLookupTableAccount | null,
+  vaultWsolAta: PublicKey,
+  beforeBalance: bigint,
 ): Promise<bigint> {
-  const delaysMs = [0, 400, 800, 1500, 2500, 4000];
-  let last = before;
-  for (let i = 0; i < delaysMs.length; i++) {
-    if (delaysMs[i] > 0) {
-      await new Promise((r) => setTimeout(r, delaysMs[i]));
-    }
-    last = await vaultWsolBalance(connection, ctx);
-    if (last > before) {
-      return last - before;
-    }
-    onProgress?.(
-      `Waiting for vault wSOL balance to settle (read ${last}, was ${before})…`,
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const tx = buildV0(payer, blockhash, ixs, lut);
+  const sim = await connection.simulateTransaction(tx, {
+    sigVerify: false,
+    replaceRecentBlockhash: true,
+    commitment: 'confirmed',
+    accounts: {
+      encoding: 'base64',
+      addresses: [vaultWsolAta.toBase58()],
+    },
+  });
+  if (sim.value.err) {
+    const logs = sim.value.logs?.length ? `\n${sim.value.logs.join('\n')}` : '';
+    throw new Error(
+      `Redeem simulation failed (could not estimate wSOL out): ${JSON.stringify(sim.value.err)}${logs}`,
     );
   }
-  return 0n;
+  const raw = sim.value.accounts?.[0]?.data;
+  if (raw == null) {
+    throw new Error('Redeem simulation returned no vault wSOL account data.');
+  }
+  const b64 = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof b64 !== 'string' || b64.length === 0) {
+    // Account missing in sim → treat as zero balance after.
+    return 0n;
+  }
+  const decoded = AccountLayout.decode(Buffer.from(b64, 'base64'));
+  const after = BigInt(decoded.amount.toString());
+  return after > beforeBalance ? after - beforeBalance : 0n;
 }
 
 export interface RedeemClaimResult {
@@ -2459,16 +2445,31 @@ export interface RedeemSwapResult {
   altCreated?: boolean;
 }
 
+type RedeemStateSnap = NonNullable<Awaited<ReturnType<typeof tryFetchRedeemState>>>;
+
+export type RedeemSwapOptions = {
+  /**
+   * Append the `claim` instruction(s) to the same signed batch so the user
+   * gets USDC in **one** wallet popup (burn + swaps + claim). Default false
+   * keeps the old phase split for callers that claim separately.
+   */
+  includeClaim?: boolean;
+};
+
 /**
- * Phases 1-2 of redeem (Plan.md §8-9), without claim — pairs with the
- * standalone `claim()` export so the UI can show "Redeem (swap)" and "Claim"
- * as two separate actions instead of one combined button:
+ * Phases 1-2 of redeem (Plan.md §8-9) — and optionally phase 3 (`claim`):
  *
- *  1. No active redeem → verify the share balance, then `request_redeem`.
- *  2. Run the outflow legs (each ViaSol asset→wSOL leg is its own
- *     transaction so the received wSOL can be measured; the wSOL-native slot's
- *     amount is already known from RedeemState), then all →USDC legs in one
- *     ALT-compressed transaction. Does not call `claim`.
+ *  1. No active redeem → verify share balance, build `request_redeem`.
+ *  2. Build all outflow legs (ViaSol pass A + everything → USDC).
+ *  3. Optional `claim` (when `includeClaim`) so USDC lands without a 2nd popup.
+ *  4. **One wallet approval** via `signAllTransactions`, then land sequentially
+ *     over plain RPC (no Jito). ViaSol leg-2 amounts are pre-sized with
+ *     `simulateTransaction` so pass A + pass B can be signed together.
+ *
+ * Edge case: resume with **multiple** ViaSol legs that already finished
+ * asset→wSOL in a prior session (unknown per-asset wSOL split) still runs
+ * those sol→USDC legs one-by-one after the main batch (may add a claim popup
+ * if `includeClaim` and those legs ran outside the main batch).
  */
 export async function redeemSwap(
   connection: Connection,
@@ -2478,19 +2479,23 @@ export async function redeemSwap(
   altAddress: string | null | undefined,
   network: Network,
   onProgress?: ProgressFn,
+  options?: RedeemSwapOptions,
 ): Promise<RedeemSwapResult> {
+  const includeClaim = options?.includeClaim === true;
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   await prepareSwapPreflight(connection, wallet, program, network, ctx, onProgress);
   const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
   const lut = ensured.lut;
   const user = wallet.publicKey;
-  const signatures: string[] = [];
+  const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
 
-  let redeemState = await tryFetchRedeemState(program, user, vaultId);
+  const redeemState = await tryFetchRedeemState(program, user, vaultId);
+  const needsBurn = !redeemState || !redeemState.isRedeemActive;
 
-  if (!redeemState || !redeemState.isRedeemActive) {
-    // Phase 1 — on-chain share balance check, then burn.
+  // ── Phase 1: burn ixs (not sent yet) ─────────────────────────────────────
+  let burnIxs: TransactionInstruction[] = [];
+  if (needsBurn) {
     if (!shares || shares.isZero()) throw new Error('Enter shares to redeem.');
     const userShares = getAssociatedTokenAddressSync(
       ctx.sharesMint, user, false, TOKEN_2022_PROGRAM_ID,
@@ -2506,54 +2511,225 @@ export async function redeemSwap(
         `Insufficient shares: you hold ${balance}, tried to redeem ${shares}.`,
       );
     }
-
-    onProgress?.('Burning shares (request_redeem)…');
-    const ixs = await buildRequestRedeemIxs(program, ctx, user, shares);
-    signatures.push(await sendV0(connection, wallet, ixs, lut));
-    redeemState = await tryFetchRedeemState(program, user, vaultId);
-    if (!redeemState) throw new Error('RedeemState not found after request_redeem.');
+    burnIxs = await buildRequestRedeemIxs(program, ctx, user, shares);
   }
 
-  // Phase 2 — outflow legs (two-pass, required for multi-asset baskets):
-  //
-  // Pass A — all ViaSol asset→wSOL hops while pending_usdc is still 0.
-  //   Deployed programs historically require pending_usdc == 0 on
-  //   swap_asset_to_sol. Doing sol→USDC between ViaSol assets triggers
-  //   "Redeem already open" on the next asset→wSOL (your Blue Chip case:
-  //   asset 2 converted, asset 3 blocked).
-  // Pass B — convert every remaining leg to USDC (DirectUsdc, wSOL-native
-  //   ViaSol, and measured ViaSol wSOL piles).
-  //
-  // Resume-safe: asset_to_sol_done skips leg-1; wSOL amounts are measured
-  // with RPC retries so we never silently drop sol→USDC.
-  const viaSolWsolReceived = new Map<number, bigint>();
+  // Active redeem state is required to enumerate legs. After a fresh burn the
+  // state only exists once the burn lands — so for a new redeem we must derive
+  // the pending asset list from the vault the same way request_redeem will.
+  // When resuming, use on-chain RedeemState.
+  if (!needsBurn && !redeemState) {
+    throw new Error('RedeemState missing while redeem is marked active.');
+  }
 
-  // ── Pass A: asset → wSOL ──────────────────────────────────────────────────
-  for (let i = 0; i < redeemState.numAssets; i++) {
-    if (redeemState.assetSwapped[i]) continue;
-    const amountIn = new BN(redeemState.assetAmountIn[i].toString());
-    if (amountIn.isZero()) continue;
+  // For a fresh burn we don't have RedeemState yet. Build outflow ixs that
+  // only need vaultId/assetIndex (amounts come from RedeemState at execution
+  // for DirectUsdc / Pass A). Pass B ViaSol needs a wSOL amount — estimate via
+  // sim that includes the burn + Pass A.
+  //
+  // When resuming, RedeemState already holds amount flags.
+
+  type PassALeg = { index: number; ix: TransactionInstruction };
+  type PassBItem = { index: number; label: string; ix: TransactionInstruction };
+
+  const passALegs: PassALeg[] = [];
+  const passBItems: PassBItem[] = [];
+  /** Resume: leg-1 done earlier, wSOL already in vault — unknown per-asset split. */
+  const resumeFullBalanceViaSol: number[] = [];
+
+  const numAssets = needsBurn
+    ? ctx.numAssets
+    : (redeemState as RedeemStateSnap).numAssets;
+
+  // Cache vault decode for off-chain amount estimates (fresh burn only).
+  let vaultForEstimate: DecodedVault | null = null;
+  if (needsBurn) {
+    vaultForEstimate = await fetchDecodedVault(connection, ctx.vaultPda);
+    if (!vaultForEstimate) {
+      throw new Error('Vault account missing — cannot estimate redeem amounts.');
+    }
+  }
+
+  // Build a provisional "which slots need work" view.
+  for (let i = 0; i < numAssets; i++) {
+    if (!needsBurn) {
+      const state = redeemState as RedeemStateSnap;
+      if (state.assetSwapped[i]) continue;
+      const amountIn = new BN(state.assetAmountIn[i]?.toString() ?? '0');
+      if (amountIn.isZero()) continue;
+    }
+
     const asset = assetAt(ctx, i);
-    if (asset.route !== 'ViaSol' || asset.mint.equals(WSOL_MINT)) continue;
 
-    const legDone = Boolean(redeemState.assetToSolDone?.[i]);
-    if (legDone) {
-      onProgress?.(
-        `Asset ${i + 1}/${redeemState.numAssets}: asset→wSOL already done (resume)…`,
-      );
+    // Native wSOL ViaSol — amount is RedeemState.asset_amount_in (known on resume).
+    // On fresh burn, mirror request_redeem's free*shares/total carve so Pass B
+    // can be signed before the burn lands.
+    if (asset.mint.equals(WSOL_MINT) && asset.route === 'ViaSol') {
+      let wsolIn: BN;
+      if (needsBurn) {
+        wsolIn = await estimateRedeemAssetAmount(
+          connection, ctx, i, shares as BN, vaultForEstimate!,
+        );
+      } else {
+        wsolIn = new BN(
+          (redeemState as RedeemStateSnap).assetAmountIn[i]!.toString(),
+        );
+      }
+      if (wsolIn.isZero()) continue;
+      passBItems.push({
+        index: i,
+        label: `wSOL-native slot ${i + 1}`,
+        ix: await buildSwapSolToUsdcIx(
+          connection, program, ctx, i, wsolIn, new BN(0), user,
+        ),
+      });
       continue;
     }
 
-    onProgress?.(`Swapping asset ${i + 1}/${redeemState.numAssets} → wSOL…`);
-    const before = await vaultWsolBalance(connection, ctx);
-    const legIx = await buildSwapAssetToSolIx(connection, program, ctx, i, user, new BN(0));
+    if (asset.route === 'ViaSol') {
+      const legDone = !needsBurn && Boolean(
+        (redeemState as RedeemStateSnap).assetToSolDone?.[i],
+      );
+      if (legDone) {
+        // Prior session finished asset→wSOL; convert vault wSOL (resume).
+        resumeFullBalanceViaSol.push(i);
+        continue;
+      }
+
+      // Skip empty slots before building / simulating (fresh burn has no RedeemState yet).
+      if (needsBurn) {
+        const amt = await estimateRedeemAssetAmount(
+          connection, ctx, i, shares as BN, vaultForEstimate!,
+        );
+        if (amt.isZero()) continue;
+      }
+
+      const passAIx = await buildSwapAssetToSolIx(
+        connection, program, ctx, i, user, new BN(0),
+      );
+      passALegs.push({ index: i, ix: passAIx });
+
+      // Estimate wSOL out so Pass B can be signed in the same popup.
+      onProgress?.(
+        `Estimating ViaSol asset ${i + 1}/${numAssets} → wSOL (simulation)…`,
+      );
+      const before = await vaultWsolBalance(connection, ctx);
+      const simIxs = needsBurn ? [...burnIxs, passAIx] : [passAIx];
+      let estimated: bigint;
+      try {
+        estimated = await simulateVaultWsolDelta(
+          connection, user, simIxs, lut, vaultWsolAta, before,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Could not estimate wSOL for ViaSol asset ${i + 1}: ${msg}\n` +
+            `Try again, or press Redeem (swap) after a partial run to resume.`,
+        );
+      }
+      if (estimated <= 0n) {
+        throw new Error(
+          `ViaSol asset ${i + 1} simulation produced 0 wSOL. ` +
+            `Check pool liquidity / vault balances and retry.`,
+        );
+      }
+      passBItems.push({
+        index: i,
+        label: `wSOL→USDC asset ${i + 1}`,
+        ix: await buildSwapSolToUsdcIx(
+          connection,
+          program,
+          ctx,
+          i,
+          new BN(estimated.toString()),
+          new BN(0),
+          user,
+        ),
+      });
+      continue;
+    }
+
+    if (asset.route === 'DirectUsdc') {
+      // On fresh burn, skip slots that will get zero amount — we can't know
+      // precisely without state, but zero free vault balance still builds an
+      // ix that fails at runtime. estimateRedeemAssetAmount filters zeros.
+      if (needsBurn) {
+        const amt = await estimateRedeemAssetAmount(
+          connection, ctx, i, shares as BN, vaultForEstimate!,
+        );
+        if (amt.isZero()) continue;
+      }
+      passBItems.push({
+        index: i,
+        label: `DirectUsdc asset ${i + 1}`,
+        ix: await buildSwapAssetToUsdcIx(
+          connection, program, ctx, i, user, new BN(0),
+        ),
+      });
+    }
+  }
+
+  // Resume multi ViaSol with unknown split: cannot pre-size into one batch.
+  // Run main batch first (burn + remaining work), then sequential resume legs.
+  const resumeMulti = resumeFullBalanceViaSol.length > 1;
+  if (resumeFullBalanceViaSol.length === 1) {
+    const i = resumeFullBalanceViaSol[0]!;
+    const bal = await vaultWsolBalance(connection, ctx);
+    if (bal <= 0n) {
+      throw new Error(
+        `ViaSol asset ${i + 1} has no vault wSOL to convert on resume. ` +
+          `Press Redeem (swap) again after RPC settles.`,
+      );
+    }
+    passBItems.push({
+      index: i,
+      label: `wSOL→USDC asset ${i + 1} (resume)`,
+      ix: await buildSwapSolToUsdcIx(
+        connection, program, ctx, i, new BN(bal.toString()), new BN(0), user,
+      ),
+    });
+  }
+
+  // Claim can ride the same signed batch: it only needs pending_usdc > 0 at
+  // execution time, which the preceding swap legs establish (same tx or earlier
+  // batch in the sequential send).
+  let claimIxs: TransactionInstruction[] = [];
+  if (includeClaim && !resumeMulti) {
+    // resumeMulti may leave claim until after sequential legs finish.
+    claimIxs = await buildClaimIxs(connection, program, ctx, user);
+  }
+
+  // Ordered payload: burn → Pass A → Pass B → claim (Pass A before its Pass B).
+  const coreIxs: TransactionInstruction[] = [
+    ...burnIxs,
+    ...passALegs.map((l) => l.ix),
+    ...passBItems.map((b) => b.ix),
+    ...claimIxs,
+  ];
+
+  const signatures: string[] = [];
+
+  if (coreIxs.length > 0) {
+    const batches = packIxsForAlt(user, coreIxs, lut);
+    onProgress?.(
+      `Redeem: ${burnIxs.length ? 'burn + ' : ''}` +
+        `${passALegs.length} asset→wSOL + ${passBItems.length} →USDC` +
+        `${claimIxs.length ? ' + claim' : ''} → ` +
+        `${batches.length} ALT tx(s), one wallet approval…`,
+    );
     try {
-      signatures.push(await sendV0(connection, wallet, [legIx], lut));
+      signatures.push(
+        ...(await signAndSendV0Batches(
+          connection,
+          wallet,
+          batches,
+          lut,
+          onProgress,
+        )),
+      );
     } catch (err) {
-      // Old program: pending_usdc already > 0 from a prior partial run blocks
-      // further asset→wSOL. Surface a clear recovery message.
       const msg = err instanceof Error ? err.message : String(err);
-      if (/already open|AlreadyPending|pending/i.test(msg)) {
+      if (/already open|AlreadyPending|pending/i.test(msg) && passALegs.length > 0) {
         const mid = await tryFetchRedeemState(program, user, vaultId);
         const pendingRaw = mid ? BigInt(mid.pendingUsdc.toString()) : 0n;
         throw new Error(
@@ -2565,99 +2741,71 @@ export async function redeemSwap(
             `Or redeploy the program (swap_asset_to_sol no longer requires pending_usdc == 0) and press Redeem (swap) again to resume.`,
         );
       }
-      throw err;
-    }
-    const received = await waitForWsolIncrease(connection, ctx, before, onProgress);
-    if (received <= 0n) {
       throw new Error(
-        `ViaSol asset ${i + 1} produced no measurable wSOL after leg-1. ` +
-          `Press Redeem (swap) again after RPC settles — do not start a new redeem.`,
+        `Redeem outflow failed: ${msg}\n` +
+          `Press Redeem (swap) again to resume remaining legs. Do not start a new redeem.`,
       );
     }
-    viaSolWsolReceived.set(i, received);
-    redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
   }
 
-  // ── Pass B: everything → USDC ─────────────────────────────────────────────
-  // Refresh once more so flags match chain after pass A.
-  redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
-
-  // ViaSol non-native: sol→USDC one tx per asset (uses measured delta, or full
-  // vault wSOL on resume when we didn't measure this session).
-  for (let i = 0; i < redeemState.numAssets; i++) {
-    if (redeemState.assetSwapped[i]) continue;
-    const amountIn = new BN(redeemState.assetAmountIn[i].toString());
-    if (amountIn.isZero()) continue;
-    const asset = assetAt(ctx, i);
-
-    if (asset.mint.equals(WSOL_MINT) && asset.route === 'ViaSol') {
-      onProgress?.(`Converting wSOL (native slot ${i + 1}) → USDC…`);
-      const ix = await buildSwapSolToUsdcIx(
-        connection, program, ctx, i, amountIn, new BN(0), user,
-      );
-      signatures.push(await sendV0(connection, wallet, [ix], lut));
-      redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
-      continue;
-    }
-
-    if (asset.route !== 'ViaSol') continue;
-
-    let received = viaSolWsolReceived.get(i);
-    if (received == null || received <= 0n) {
-      // Resume: leg-1 done in a prior session — convert remaining vault wSOL.
-      if (!redeemState.assetToSolDone?.[i]) {
-        throw new Error(
-          `ViaSol asset ${i + 1} never completed asset→wSOL. Press Redeem (swap) again.`,
-        );
-      }
-      received = await vaultWsolBalance(connection, ctx);
-    }
-    if (received <= 0n) {
-      throw new Error(
-        `ViaSol asset ${i + 1} has no vault wSOL to convert. Press Redeem (swap) again after RPC settles.`,
-      );
-    }
-
-    onProgress?.(`Converting wSOL → USDC for asset ${i + 1}/${redeemState.numAssets}…`);
-    const solUsdcIx = await buildSwapSolToUsdcIx(
-      connection,
-      program,
-      ctx,
-      i,
-      new BN(received.toString()),
-      new BN(0),
-      user,
+  // Edge: multiple resume ViaSol legs with shared vault wSOL (unknown split).
+  // Send one-by-one with a fresh balance read; each is its own popup.
+  if (resumeMulti) {
+    onProgress?.(
+      `Resume: ${resumeFullBalanceViaSol.length} ViaSol →USDC legs need sequential vault wSOL reads…`,
     );
-    signatures.push(await sendV0(connection, wallet, [solUsdcIx], lut));
-    redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
+    for (const i of resumeFullBalanceViaSol) {
+      const bal = await vaultWsolBalance(connection, ctx);
+      if (bal <= 0n) {
+        throw new Error(
+          `ViaSol asset ${i + 1} has no vault wSOL to convert on resume. ` +
+            `Press Redeem (swap) again after RPC settles.`,
+        );
+      }
+      const ix = await buildSwapSolToUsdcIx(
+        connection, program, ctx, i, new BN(bal.toString()), new BN(0), user,
+      );
+      onProgress?.(`Converting wSOL → USDC for asset ${i + 1} (resume)…`);
+      signatures.push(
+        ...(await sendV0Packed(connection, wallet, [ix], lut, onProgress)),
+      );
+    }
+    if (includeClaim) {
+      onProgress?.('Claiming USDC payout…');
+      signatures.push(
+        ...(await sendV0Packed(
+          connection,
+          wallet,
+          await buildClaimIxs(connection, program, ctx, user),
+          lut,
+          onProgress,
+        )),
+      );
+    }
   }
 
-  // DirectUsdc legs — one tx per asset when basket is large (>4); batched otherwise.
-  const directLegs: { index: number; ix: TransactionInstruction }[] = [];
-  for (let i = 0; i < redeemState.numAssets; i++) {
-    if (redeemState.assetSwapped[i]) continue;
-    const amountIn = new BN(redeemState.assetAmountIn[i].toString());
-    if (amountIn.isZero()) continue;
-    const asset = assetAt(ctx, i);
-    if (asset.route !== 'DirectUsdc') continue;
-    directLegs.push({
-      index: i,
-      ix: await buildSwapAssetToUsdcIx(connection, program, ctx, i, user, new BN(0)),
-    });
+  // When claim was included in the main batch, RedeemState is closed — skip
+  // the "pending_usdc > 0" post-check (nothing left to claim).
+  if (includeClaim && !resumeMulti) {
+    onProgress?.('Redeem + claim complete.');
+    return {
+      phase: 'swapped',
+      signatures,
+      link: solscanLink(signatures[signatures.length - 1] ?? '', network),
+      altAddress: ensured.altAddress,
+      altCreated: ensured.altCreated,
+    };
   }
-  if (directLegs.length > 0) {
-    if (needsMultiTxBundle(ctx)) {
-      for (const { index, ix } of directLegs) {
-        onProgress?.(
-          `Converting DirectUsdc asset ${index + 1}/${redeemState.numAssets} → base token…`,
-        );
-        signatures.push(await sendV0(connection, wallet, [ix], lut));
-        redeemState = (await tryFetchRedeemState(program, user, vaultId)) ?? redeemState;
-      }
-    } else {
-      onProgress?.('Converting DirectUsdc assets to base token…');
-      signatures.push(await sendV0(connection, wallet, directLegs.map((l) => l.ix), lut));
-    }
+
+  if (includeClaim && resumeMulti) {
+    onProgress?.('Redeem + claim complete (resume path).');
+    return {
+      phase: 'swapped',
+      signatures,
+      link: solscanLink(signatures[signatures.length - 1] ?? '', network),
+      altAddress: ensured.altAddress,
+      altCreated: ensured.altCreated,
+    };
   }
 
   // Hard check: claim requires pending_usdc > 0.
@@ -2698,10 +2846,41 @@ export async function redeemSwap(
 }
 
 /**
- * The combined "Redeem & Claim" action (Plan.md §8-9) — kept for callers that
- * still want one button. Runs `redeemSwap`'s phases 1-2, then `claim`, in a
- * single call. Everything is checked on-chain — no user rows exist anywhere
- * off-chain.
+ * Off-chain mirror of request_redeem's per-slot carve:
+ * `free_balance * shares / total_shares` (integer division).
+ * Used so we can build native-wSOL Pass B / filter zero DirectUsdc legs
+ * before the burn transaction has landed.
+ */
+async function estimateRedeemAssetAmount(
+  connection: Connection,
+  ctx: VaultChainCtx,
+  assetIndex: number,
+  shares: BN,
+  vault: DecodedVault,
+): Promise<BN> {
+  const totalShares = BigInt(vault.totalShares.toString());
+  if (totalShares === 0n) return new BN(0);
+  const sharesBn = BigInt(shares.toString());
+
+  const asset = assetAt(ctx, assetIndex);
+  let free = 0n;
+  try {
+    const bal = await connection.getTokenAccountBalance(asset.vaultAssetAtaKey);
+    free = BigInt(bal.value.amount);
+  } catch {
+    free = 0n;
+  }
+  const reservedArr = vault.reservedAssets;
+  if (reservedArr && reservedArr[assetIndex] != null) {
+    const reserved = BigInt(reservedArr[assetIndex]!.toString());
+    free = free > reserved ? free - reserved : 0n;
+  }
+  return new BN(((free * sharesBn) / totalShares).toString());
+}
+
+/**
+ * Combined "Redeem & Claim" — burn + outflow + claim in **one** wallet popup
+ * (`signAllTransactions`), then sequential plain-RPC landing.
  */
 export async function redeemAndClaim(
   connection: Connection,
@@ -2712,14 +2891,20 @@ export async function redeemAndClaim(
   network: Network,
   onProgress?: ProgressFn,
 ): Promise<RedeemClaimResult> {
-  const swapResult = await redeemSwap(connection, wallet, vaultId, shares, altAddress, network, onProgress);
-
-  onProgress?.('Claiming payout…');
-  const claimResult = await claim(connection, wallet, vaultId, network);
+  const swapResult = await redeemSwap(
+    connection,
+    wallet,
+    vaultId,
+    shares,
+    altAddress,
+    network,
+    onProgress,
+    { includeClaim: true },
+  );
   return {
     phase: 'claimed',
-    signatures: [...swapResult.signatures, claimResult.tx],
-    link: claimResult.link,
+    signatures: swapResult.signatures,
+    link: swapResult.link,
   };
 }
 

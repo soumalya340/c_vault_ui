@@ -6,12 +6,64 @@ if (typeof globalThis !== 'undefined' && !('Buffer' in globalThis)) {
 }
 
 import { useMemo, useState, type ReactNode } from 'react';
+import {
+  WalletNotReadyError,
+  type Adapter,
+  type WalletError,
+} from '@solana/wallet-adapter-base';
 import { WalletProvider, ConnectionContext } from '@solana/wallet-adapter-react';
 import { WalletModalContext } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 import { createPlatformConnection } from '@/lib/connection';
 import { WalletModal } from './components/wallet-modal';
+
+/**
+ * True when the user intentionally cancelled a wallet prompt (connect / sign /
+ * send). These are expected UX paths, not application failures.
+ */
+function isUserWalletDismissal(error: {
+  name?: string;
+  message?: string;
+  error?: unknown;
+}): boolean {
+  if (
+    error.name === 'WalletWindowClosedError' ||
+    error.name === 'WalletDisconnectedError'
+  ) {
+    return true;
+  }
+
+  const nested =
+    error.error instanceof Error
+      ? error.error.message
+      : typeof error.error === 'string'
+        ? error.error
+        : error.error != null
+          ? String(error.error)
+          : '';
+  const text = `${error.name ?? ''} ${error.message ?? ''} ${nested}`;
+  return /user rejected|rejected the request|approval denied|denied by user|request (was )?rejected|cancelled by user|canceled by user|user closed|window closed|user denied/i.test(
+    text,
+  );
+}
+
+/**
+ * Stable onError identity — wallet-adapter stores this in a ref; a new function
+ * each render is unnecessary. User dismissals stay quiet; real failures log.
+ */
+function handleWalletAdapterError(error: WalletError, adapter?: Adapter): void {
+  if (isUserWalletDismissal(error)) {
+    return;
+  }
+
+  if (error instanceof WalletNotReadyError && typeof window !== 'undefined' && adapter) {
+    window.open(adapter.url, '_blank', 'noreferrer');
+    return;
+  }
+
+  console.error('[wallet]', error.name, error.message, adapter?.name);
+}
 
 export type Network = 'localhost' | 'mainnet';
 
@@ -91,6 +143,8 @@ export function Providers({
   /** @deprecated Network is only used by callers for layout; connection uses endpoint. */
   network?: Network;
 }) {
+  // Explicit adapters so the modal always lists Phantom/Solflare. WalletProvider
+  // still merges Wallet Standard wallets via useStandardWalletAdapters.
   const wallets = useMemo(
     () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
     [],
@@ -104,7 +158,11 @@ export function Providers({
 
   return (
     <ConnectionContext.Provider value={{ connection }}>
-      <WalletProvider wallets={wallets} autoConnect>
+      <WalletProvider
+        wallets={wallets}
+        autoConnect
+        onError={handleWalletAdapterError}
+      >
         <WalletModalContext.Provider value={{ visible, setVisible }}>
           {children}
           <WalletModal />
