@@ -327,10 +327,22 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
     number: '08',
     title: 'Update DEX TWAP',
     description:
-      'Keeper-only: push a live price observation into TWAP for one DEX-priced asset. Rejected if the asset is Pyth-priced or the connected wallet isn\'t the configured TWAP keeper.',
+      'Keeper-only: push a live price observation into TWAP for one DEX-priced asset. The observation is read from Jupiter at submit time and converted to the Q64.64 scale the program expects — nothing is entered by hand. Rejected if the asset is Pyth-priced or the connected wallet isn\'t the configured TWAP keeper.',
     fields: [
       ASSET_ID_FIELD,
-      { name: 'twap_live_state', label: 'Live price (x64 fixed-point)', type: 'number', placeholder: '0' },
+      {
+        name: 'twap_live_state',
+        label: 'Live price',
+        fixed: 'Jupiter spot → Q64.64 (derived at submit)',
+        info:
+          'The program stores raw-USDC-per-raw-asset in Q64.64 fixed point, not a USD price. ' +
+          'That value folds in the asset\'s decimals (a $200 9-decimal asset is a smaller number ' +
+          'than a $1 6-decimal one) and reaches ~1.8e19 — past the largest integer a JS number ' +
+          'holds exactly. It is therefore computed from the asset\'s on-chain decimals and the ' +
+          'live Jupiter price rather than typed. Note: update_dex_twap takes a u64, so an asset ' +
+          'whose raw ratio is >= 1.0 (a 6-decimal asset at or above ~$1.00) cannot be pushed ' +
+          'until the instruction is widened to u128.',
+      },
     ],
     submitLabel: 'Push TWAP observation',
   },
