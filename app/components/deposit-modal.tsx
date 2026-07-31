@@ -11,6 +11,7 @@ import {
   formatUnits,
   fetchMintDecimals,
   getUserUsdcBalance,
+  getUserPosition,
   deriveVaultPdas,
   describePreviewError,
   NETWORK_CONSTANTS,
@@ -32,6 +33,8 @@ import {
 } from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
 import { displayVaultName } from './view-display';
+import { SettlementReceipt, groupDecimal, settlementRate } from './settlement-receipt';
+import { Spinner } from '@/components/ui/spinner';
 
 /** Human-readable token amount with thousands separators; exact string math. */
 function formatTokenUi(raw: string, decimals: number): string {
@@ -69,6 +72,17 @@ export function DepositModal({
   } | null>(null);
   const [lastError, setLastError] = useState<UserFacingError | null>(null);
   const [errorOpen, setErrorOpen] = useState(false);
+  /**
+   * Settled deposit — what the user paid and the shares actually minted to
+   * them. `sharesRaw` is a measured balance delta and stays null when the
+   * post-deposit read fails, so the receipt never invents a share count.
+   */
+  const [settlement, setSettlement] = useState<{
+    usdcRaw: string;
+    sharesRaw: string | null;
+    note: string | null;
+    solscan?: string;
+  } | null>(null);
 
   // Quote mint is always network USDC (program constant) — not stored on the
   // vaults row. Label as USDC immediately; registry/on-chain only refine
@@ -106,6 +120,21 @@ export function DepositModal({
     refreshUsdcBalance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicKey, network]);
+
+  /**
+   * Raw share-token balance for the connected wallet, or null if it can't be
+   * read. Sampled either side of the deposit to measure shares minted —
+   * `depositAndDeploy` reports signatures only.
+   */
+  const readShareBalance = async (): Promise<string | null> => {
+    if (!publicKey) return null;
+    try {
+      const pos = await getUserPosition(connection, vault.vault_id, publicKey, network);
+      return pos.shareBalance;
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -215,9 +244,13 @@ export function DepositModal({
     setLoading(true);
     setResult(null);
     setSteps([]);
+    setSettlement(null);
     try {
       if (!amount.trim()) throw new Error('Enter an amount.');
       const rawAmount = parseUnits(amount, baseDecimals);
+      // Sample shares before signing so the post-deposit delta is attributable
+      // to this deposit alone.
+      const sharesBefore = await readShareBalance();
       const rawMinShares = minSharesOut.trim()
         ? parseUnits(minSharesOut.trim(), sharesDecimals ?? 6)
         : new BN(0);
@@ -253,6 +286,28 @@ export function DepositModal({
         }
       }
       const multiTx = r.signatures.length > 1;
+      // Shares minted = post-deposit balance − pre-deposit balance. Null when
+      // either sample failed, so the receipt shows "not recorded" rather than
+      // a wrong number.
+      const sharesAfter = await readShareBalance();
+      let sharesMintedRaw: string | null = null;
+      if (sharesBefore !== null && sharesAfter !== null) {
+        try {
+          const delta = BigInt(sharesAfter) - BigInt(sharesBefore);
+          if (delta > 0n) sharesMintedRaw = delta.toString();
+        } catch {
+          sharesMintedRaw = null;
+        }
+      }
+      setSettlement({
+        usdcRaw: rawAmount.toString(),
+        sharesRaw: sharesMintedRaw,
+        note:
+          (multiTx
+            ? `${r.signatures.length} transactions (setup + swaps).`
+            : 'Swaps executed in the same transaction.') + altNote,
+        solscan: r.link,
+      });
       setResult({
         type: 'success',
         text:
@@ -327,6 +382,54 @@ export function DepositModal({
           </button>
         </div>
 
+        {settlement ? (
+          <div className="overflow-y-auto px-6 py-5">
+            <SettlementReceipt
+              kind="deposit"
+              vaultId={vault.vault_id}
+              surrendered={{
+                label: 'Deposited',
+                amount: groupDecimal(formatUnits(settlement.usdcRaw, baseDecimals ?? USDC_DECIMALS)),
+                unit: baseSymbol,
+              }}
+              issued={{
+                label: 'Shares received',
+                amount:
+                  settlement.sharesRaw !== null
+                    ? groupDecimal(formatUnits(settlement.sharesRaw, sharesDecimals ?? 6))
+                    : null,
+                unit: vault.symbol,
+              }}
+              rate={(() => {
+                const value = settlementRate(
+                  settlement.usdcRaw,
+                  baseDecimals ?? USDC_DECIMALS,
+                  settlement.sharesRaw,
+                  sharesDecimals ?? 6,
+                );
+                return value
+                  ? { label: 'Cost per share', value: `${value} ${baseSymbol}` }
+                  : null;
+              })()}
+              note={settlement.note}
+              solscan={settlement.solscan}
+              doneLabel="Done"
+              onDone={requestClose}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setSettlement(null);
+                setResult(null);
+                setSteps([]);
+                setPreview(null);
+              }}
+              className="mt-4 w-full rounded-[2px] border border-border-strong bg-background px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              Deposit again
+            </button>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto px-6 py-5">
           {publicKey && (
             <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
@@ -411,7 +514,8 @@ export function DepositModal({
             className={btnPrimaryClass}
           >
             {loading ? (
-              <span className="t-shimmer" data-text="Processing…">
+              <span className="inline-flex items-center gap-2">
+                <Spinner className="size-3.5" />
                 Processing…
               </span>
             ) : anchorWallet ? (
@@ -465,7 +569,8 @@ export function DepositModal({
               </div>
             </div>
           )}
-        </form>
+          </form>
+        )}
       </div>
     </div>
   );

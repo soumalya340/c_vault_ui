@@ -6,6 +6,7 @@ import { getMint, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import {
   getUserPosition,
+  getUserUsdcBalance,
   previewRedeem,
   redeemSwap,
   claim,
@@ -30,6 +31,12 @@ import {
 } from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
 import { displayVaultName } from './view-display';
+import {
+  SettlementReceipt,
+  groupDecimal,
+  settlementRate,
+} from './settlement-receipt';
+import { Spinner } from '@/components/ui/spinner';
 
 // Two separate actions so a failure in one phase (e.g. an outflow swap leg)
 // doesn't get hidden behind a single "Redeem & Claim" button:
@@ -75,6 +82,18 @@ export function RedeemModal({
     solscan?: string;
   } | null>(null);
   const [errorModal, setErrorModal] = useState<UserFacingError | null>(null);
+  /**
+   * Settled redeem — shares burned and the USDC that actually landed in the
+   * wallet. `usdcRaw` is a measured wallet delta; `sharesRaw` is null when the
+   * user resumed a pending redeem without re-entering an amount (the burn
+   * happened in an earlier session, so this run cannot attribute it).
+   */
+  const [settlement, setSettlement] = useState<{
+    sharesRaw: string | null;
+    usdcRaw: string | null;
+    note: string | null;
+    solscan?: string;
+  } | null>(null);
 
   const [pending, setPending] = useState<{
     isRedeemActive: boolean;
@@ -154,6 +173,31 @@ export function RedeemModal({
     }
   }, [result, steps, loading]);
 
+  /**
+   * Raw wallet USDC, or null if unreadable. Sampled either side of
+   * redeem/claim to measure the payout — neither `redeemSwap` nor `claim`
+   * returns the amount that landed.
+   */
+  const readUsdcBalance = async (): Promise<string | null> => {
+    if (!publicKey) return null;
+    try {
+      return await getUserUsdcBalance(connection, publicKey, network);
+    } catch {
+      return null;
+    }
+  };
+
+  /** Positive wallet delta between two samples, or null if unmeasurable. */
+  const measureUsdcDelta = (before: string | null, after: string | null): string | null => {
+    if (before === null || after === null) return null;
+    try {
+      const delta = BigInt(after) - BigInt(before);
+      return delta > 0n ? delta.toString() : null;
+    } catch {
+      return null;
+    }
+  };
+
   const shareBalanceUi =
     sharesDecimals !== null ? formatTokenUi(shareBalance, sharesDecimals) : null;
 
@@ -210,11 +254,15 @@ export function RedeemModal({
     setLoading(true);
     setResult(null);
     setSteps([]);
+    setSettlement(null);
     try {
       let sharesBn: BN | null = null;
       if (shares.trim()) {
         sharesBn = parseSharesInput();
       }
+      // Sample wallet USDC before signing — the batch includes `claim`, so the
+      // payout lands within this call.
+      const usdcBefore = await readUsdcBalance();
       // Burn + all outflow legs + claim in one wallet approval (signAllTransactions).
       const r = await redeemSwap(
         connection,
@@ -245,6 +293,16 @@ export function RedeemModal({
             `${err instanceof Error ? err.message : String(err)}`;
         }
       }
+      const usdcAfter = await readUsdcBalance();
+      setSettlement({
+        sharesRaw: sharesBn ? sharesBn.toString() : null,
+        usdcRaw: measureUsdcDelta(usdcBefore, usdcAfter),
+        note:
+          `Shares burned, assets swapped, USDC claimed ` +
+          `(${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}, one wallet approval).` +
+          altNote,
+        solscan: r.link,
+      });
       setResult({
         type: 'success',
         text:
@@ -275,9 +333,21 @@ export function RedeemModal({
     setLoading(true);
     setResult(null);
     setSteps([]);
+    setSettlement(null);
     try {
       setSteps(['Claiming USDC payout…']);
+      // On-chain pending amount is the authoritative payout for a bare claim;
+      // the wallet delta is the fallback if RedeemState wasn't readable.
+      const expectedUsdc = pendingUsdc > 0n ? pendingUsdc.toString() : null;
+      const usdcBefore = await readUsdcBalance();
       const r = await claim(connection, anchorWallet, vault.vault_id, network);
+      const usdcAfter = await readUsdcBalance();
+      setSettlement({
+        sharesRaw: null,
+        usdcRaw: expectedUsdc ?? measureUsdcDelta(usdcBefore, usdcAfter),
+        note: 'Pending payout claimed to your wallet.',
+        solscan: r.link,
+      });
       setResult({
         type: 'success',
         text: `Claimed USDC payout from vault №${vault.vault_id}.`,
@@ -346,6 +416,57 @@ export function RedeemModal({
           </button>
         </div>
 
+        {settlement ? (
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+            <SettlementReceipt
+              kind="redeem"
+              vaultId={vault.vault_id}
+              surrendered={{
+                label: 'Shares burned',
+                amount:
+                  settlement.sharesRaw !== null && sharesDecimals !== null
+                    ? groupDecimal(formatUnits(settlement.sharesRaw, sharesDecimals))
+                    : null,
+                unit: vault.symbol,
+              }}
+              issued={{
+                label: 'USDC claimed',
+                amount:
+                  settlement.usdcRaw !== null
+                    ? groupDecimal(formatUnits(settlement.usdcRaw, USDC_DECIMALS))
+                    : null,
+                unit: 'USDC',
+              }}
+              rate={(() => {
+                const value = settlementRate(
+                  settlement.usdcRaw,
+                  USDC_DECIMALS,
+                  settlement.sharesRaw,
+                  sharesDecimals ?? 6,
+                );
+                return value
+                  ? { label: 'Proceeds per share', value: `${value} USDC` }
+                  : null;
+              })()}
+              note={settlement.note}
+              solscan={settlement.solscan}
+              doneLabel="Done"
+              onDone={requestClose}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setSettlement(null);
+                setResult(null);
+                setSteps([]);
+                setPreview(null);
+              }}
+              className="mt-4 w-full rounded-[2px] border border-border-strong bg-background px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              Redeem more
+            </button>
+          </div>
+        ) : (
         <div ref={bodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-5">
           {checkingPosition && (
             <p className="font-mono text-xs text-muted-foreground">
@@ -484,7 +605,8 @@ export function RedeemModal({
                 className={btnPrimaryClass}
               >
                 {loading ? (
-                  <span className="t-shimmer" data-text="Processing…">
+                  <span className="inline-flex items-center gap-2">
+                    <Spinner className="size-3.5" />
                     Processing…
                   </span>
                 ) : anchorWallet ? (
@@ -500,7 +622,8 @@ export function RedeemModal({
                 className={btnPrimaryClass}
               >
                 {loading ? (
-                  <span className="t-shimmer" data-text="Processing…">
+                  <span className="inline-flex items-center gap-2">
+                    <Spinner className="size-3.5" />
                     Processing…
                   </span>
                 ) : (
@@ -522,6 +645,7 @@ export function RedeemModal({
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
