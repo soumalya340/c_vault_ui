@@ -5,6 +5,7 @@ export function VaultStatCard({
   label,
   value,
   sub,
+  subLive,
   source,
   tone,
   pulse,
@@ -13,6 +14,8 @@ export function VaultStatCard({
   label: string;
   value: string;
   sub?: string;
+  /** Marks `sub` as a live-status line — prefixes it with the accent dot. */
+  subLive?: boolean;
   source: 'rpc' | 'mock' | 'db';
   tone?: 'up' | 'dn';
   pulse?: boolean;
@@ -45,8 +48,14 @@ export function VaultStatCard({
         {value}
       </div>
       {sub ? (
-        <div className="mt-2 font-mono text-[10px] tracking-[0.04em] text-muted-foreground">
-          {sub}
+        <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.04em] text-muted-foreground">
+          {subLive ? (
+            <span
+              aria-hidden
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
+            />
+          ) : null}
+          <span>{sub}</span>
         </div>
       ) : null}
     </div>

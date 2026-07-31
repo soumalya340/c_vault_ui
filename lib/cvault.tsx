@@ -79,6 +79,16 @@ import {
   CREATE_ETF_MAX_METADATA_BYTES,
 } from './constants';
 import { formatUserFacingError, parseTxError } from './txError';
+import {
+  type AssetHolding,
+  type PricedAsset,
+  priceToFixedPoint,
+  totalUsdcValue,
+  sharePriceRaw,
+  previewSharesToMint,
+  previewUsdcOut,
+} from './navCalc';
+import { fetchUsdPrices } from './jupiterPrice';
 export { parseTxError, formatUserFacingError, type UserFacingError } from './txError';
 
 export {
@@ -3117,6 +3127,59 @@ async function emptyVaultNavView(
 }
 
 /**
+ * Mainnet NAV computation: vault ATA balances × Jupiter USD prices, entirely
+ * client-side — no transaction is built or simulated, so there is no
+ * 1232-byte packet limit to hit regardless of basket size. See
+ * docs/superpowers/specs/2026-07-31-jupiter-client-side-nav-design.md.
+ *
+ * Throws if Jupiter's response is missing a price for any non-quote asset
+ * the vault holds a nonzero balance of (fetchUsdPrices already throws in
+ * that case) — never silently substitutes $0.
+ */
+async function computeNavFromChain(
+  connection: Connection,
+  ctx: VaultChainCtx,
+  vaultId: number,
+): Promise<NavView> {
+  const holdings = await fetchVaultAssetHoldings(connection, ctx);
+  const decoded = await fetchDecodedVault(connection, ctx.vaultPda);
+  const totalShares = decoded ? BigInt(decoded.totalShares.toString()) : 0n;
+  const sharesDecimals = await fetchSharesDecimals(connection, ctx);
+
+  if (totalShares === 0n) {
+    return emptyVaultNavView(connection, ctx, vaultId);
+  }
+
+  const mintsToPrice = holdings
+    .filter((h) => !h.isQuoteAsset && h.balanceRaw > 0n)
+    .map((h) => h.mint);
+  const prices = await fetchUsdPrices(mintsToPrice);
+
+  const priced: PricedAsset[] = holdings.map((h) => ({
+    ...h,
+    priceScaled: h.isQuoteAsset
+      ? null
+      : h.balanceRaw > 0n
+        ? priceToFixedPoint(prices.get(h.mint)!.usdPrice)
+        : null, // zero-balance non-quote asset never needs a price
+  }));
+
+  const totalNav = totalUsdcValue(priced, USDC_DECIMALS).toString();
+  const sharePrice = sharePriceRaw(BigInt(totalNav), totalShares).toString();
+  const priceDecimals = Math.log10(PRICE_SCALE);
+
+  return {
+    totalNavUsd: `$${formatUnits(totalNav, USDC_DECIMALS)}`,
+    sharePriceUsd: `$${formatUnits(sharePrice, priceDecimals)}`,
+    totalSharesUi: formatUnits(totalShares.toString(), sharesDecimals),
+    totalNav,
+    sharePrice,
+    totalShares: totalShares.toString(),
+    sharesDecimals,
+  };
+}
+
+/**
  * Live NAV view — raw on-chain units plus human-readable USD / share strings.
  * Mirrors `c_vault_script/lib/sdk/views.js` `getTotalNavView` formatting so the
  * UI does not dump opaque raw integers (or empty) in the OUTPUT panel.
@@ -3124,6 +3187,10 @@ async function emptyVaultNavView(
  * Pass `wallet` when available: missing vault ATAs are simulated as
  * preInstructions. Views use on-chain spot pricing (`use_spot`) — stale
  * TWAP does not block this call (deposit/redeem still require TWAP).
+ *
+ * On mainnet, NAV is computed client-side from vault ATA balances × Jupiter
+ * USD prices (no transaction simulation — no 1232-byte limit). Localhost
+ * keeps the on-chain `.view()` path so Surfpool synthetic mints still price.
  */
 export async function getTotalNavView(
   connection: Connection,
@@ -3131,8 +3198,13 @@ export async function getTotalNavView(
   network: Network = 'mainnet',
   wallet?: AnchorWallet | null,
 ): Promise<NavView> {
-  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
+
+  if (network === 'mainnet') {
+    return computeNavFromChain(connection, ctx, vaultId);
+  }
+
+  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
   let raw: Record<string, unknown>;
@@ -3324,25 +3396,33 @@ export async function previewDeposit(
   network: Network = 'mainnet',
   wallet?: AnchorWallet | null,
 ): Promise<PreviewDepositResult> {
-  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
+
+  if (network === 'mainnet') {
+    const nav = await computeNavFromChain(connection, ctx, vaultId);
+    const usdcInRaw = BigInt(usdcAmount.toString());
+    const sharesToMint = previewSharesToMint(usdcInRaw, BigInt(nav.sharePrice));
+    return {
+      sharesToMint: sharesToMint.toString(),
+      totalNav: nav.totalNav,
+      sharePrice: nav.sharePrice,
+      totalShares: nav.totalShares,
+    };
+  }
+
+  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
-  let result: Record<string, unknown>;
-  try {
-    result = await (program.methods as any)
-      .previewDeposit(new BN(vaultId), usdcAmount)
-      .accounts({
-        globalState: deriveGlobalStatePda(),
-        vault: ctx.vaultPda,
-        vaultAuthority: ctx.vaultAuthority,
-      } as never)
-      .remainingAccounts(await navRemainingAccounts(connection, ctx))
-      .preInstructions(preIxs)
-      .view();
-  } catch (err) {
-    throw err;
-  }
+  const result = await (program.methods as any)
+    .previewDeposit(new BN(vaultId), usdcAmount)
+    .accounts({
+      globalState: deriveGlobalStatePda(),
+      vault: ctx.vaultPda,
+      vaultAuthority: ctx.vaultAuthority,
+    } as never)
+    .remainingAccounts(await navRemainingAccounts(connection, ctx))
+    .preInstructions(preIxs)
+    .view();
 
   return {
     sharesToMint: viewFieldToString(result, 'sharesToMint', 'shares_to_mint'),
@@ -3366,25 +3446,34 @@ export async function previewRedeem(
   network: Network = 'mainnet',
   wallet?: AnchorWallet | null,
 ): Promise<PreviewRedeemResult> {
-  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
+
+  if (network === 'mainnet') {
+    const nav = await computeNavFromChain(connection, ctx, vaultId);
+    const sharesInRaw = BigInt(shares.toString());
+    const usdcOut = previewUsdcOut(sharesInRaw, BigInt(nav.sharePrice));
+    return {
+      numAssets: ctx.numAssets,
+      // Aggregate estimate only — per-asset swap legs require simulation.
+      assetAmounts: [],
+      estimatedUsdcValue: usdcOut.toString(),
+      totalShares: nav.totalShares,
+    };
+  }
+
+  const program = createProgram(wallet ?? createDummyWallet(), connection);
   const preIxs = await prepareViewAccounts(connection, network, ctx, wallet);
 
-  let result: Record<string, unknown>;
-  try {
-    result = await (program.methods as any)
-      .previewRedeem(new BN(vaultId), shares)
-      .accounts({
-        globalState: deriveGlobalStatePda(),
-        vault: ctx.vaultPda,
-        vaultAuthority: ctx.vaultAuthority,
-      } as never)
-      .remainingAccounts(await navRemainingAccounts(connection, ctx))
-      .preInstructions(preIxs)
-      .view();
-  } catch (err) {
-    throw err;
-  }
+  const result = await (program.methods as any)
+    .previewRedeem(new BN(vaultId), shares)
+    .accounts({
+      globalState: deriveGlobalStatePda(),
+      vault: ctx.vaultPda,
+      vaultAuthority: ctx.vaultAuthority,
+    } as never)
+    .remainingAccounts(await navRemainingAccounts(connection, ctx))
+    .preInstructions(preIxs)
+    .view();
 
   const assetAmountsRaw = viewField(result, 'assetAmounts', 'asset_amounts');
   const amounts = Array.isArray(assetAmountsRaw)
@@ -3489,6 +3578,35 @@ export async function getUserUsdcBalance(
   } catch {
     return '0'; // ata may not exist
   }
+}
+
+/**
+ * Every basket asset's vault-held balance, tagged with whether it's the
+ * vault's quote asset (USDC — skip pricing) or needs a USD price. A missing
+ * ATA (asset slot never funded) reads as a zero balance, matching
+ * `vaultWsolBalance`'s existing precedent just below.
+ */
+async function fetchVaultAssetHoldings(
+  connection: Connection,
+  ctx: VaultChainCtx,
+): Promise<AssetHolding[]> {
+  const holdings: AssetHolding[] = [];
+  for (const asset of ctx.assets.slice(0, ctx.numAssets)) {
+    let balanceRaw = 0n;
+    try {
+      const bal = await connection.getTokenAccountBalance(asset.vaultAssetAtaKey);
+      balanceRaw = BigInt(bal.value.amount);
+    } catch {
+      // ATA doesn't exist yet — asset slot never funded, balance is 0.
+    }
+    holdings.push({
+      mint: asset.mint.toBase58(),
+      balanceRaw,
+      decimals: asset.decimals,
+      isQuoteAsset: asset.mint.equals(ctx.baseMint),
+    });
+  }
+  return holdings;
 }
 
 /** Raw wSOL balance of the vault's wSOL ATA — used to measure ViaSol leg output. */
