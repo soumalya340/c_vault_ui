@@ -612,66 +612,75 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           </p>
 
           <SectionDivider title="Vault metadata" side="A · identity" />
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
-            <div className="shrink-0">
-              <FieldLabel>Vault image</FieldLabel>
-              <ImageDropzone value={uri} onChange={setUri} onUploadingChange={setImageUploading} />
-              {uri ? (
-                <p className="mt-1.5 max-w-[10rem] truncate font-mono text-[10px] text-muted-foreground">
-                  {uri}
-                </p>
-              ) : (
-                <p className="mt-1.5 max-w-[10rem] font-mono text-[10px] text-muted-foreground/70">
-                  Required before you can create the vault.
-                </p>
-              )}
-            </div>
-            <div className="flex flex-1 flex-col gap-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <FieldLabel>Share name</FieldLabel>
-                  <TextInput
-                    value={name}
-                    onChange={setName}
-                    placeholder="cVault Shares"
-                    maxLength={32}
-                    required
-                  />
-                </div>
-                <div>
-                  <FieldLabel>Share symbol</FieldLabel>
-                  <TextInput
-                    value={symbol}
-                    onChange={setSymbol}
-                    placeholder="CVS"
-                    maxLength={10}
-                    style={{ textTransform: 'uppercase' }}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-1 flex-col">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <FieldLabel>Description (Optional)</FieldLabel>
-                  <button
-                    type="button"
-                    onClick={handleGenerateInfo}
-                    disabled={generatingInfo || !name.trim()}
-                    className="border border-border-strong bg-background px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {generatingInfo ? 'Generating…' : 'Auto-generate'}
-                  </button>
-                </div>
-                <TextArea
-                  value={additionalInfo}
-                  onChange={setAdditionalInfo}
-                  placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
-                  maxLength={MAX_METADATA_VALUE_LEN}
-                  className="flex-1 resize-none"
+          <div>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+              {/* Image column: dropzone flex-grows so its bottom edge matches the description box */}
+              <div className="flex w-40 shrink-0 flex-col">
+                <FieldLabel>Vault image</FieldLabel>
+                <ImageDropzone
+                  value={uri}
+                  onChange={setUri}
+                  onUploadingChange={setImageUploading}
+                  className="min-h-40 flex-1"
                 />
               </div>
+              <div className="flex min-h-0 flex-1 flex-col gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <FieldLabel>Share name</FieldLabel>
+                    <TextInput
+                      value={name}
+                      onChange={setName}
+                      placeholder="cVault Shares"
+                      maxLength={32}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Share symbol</FieldLabel>
+                    <TextInput
+                      value={symbol}
+                      onChange={setSymbol}
+                      placeholder="CVS"
+                      maxLength={10}
+                      style={{ textTransform: 'uppercase' }}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <FieldLabel>Description (Optional)</FieldLabel>
+                    <button
+                      type="button"
+                      onClick={handleGenerateInfo}
+                      disabled={generatingInfo || !name.trim()}
+                      className="border border-border-strong bg-background px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {generatingInfo ? 'Generating…' : 'Auto-generate'}
+                    </button>
+                  </div>
+                  <TextArea
+                    value={additionalInfo}
+                    onChange={setAdditionalInfo}
+                    placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
+                    maxLength={MAX_METADATA_VALUE_LEN}
+                    className="h-full min-h-0 flex-1 resize-none"
+                  />
+                </div>
+              </div>
             </div>
+            {/* Helper sits outside the stretch row so it doesn't push the description below the dropzone */}
+            {uri ? (
+              <p className="mt-1.5 max-w-[10rem] truncate font-mono text-[10px] text-muted-foreground">
+                {uri}
+              </p>
+            ) : (
+              <p className="mt-1.5 max-w-[10rem] font-mono text-[10px] text-muted-foreground/70">
+                Required before you can create the vault.
+              </p>
+            )}
           </div>
           {generateInfoError && (
             <p className="text-xs leading-relaxed text-destructive">{generateInfoError}</p>

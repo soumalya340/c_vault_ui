@@ -61,7 +61,7 @@ export function ImageDropzone({ value, onChange, onUploadingChange, className }:
   };
 
   return (
-    <div className={className}>
+    <div className={`flex min-h-0 flex-col ${className ?? 'h-40 w-40'}`}>
       <input
         ref={inputRef}
         id={inputId}
@@ -76,7 +76,7 @@ export function ImageDropzone({ value, onChange, onUploadingChange, className }:
       />
 
       {value ? (
-        <div className="relative flex h-40 w-40 items-center justify-center overflow-hidden border border-border-strong bg-background">
+        <div className="relative flex h-full w-full min-h-0 flex-1 items-center justify-center overflow-hidden border border-border-strong bg-background">
           {/* eslint-disable-next-line @next/next/no-img-element -- external Blob URL, no next/image domain config needed for a preview thumbnail */}
           <img src={value} alt="Vault metadata preview" className="h-full w-full object-cover" />
           <button
@@ -105,7 +105,7 @@ export function ImageDropzone({ value, onChange, onUploadingChange, className }:
           disabled={uploading}
           aria-label="Upload vault image"
           aria-busy={uploading}
-          className={`flex h-40 w-40 flex-col items-center justify-center gap-2 border-2 border-dashed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-60 ${
+          className={`flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center gap-2 border-2 border-dashed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-60 ${
             dragOver
               ? 'border-accent bg-accent/5'
               : 'border-border-strong hover:border-foreground/50 hover:bg-foreground/[0.02]'
