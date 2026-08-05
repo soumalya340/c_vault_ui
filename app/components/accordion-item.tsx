@@ -617,13 +617,6 @@ export function AccordionItem({
               ? Number(values.vault_id)
               : null
           }
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — run the action again (e.g. Get Total NAV View).',
-            });
-          }}
         />
       )}
       <button

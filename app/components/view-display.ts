@@ -126,10 +126,9 @@ function humanizeVaultState(d: Record<string, unknown>): Record<string, unknown>
   const out: Record<string, unknown> = {
     vaultId: d.vaultId,
     totalShares: formatTokenUi(String(d.totalShares ?? '0'), 6),
-    totalUsdcValue: formatUsdUi(String(d.totalUsdcValue ?? '0'), USDC_DECIMALS),
     totalPendingUsdc: formatUsdUi(String(d.totalPendingUsdc ?? '0'), USDC_DECIMALS),
     totalPendingSol: `${formatTokenUi(String(d.totalPendingSol ?? '0'), WSOL_DECIMALS)} SOL`,
-    sharePriceAth: formatUsdUi(String(d.athSharePrice ?? '0'), PRICE_SCALE_DECIMALS),
+    baselineSharePrice: formatUsdUi(String(d.baselineSharePrice ?? '0'), PRICE_SCALE_DECIMALS),
     depositFee: formatBpsAsPercent(Number(d.depositFeeBps ?? 0)),
     redeemFee: formatBpsAsPercent(Number(d.redeemFeeBps ?? 0)),
     numAssets: d.numAssets,

@@ -169,7 +169,6 @@ function AccordionShell({
   loading,
   network,
   vaultId,
-  onTwapRefresh,
 }: {
   number: string;
   name: string;
@@ -183,7 +182,6 @@ function AccordionShell({
   loading: boolean;
   network: Network;
   vaultId: number;
-  onTwapRefresh: () => void;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [errorOpen, setErrorOpen] = useState(false);
@@ -218,10 +216,6 @@ function AccordionShell({
           onClose={() => setErrorOpen(false)}
           network={network}
           vaultId={vaultId}
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            onTwapRefresh();
-          }}
         />
       )}
 
@@ -381,7 +375,7 @@ export function CreatePoolAccordion({
   const walletKey = publicKey?.toBase58() ?? '';
 
   // Load share price when the panel opens. Prefer live oracle NAV; fall back
-  // to book (total_usdc_value ÷ shares) or genesis baseline so the field is
+  // to genesis baseline so the field is
   // never stuck on "—" for a funded vault.
   useEffect(() => {
     if (!open) return;
@@ -604,18 +598,12 @@ export function CreatePoolAccordion({
       tag="Meteora"
       open={open}
       onToggle={onToggle}
-      description="Create a Meteora DAMM v2 pool for this vault's share token against USDC and seed the initial position in one transaction. Token A is the vault share mint, token B is always USDC. Init price prefers live oracle NAV, then falls back to book value (total_usdc_value ÷ shares) or the genesis baseline. Set seed size and trading fee percentage (0.01%–99%)."
+      description="Create a Meteora DAMM v2 pool for this vault's share token against USDC and seed the initial position in one transaction. Token A is the vault share mint, token B is always USDC. Init price prefers live oracle NAV, then falls back to the genesis baseline. Set seed size and trading fee percentage (0.01%–99%)."
       result={result}
       lastError={lastError}
       loading={loading || priceLoading}
       network={network}
       vaultId={vaultId}
-      onTwapRefresh={() =>
-        setResult({
-          type: 'info',
-          text: 'DEX TWAP refreshed — re-open this panel or run Create pool again.',
-        })
-      }
     >
       {poolCreated ? (
         <div className="flex flex-wrap items-center gap-3">

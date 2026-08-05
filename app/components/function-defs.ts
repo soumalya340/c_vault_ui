@@ -204,16 +204,8 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
     submitLabel: 'Update treasury',
   },
   {
-    id: 'set_twap_keeper',
-    number: '04',
-    title: 'Set TWAP keeper',
-    description: 'Wallet allowed to call update_dex_twap (Pubkey::default clears).',
-    fields: [{ name: 'keeper', label: 'Keeper address', placeholder: ADMIN_PUBKEY.toBase58() }],
-    submitLabel: 'Set keeper',
-  },
-  {
     id: 'create_asset',
-    number: '05',
+    number: '04',
     title: 'Create asset',
     description:
       'List a new global asset. Pool address is verified live with the Orca Whirlpools SDK or Meteora DAMM v2 (CpAmm) SDK — pick DEX Type to match the pool. The pool must be this mint paired with wSOL (ViaSol) or network USDC (DirectUsdc).',
@@ -284,7 +276,7 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
   },
   {
     id: 'set_asset_active',
-    number: '06',
+    number: '05',
     title: 'Set asset active',
     description:
       'Flip an asset’s active flag. Inactive assets are rejected by new create_etf calls only — vaults already referencing the asset are unaffected.',
@@ -304,7 +296,7 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
   },
   {
     id: 'set_vault_emergency_lock',
-    number: '07',
+    number: '06',
     title: 'Set vault emergency lock',
     description:
       'Lock or unlock deposits for one specific vault, independent of the vault manager’s own pause. Redemptions always remain open.',
@@ -321,30 +313,6 @@ export const ADMIN_FUNCTIONS: FunctionDef[] = [
       },
     ],
     submitLabel: 'Update lock',
-  },
-  {
-    id: 'update_dex_twap',
-    number: '08',
-    title: 'Update DEX TWAP',
-    description:
-      'Keeper-only: push a live price observation into TWAP for one DEX-priced asset. The observation is read from Jupiter at submit time and converted to the Q64.64 scale the program expects — nothing is entered by hand. Rejected if the asset is Pyth-priced or the connected wallet isn\'t the configured TWAP keeper.',
-    fields: [
-      ASSET_ID_FIELD,
-      {
-        name: 'twap_live_state',
-        label: 'Live price',
-        fixed: 'Jupiter spot → Q64.64 (derived at submit)',
-        info:
-          'The program stores raw-USDC-per-raw-asset in Q64.64 fixed point, not a USD price. ' +
-          'That value folds in the asset\'s decimals (a $200 9-decimal asset is a smaller number ' +
-          'than a $1 6-decimal one) and reaches ~1.8e19 — past the largest integer a JS number ' +
-          'holds exactly. It is therefore computed from the asset\'s on-chain decimals and the ' +
-          'live Jupiter price rather than typed. Note: update_dex_twap takes a u64, so an asset ' +
-          'whose raw ratio is >= 1.0 (a 6-decimal asset at or above ~$1.00) cannot be pushed ' +
-          'until the instruction is widened to u128.',
-      },
-    ],
-    submitLabel: 'Push TWAP observation',
   },
 ];
 
@@ -368,10 +336,8 @@ export const REQUIRES_WALLET = new Set([
   'init_global_state',
   'set_emergency',
   'update_treasury_addr',
-  'set_twap_keeper',
   'create_asset',
   'set_asset_active',
-  'update_dex_twap',
 ]);
 
 export const SECTION_STYLE: Record<SectionId, { accent: string; glow: string }> = {

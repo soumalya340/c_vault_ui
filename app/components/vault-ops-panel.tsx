@@ -239,13 +239,6 @@ function OperationAccordion({
           onClose={() => setErrorOpen(false)}
           network={network}
           vaultId={vaultId ? Number(vaultId) : null}
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — run the action again if needed.',
-            });
-          }}
         />
       )}
 

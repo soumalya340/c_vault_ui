@@ -5,13 +5,13 @@
  * account, so `program.account.vault.fetch` mis-reads later fields
  * (`num_assets`, `asset_ids`, …).
  *
- * Layout mirrors `deps/c_vault/programs/vault/src/account_state/state.rs`
+ * Layout mirrors `deps/programs/vault/src/account_state/state.rs`
  * (`#[account(zero_copy(unsafe))] #[repr(C)]`):
- *   body size = 720, full account = 8 (disc) + 720 = 728.
+ *   body size = 680, full account = 8 (disc) + 680 = 688.
  *
- * Includes `genesis_done` + `genesis_shares_minted` (added after the original
- * hand layout). Missing those 16 bytes shifted every later field and made
- * genesis / deposit / redeem crash when reading the vault basket.
+ * 2.0.2 layout: removed `total_usdc_value`, ATH/rolling-high marks,
+ * `total_deposited`, `total_withdrawn`; added M-07 `sol_deploy_remaining_bps`
+ * + `sol_deploy_done_mask`.
  */
 
 import { PublicKey } from '@solana/web3.js';
@@ -30,24 +30,22 @@ export interface DecodedVault {
   feeRecipient: PublicKey;
   sharesMint: PublicKey;
   totalShares: BN;
-  totalUsdcValue: BN;
   /** `0` = not seeded, `1` = seeded (`is_genesis_done`). */
   genesisDone: number;
-  /** Genesis baseline share price (PRICE_SCALE). Set once in genesis_deposit. */
+  /** Genesis baseline share price (PRICE_SCALE). Immutable after create_etf / genesis. */
   baselineSharePrice: BN;
   /** Shares minted by genesis_deposit; written once. */
   genesisSharesMinted: BN;
-  athSharePrice: BN;
-  rollingHighPrice: BN;
-  rollingWindowStart: BN;
-  totalDeposited: BN;
-  totalWithdrawn: BN;
   depositFeeBps: number;
   redeemFeeBps: number;
   totalPendingUsdc: BN;
   totalPendingSol: BN;
   usdcTargetAmount: BN[];
   solTargetBps: number[];
+  /** M-07: bps still owed in the current ViaSol wSOL deploy round. */
+  solDeployRemainingBps: number;
+  /** M-07: bitmask of slots already deployed this round. */
+  solDeployDoneMask: number;
   reservedAssets: BN[];
   bump: number;
   authorityBump: number;
@@ -63,8 +61,7 @@ export interface DecodedVault {
 
 /**
  * Absolute byte offsets into the full account (including 8-byte discriminator).
- * Body layout verified against live mainnet vault data (len 728) and
- * `size_of::<Vault>() == 720`.
+ * Body layout: rustc `repr(C)` of `Vault` (size_of = 680).
  */
 const OFF = {
   vaultId: 8,
@@ -75,40 +72,37 @@ const OFF = {
   sharesMint: 82,
   // pad 6 → align u64
   totalShares: 120,
-  totalUsdcValue: 128,
-  genesisDone: 136,
+  genesisDone: 128,
   // pad 7 → align u64
-  baselineSharePrice: 144,
-  genesisSharesMinted: 152,
-  athSharePrice: 160,
-  rollingHighPrice: 168,
-  rollingWindowStart: 176,
-  totalDeposited: 184,
-  totalWithdrawn: 192,
-  depositFeeBps: 200,
-  redeemFeeBps: 202,
+  baselineSharePrice: 136,
+  genesisSharesMinted: 144,
+  depositFeeBps: 152,
+  redeemFeeBps: 154,
   // pad 4 → align u64
-  totalPendingUsdc: 208,
-  totalPendingSol: 216,
-  usdcTargetAmount: 224, // [u64; 8]
-  solTargetBps: 288, // [u16; 8]
-  reservedAssets: 304, // [u64; 8]
-  bump: 368,
-  authorityBump: 369,
-  shareMintBump: 370,
-  usdcVaultBump: 371,
-  fundType: 372,
+  totalPendingUsdc: 160,
+  totalPendingSol: 168,
+  usdcTargetAmount: 176, // [u64; 8]
+  solTargetBps: 240, // [u16; 8]
+  solDeployRemainingBps: 256,
+  solDeployDoneMask: 258,
+  // pad 5 → align u64
+  reservedAssets: 264, // [u64; 8]
+  bump: 328,
+  authorityBump: 329,
+  shareMintBump: 330,
+  usdcVaultBump: 331,
+  fundType: 332,
   // pad 3 → align u64
-  maxShares: 376,
-  numAssets: 384,
+  maxShares: 336,
+  numAssets: 344,
   // pad 7 → align u64
-  assetIds: 392, // [u64; 8]
-  assetAllocationBps: 456, // [u16; 8]
-  assetAtaAddress: 472, // [Pubkey; 8]
+  assetIds: 352, // [u64; 8]
+  assetAllocationBps: 416, // [u16; 8]
+  assetAtaAddress: 432, // [Pubkey; 8]
 } as const;
 
-/** Full account length: 8-byte Anchor disc + 720-byte `repr(C)` body. */
-const EXPECTED_LEN = DISC + 720; // 728
+/** Full account length: 8-byte Anchor disc + 680-byte `repr(C)` body. */
+const EXPECTED_LEN = DISC + 680; // 688
 
 function u64(data: Buffer, off: number): BN {
   return new BN(data.subarray(off, off + 8), 'le');
@@ -171,21 +165,17 @@ export function decodeVaultAccount(data: Buffer | Uint8Array): DecodedVault {
     feeRecipient: pk(buf, OFF.feeRecipient),
     sharesMint: pk(buf, OFF.sharesMint),
     totalShares: u64(buf, OFF.totalShares),
-    totalUsdcValue: u64(buf, OFF.totalUsdcValue),
     genesisDone: buf[OFF.genesisDone],
     baselineSharePrice: u64(buf, OFF.baselineSharePrice),
     genesisSharesMinted: u64(buf, OFF.genesisSharesMinted),
-    athSharePrice: u64(buf, OFF.athSharePrice),
-    rollingHighPrice: u64(buf, OFF.rollingHighPrice),
-    rollingWindowStart: u64(buf, OFF.rollingWindowStart),
-    totalDeposited: u64(buf, OFF.totalDeposited),
-    totalWithdrawn: u64(buf, OFF.totalWithdrawn),
     depositFeeBps: u16(buf, OFF.depositFeeBps),
     redeemFeeBps: u16(buf, OFF.redeemFeeBps),
     totalPendingUsdc: u64(buf, OFF.totalPendingUsdc),
     totalPendingSol: u64(buf, OFF.totalPendingSol),
     usdcTargetAmount,
     solTargetBps,
+    solDeployRemainingBps: u16(buf, OFF.solDeployRemainingBps),
+    solDeployDoneMask: buf[OFF.solDeployDoneMask],
     reservedAssets,
     bump: buf[OFF.bump],
     authorityBump: buf[OFF.authorityBump],

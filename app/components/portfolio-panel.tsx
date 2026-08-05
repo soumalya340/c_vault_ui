@@ -667,7 +667,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
       )}
 
       <p className='font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/80'>
-        Book value = pro-rata share of vault total_usdc_value. Live oracle NAV
+        Estimated USD is not shown on this light path (on-chain book counter removed). Live oracle NAV
         is available under View · Read NAV.
       </p>
 

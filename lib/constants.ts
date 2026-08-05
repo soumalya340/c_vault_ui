@@ -25,6 +25,8 @@ export const VAULT_AUTHORITY_SEED = Buffer.from('vault_authority');
 export const SHARES_MINT_SEED = Buffer.from('shares_mint');
 export const USDC_VAULT_SEED = Buffer.from('usdc_vault');
 export const REDEEM_SEED = Buffer.from('redeem');
+/** Per-user, per-vault USDC escrow for the async redeem flow (C-03). */
+export const REDEEM_USDC_SEED = Buffer.from('redeem_usdc');
 
 /**
  * Quote mint per cluster. The program hardcodes a single `USDC_MINT` constant
@@ -145,16 +147,14 @@ export const MAX_REDEEM_FEE_BPS = 1000;
  */
 export const CREATE_ETF_MAX_METADATA_BYTES = 400;
 
-/** Mirror on-chain TWAP_OBSERVATION_MAX_STALE_SECS (45 minutes). */
-export const TWAP_OBSERVATION_MAX_STALE_SECS = 45 * 60;
-/** Mirror on-chain TWAP_KEEPER_MAX_STALE_SECS (1 hour). */
-export const TWAP_KEEPER_MAX_STALE_SECS = 60 * 60;
-
 /**
- * Canonical on-chain `global_state.twap_keeper` for local/dev (matches c_vault_script).
- * Auth signer only — never the fee payer. Secret stays server-side
- * (`TWAP_KEEPER_SECRET` or monorepo script keypair file).
+ * @deprecated TWAP keeper removed from the program (2.0.2). Kept only so dead
+ * client modules fail clearly at runtime rather than at import time. Do not use.
  */
+export const TWAP_OBSERVATION_MAX_STALE_SECS = 45 * 60;
+/** @deprecated See TWAP_OBSERVATION_MAX_STALE_SECS. */
+export const TWAP_KEEPER_MAX_STALE_SECS = 60 * 60;
+/** @deprecated TWAP keeper instruction removed. */
 export const TWAP_KEEPER_PUBKEY = new PublicKey(
   'DExJYXEqEGCzbsN93FeeoQu6cQZkuEB8PBEn64GJKt7W',
 );

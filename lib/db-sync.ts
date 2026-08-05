@@ -162,7 +162,8 @@ export async function syncVaultsFromChain(
       vault_manager: manager,
       deposit_fee_bps: state.depositFeeBps,
       redeem_fee_bps: state.redeemFeeBps,
-      total_usdc_value: state.totalUsdcValue,
+      // On-chain book counter removed (L-01); keep registry column at 0.
+      total_usdc_value: '0',
       asset_ids: state.assetIds,
       asset_allocation_bps: state.assetAllocationBps,
       num_assets: state.numAssets,

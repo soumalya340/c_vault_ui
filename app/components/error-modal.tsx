@@ -2,20 +2,8 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { PublicKey } from '@solana/web3.js';
-import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import {
-  isTwapRefreshableError,
-  parseTxError,
-  type UserFacingError,
-} from '@/lib/txError';
-import { fetchVaultCtx, setTwapKeeper, type Network } from '@/lib/cvault';
-import { createProgram } from '@/lib/program';
-import { ADMIN_PUBKEY, TWAP_KEEPER_PUBKEY } from '@/lib/constants';
-import { deriveGlobalStatePda } from '@/lib/pda';
-import { ensureVaultDexTwapFresh, refreshAllStaleDexTwaps } from '@/lib/twap';
-import { btnGhostClass, btnPrimaryClass, btnSecondaryClass } from './ui-classes';
+import type { UserFacingError } from '@/lib/txError';
+import { btnGhostClass, btnPrimaryClass } from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
 
 function useIsClient() {
@@ -24,25 +12,21 @@ function useIsClient() {
   return mounted;
 }
 
-function isDefaultPubkey(pk: PublicKey): boolean {
-  return pk.equals(PublicKey.default);
-}
-
 /**
- * Error dialog. On any TWAP keeper/staleness failure shows **Refresh Asset**:
- * ensure on-chain twap_keeper is set (admin), then multi-ix spot refresh (user pays).
+ * Error dialog for transaction failures.
+ * (TWAP keeper refresh removed — deposit/NAV price live pool spot as of 2.0.2.)
  */
 export function ErrorModal({
   error,
   onClose,
-  vaultId,
-  network = 'localhost',
-  onRefreshSuccess,
 }: {
   error: UserFacingError;
   onClose: () => void;
+  /** @deprecated unused — kept for call-site compatibility */
   vaultId?: number | null;
-  network?: Network;
+  /** @deprecated unused — kept for call-site compatibility */
+  network?: string;
+  /** @deprecated unused — kept for call-site compatibility */
   onRefreshSuccess?: () => void;
 }) {
   const titleId = useId();
@@ -52,21 +36,10 @@ export function ErrorModal({
     useModalTransition(onClose);
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshNote, setRefreshNote] = useState<string | null>(null);
-  const [refreshErr, setRefreshErr] = useState<string | null>(null);
-
-  const { connection } = useConnection();
-  const anchorWallet = useAnchorWallet();
-  const { connected, publicKey } = useWallet();
-  const { setVisible } = useWalletModal();
-
-  // Always recompute from current error object (6050 / 6052 / message match).
-  const showRefreshAsset = isTwapRefreshableError(error);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !refreshing && !isClosing) requestClose();
+      if (e.key === 'Escape' && !isClosing) requestClose();
     }
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
@@ -76,7 +49,7 @@ export function ErrorModal({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [requestClose, refreshing, isClosing]);
+  }, [requestClose, isClosing]);
 
   if (!mounted) return null;
 
@@ -116,82 +89,12 @@ export function ErrorModal({
     }
   };
 
-  const handleRefreshAsset = async () => {
-    if (!connected || !anchorWallet || !publicKey) {
-      setVisible(true);
-      setRefreshErr('Connect a wallet first — admin assigns keeper if needed; you pay refresh fees.');
-      return;
-    }
-
-    setRefreshing(true);
-    setRefreshErr(null);
-    setRefreshNote(null);
-
-    try {
-      const program = createProgram(anchorWallet, connection);
-
-      // 1) Ensure global_state.twap_keeper is set (fixes 6050).
-      const gs = await (program.account as any).globalState.fetch(deriveGlobalStatePda());
-      const currentKeeper = gs.twapKeeper as PublicKey;
-      if (isDefaultPubkey(currentKeeper)) {
-        if (!publicKey.equals(ADMIN_PUBKEY)) {
-          throw new Error(
-            `TWAP keeper is unset. Connect the admin wallet (${ADMIN_PUBKEY.toBase58().slice(0, 8)}…) ` +
-              `and click Refresh Asset again to assign ${TWAP_KEEPER_PUBKEY.toBase58().slice(0, 8)}….`,
-          );
-        }
-        setRefreshNote('Assigning TWAP keeper (admin)…');
-        await setTwapKeeper(connection, anchorWallet, TWAP_KEEPER_PUBKEY, network);
-        setRefreshNote(`Keeper set → ${TWAP_KEEPER_PUBKEY.toBase58().slice(0, 8)}…`);
-      }
-
-      // 2) Push Orca/DAMM spots for stale DEX assets (fixes 6052).
-      const progress = (msg: string) => setRefreshNote(msg);
-      let result;
-      if (vaultId != null && Number.isFinite(Number(vaultId))) {
-        const ctx = await fetchVaultCtx(connection, Number(vaultId), network);
-        result = await ensureVaultDexTwapFresh(
-          connection,
-          anchorWallet,
-          program,
-          ctx,
-          progress,
-        );
-      } else {
-        result = await refreshAllStaleDexTwaps(
-          connection,
-          anchorWallet,
-          program,
-          progress,
-        );
-      }
-
-      if (result.refreshed === 0) {
-        setRefreshNote(
-          'Keeper OK; no stale DEX TWAPs left. Retry the original action (e.g. Get Total NAV View).',
-        );
-      } else {
-        setRefreshNote(
-          `Refreshed ${result.refreshed} asset(s) in 1 tx` +
-            (result.signature ? ` · ${result.signature.slice(0, 8)}…` : '') +
-            '. Continue with the original action.',
-        );
-      }
-      onRefreshSuccess?.();
-    } catch (err) {
-      const parsed = parseTxError(err);
-      setRefreshErr(parsed.summary || parsed.raw || String(err));
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div
         className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
         onClick={() => {
-          if (!refreshing && !isClosing) requestClose();
+          if (!isClosing) requestClose();
         }}
         aria-hidden
       />
@@ -221,7 +124,7 @@ export function ErrorModal({
             <button
               type="button"
               onClick={requestClose}
-              disabled={refreshing || isClosing}
+              disabled={isClosing}
               aria-label="Close"
               className={btnGhostClass}
             >
@@ -241,28 +144,6 @@ export function ErrorModal({
                 What to do
               </p>
               <p className="mt-1.5 text-sm leading-[1.55] text-foreground">{error.fix}</p>
-            </div>
-          )}
-
-          {showRefreshAsset && (
-            <div className="rounded-[2px] border border-accent/40 bg-accent/[0.06] px-3.5 py-3">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-accent">
-                Testing · DEX TWAP
-              </p>
-              <p className="mt-1.5 text-sm leading-[1.55] text-foreground">
-                <strong className="font-medium">Refresh Price</strong> will (1) assign the
-                canonical TWAP keeper if unset — admin wallet required — then (2) push Orca/DAMM
-                spots in one multi-ix tx. You pay fees; keeper only cosigns.
-                {vaultId != null ? ` Vault ${vaultId}.` : ''}
-              </p>
-              {refreshNote && (
-                <p className="mt-2 font-mono text-[11px] leading-relaxed text-accent">{refreshNote}</p>
-              )}
-              {refreshErr && (
-                <p className="mt-2 font-mono text-[11px] leading-relaxed text-destructive">
-                  {refreshErr}
-                </p>
-              )}
             </div>
           )}
 
@@ -314,27 +195,11 @@ export function ErrorModal({
           )}
 
           <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-            {showRefreshAsset && (
-              <button
-                type="button"
-                onClick={handleRefreshAsset}
-                disabled={refreshing}
-                className={btnSecondaryClass}
-              >
-                {refreshing ? (
-                  <span className="t-shimmer" data-text="Refreshing…">
-                    Refreshing…
-                  </span>
-                ) : (
-                  'Refresh Price'
-                )}
-              </button>
-            )}
             <button
               type="button"
               data-dismiss
               onClick={requestClose}
-              disabled={refreshing || isClosing}
+              disabled={isClosing}
               className={btnPrimaryClass}
             >
               Understood

@@ -2,14 +2,19 @@
  * Wallet portfolio: which cVault ETF share certificates a pubkey holds, and
  * how much. Reads are RPC-only (no program .view() / simulateTransaction) so
  * the page stays light on quota — share balances from Token-2022 ATAs, an
- * optional RedeemState PDA, and book value from the vault account.
+ * optional RedeemState PDA + redeem_usdc escrow, and share supply from the
+ * vault account.
+ *
+ * Book value is **not** computed from the vault account anymore — the on-chain
+ * `total_usdc_value` counter was removed (Audit L-01). Estimated USDC is left
+ * null unless a future off-chain NAV cache is wired in.
  */
 
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import type { Network } from '@/lib/constants';
 import { USDC_DECIMALS } from '@/lib/constants';
-import { deriveRedeemStatePda, deriveVaultPdas } from '@/lib/pda';
+import { deriveRedeemStatePda, deriveRedeemUsdcPda, deriveVaultPdas } from '@/lib/pda';
 import { decodeVaultAccount } from '@/lib/vaultAccount';
 import type { VaultRecord } from '@/lib/registryClient';
 
@@ -23,17 +28,18 @@ export interface PortfolioHolding {
   /** Shares mint decimals — matches USDC (6) per create_etf. */
   sharesDecimals: number;
   /**
-   * Pro-rata book value in USDC base units:
-   * floor(shareBalance × vault.totalUsdcValue / vault.totalShares).
-   * Null when the vault has zero share supply or zero book value.
-   * Book value is on-chain accounting, not a live oracle NAV.
+   * Pro-rata book value is no longer available from the vault account
+   * (`total_usdc_value` removed). Always null for the lightweight portfolio
+   * path — use live NAV views when a dollar figure is required.
    */
   estimatedUsdc: string | null;
   vaultTotalShares: string;
+  /** @deprecated Always "0" — field retained for UI compatibility. */
   vaultTotalUsdcValue: string;
   /** Ownership of outstanding shares in bps (0–10_000); null if total is 0. */
   ownershipBps: number | null;
   isRedeemActive: boolean;
+  /** USDC base units in the per-redeem escrow (`redeem_usdc`). */
   redeemPendingUsdc: string | null;
 }
 
@@ -80,28 +86,12 @@ function amountFromTokenAccount(data: Buffer | null): bigint {
 
 /**
  * RedeemState after 8-byte disc (Borsh):
- *   is_redeem_active: bool (1 byte, offset 8)
- *   pending_usdc: u64 (offset 9)
- * Only these two fields are needed for the portfolio summary.
+ *   is_redeem_active: bool (offset 8)
+ * Pending USDC is **not** on this account — it lives on `redeem_usdc`.
  */
-function parseRedeemHead(data: Buffer | null): {
-  isRedeemActive: boolean;
-  pendingUsdc: bigint;
-} | null {
-  if (!data || data.length < 9 + 8) return null;
-  const isRedeemActive = data.readUInt8(8) !== 0;
-  const pendingUsdc = readU64Le(data, 9);
-  if (!isRedeemActive && pendingUsdc === 0n) return null;
-  return { isRedeemActive, pendingUsdc };
-}
-
-function proRataUsdc(
-  shareBalance: bigint,
-  totalShares: bigint,
-  totalUsdcValue: bigint,
-): string | null {
-  if (shareBalance <= 0n || totalShares <= 0n || totalUsdcValue <= 0n) return null;
-  return ((shareBalance * totalUsdcValue) / totalShares).toString();
+function parseRedeemActive(data: Buffer | null): boolean {
+  if (!data || data.length < 9) return false;
+  return data.readUInt8(8) !== 0;
 }
 
 function ownershipBps(shareBalance: bigint, totalShares: bigint): number | null {
@@ -115,8 +105,9 @@ function ownershipBps(shareBalance: bigint, totalShares: bigint): number | null 
  *
  * RPC plan (bounded, no per-row simulateTransaction):
  *  1. getMultipleAccountsInfo — user share ATAs (Token-2022)
- *  2. getMultipleAccountsInfo — redeem-state PDAs (pending claims with 0 shares)
- *  3. For rows that still look active: vault accounts (batched)
+ *  2. getMultipleAccountsInfo — redeem-state PDAs
+ *  3. getMultipleAccountsInfo — redeem_usdc escrow token accounts
+ *  4. For rows that still look active: vault accounts (batched)
  */
 export async function fetchWalletPortfolio(
   connection: Connection,
@@ -138,27 +129,32 @@ export async function fetchWalletPortfolio(
     return getAssociatedTokenAddressSync(mint, user, false, TOKEN_2022_PROGRAM_ID);
   });
   const redeemPdas = vaults.map((v) => deriveRedeemStatePda(user, v.vault_id));
+  const redeemUsdcPdas = vaults.map((v) => deriveRedeemUsdcPda(user, v.vault_id));
 
-  const [ataInfos, redeemInfos] = await Promise.all([
+  const [ataInfos, redeemInfos, redeemUsdcInfos] = await Promise.all([
     getMultipleAccountsChunked(connection, shareAtas),
     getMultipleAccountsChunked(connection, redeemPdas),
+    getMultipleAccountsChunked(connection, redeemUsdcPdas),
   ]);
 
   type Candidate = {
     vault: VaultRecord;
     shareBalance: bigint;
-    redeem: ReturnType<typeof parseRedeemHead>;
+    isRedeemActive: boolean;
+    redeemPendingUsdc: bigint;
   };
 
   const candidates: Candidate[] = [];
   for (let i = 0; i < vaults.length; i++) {
     const shareBalance = amountFromTokenAccount(asBuffer(ataInfos[i]?.data));
-    const redeem = parseRedeemHead(asBuffer(redeemInfos[i]?.data));
-    if (shareBalance > 0n || redeem != null) {
+    const isRedeemActive = parseRedeemActive(asBuffer(redeemInfos[i]?.data));
+    const redeemPendingUsdc = amountFromTokenAccount(asBuffer(redeemUsdcInfos[i]?.data));
+    if (shareBalance > 0n || isRedeemActive || redeemPendingUsdc > 0n) {
       candidates.push({
         vault: vaults[i]!,
         shareBalance,
-        redeem,
+        isRedeemActive,
+        redeemPendingUsdc,
       });
     }
   }
@@ -178,53 +174,45 @@ export async function fetchWalletPortfolio(
   const vaultInfos = await getMultipleAccountsChunked(connection, vaultPdas);
 
   const holdings: PortfolioHolding[] = [];
-  let totalEstimated = 0n;
   let pendingRedeemCount = 0;
 
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i]!;
     let totalShares = 0n;
-    let totalUsdcValue = 0n;
 
     const vaultBuf = asBuffer(vaultInfos[i]?.data);
     if (vaultBuf) {
       try {
         const vault = decodeVaultAccount(vaultBuf);
         totalShares = BigInt(vault.totalShares.toString());
-        totalUsdcValue = BigInt(vault.totalUsdcValue.toString());
       } catch {
-        // Full layout validation can fail on edge accounts; the two u64s we
-        // need sit at fixed offsets (see lib/vaultAccount.ts OFF).
-        if (vaultBuf.length >= 136) {
+        // Full layout validation can fail on edge accounts; total_shares sits
+        // at fixed offset 120 (see lib/vaultAccount.ts OFF).
+        if (vaultBuf.length >= 128) {
           totalShares = readU64Le(vaultBuf, 120);
-          totalUsdcValue = readU64Le(vaultBuf, 128);
         }
       }
     }
 
-    const estimatedUsdc = proRataUsdc(c.shareBalance, totalShares, totalUsdcValue);
-    if (estimatedUsdc) totalEstimated += BigInt(estimatedUsdc);
-
-    const redeemPending = c.redeem?.pendingUsdc ?? null;
-    if (redeemPending != null && redeemPending > 0n) pendingRedeemCount += 1;
+    if (c.redeemPendingUsdc > 0n) pendingRedeemCount += 1;
 
     holdings.push({
       vault: c.vault,
       shareBalance: c.shareBalance.toString(),
       sharesDecimals: USDC_DECIMALS,
-      estimatedUsdc,
+      estimatedUsdc: null,
       vaultTotalShares: totalShares.toString(),
-      vaultTotalUsdcValue: totalUsdcValue.toString(),
+      vaultTotalUsdcValue: '0',
       ownershipBps: ownershipBps(c.shareBalance, totalShares),
-      isRedeemActive: c.redeem?.isRedeemActive ?? false,
-      redeemPendingUsdc: redeemPending != null ? redeemPending.toString() : null,
+      isRedeemActive: c.isRedeemActive,
+      redeemPendingUsdc:
+        c.redeemPendingUsdc > 0n || c.isRedeemActive
+          ? c.redeemPendingUsdc.toString()
+          : null,
     });
   }
 
   holdings.sort((a, b) => {
-    const ea = BigInt(a.estimatedUsdc ?? '0');
-    const eb = BigInt(b.estimatedUsdc ?? '0');
-    if (eb !== ea) return eb > ea ? 1 : -1;
     const sa = BigInt(a.shareBalance);
     const sb = BigInt(b.shareBalance);
     if (sb !== sa) return sb > sa ? 1 : -1;
@@ -234,7 +222,7 @@ export async function fetchWalletPortfolio(
   return {
     holdings,
     positionCount: holdings.length,
-    totalEstimatedUsdc: totalEstimated.toString(),
+    totalEstimatedUsdc: '0',
     pendingRedeemCount,
   };
 }

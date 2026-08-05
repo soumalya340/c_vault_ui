@@ -339,13 +339,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           error={lastError}
           onClose={() => setErrorOpen(false)}
           network={network}
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — retry the action if needed.',
-            });
-          }}
         />
       )}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">

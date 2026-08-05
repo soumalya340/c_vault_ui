@@ -237,12 +237,7 @@ export function RedeemModal({
       const usdcUi = formatTokenUi(r.estimatedUsdcValue, USDC_DECIMALS);
       setPreview(`≈ ${usdcUi} USDC · ${r.numAssets} assets to swap`);
     } catch (err) {
-      const parsed = parseTxError(err);
-      if (isTwapRefreshableError(parsed)) {
-        setErrorModal(parsed);
-      } else {
-        setPreview(describePreviewError(err));
-      }
+      setPreview(describePreviewError(err));
     } finally {
       setPreviewing(false);
     }
@@ -380,13 +375,6 @@ export function RedeemModal({
           onClose={() => setErrorModal(null)}
           network={network}
           vaultId={vault.vault_id}
-          onRefreshSuccess={() => {
-            setErrorModal(null);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — try Redeem again.',
-            });
-          }}
         />
       )}
       <div

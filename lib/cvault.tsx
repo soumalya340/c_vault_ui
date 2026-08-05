@@ -21,7 +21,6 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
   getMint,
   unpackAccount,
-  AccountLayout,
 } from '@solana/spl-token';
 import { BN } from '@coral-xyz/anchor';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
@@ -41,12 +40,12 @@ import {
   deriveAssetInfoPda,
   deriveVaultPdas,
   deriveRedeemStatePda,
+  deriveRedeemUsdcPda,
 } from './pda';
 import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
 import { fetchPoolCtx, ownerAccountsFor, type PoolCtx } from './whirlpool';
 import { fetchDammPoolCtx, type DammPoolCtx } from './damm';
 import { ensureLocalhostSwapPreflight } from './localhost';
-import { ensureVaultDexTwapFresh } from './twap';
 import {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
@@ -117,6 +116,7 @@ export {
   deriveAssetInfoPda,
   deriveVaultPdas,
   deriveRedeemStatePda,
+  deriveRedeemUsdcPda,
 };
 export type { Network };
 
@@ -446,7 +446,7 @@ function readonlyMetas(keys: PublicKey[]): AccountMeta[] {
 
 /** Leading AssetInfo PDA block every v2 vault instruction expects, ordered
  *  to match `Vault.asset_ids[0..num_assets]`. Deposit needs it writable —
- *  pricing persists TWAP mutations back onto the global AssetInfo PDAs. */
+ *  AssetInfo accounts are read-only during deposit (live spot pricing). */
 function assetInfoMetas(ctx: VaultChainCtx, writable = false): AccountMeta[] {
   return ctx.assets.map((a) => ({
     pubkey: a.assetInfoPda,
@@ -578,47 +578,6 @@ export async function initGlobalState(
         systemProgram: SystemProgram.programId,
       } as never)
       .remainingAccounts(remaining),
-    network,
-  );
-}
-
-export async function setTwapKeeper(
-  connection: Connection,
-  wallet: AnchorWallet,
-  keeper: PublicKey,
-  network: Network,
-) {
-  const program = createProgram(wallet, connection);
-  return sendMethod(
-    connection,
-    wallet,
-    (program.methods as any)
-      .setTwapKeeper(keeper)
-      .accounts(globalAdminAccounts(wallet.publicKey) as never),
-    network,
-  );
-}
-
-/** Keeper-only: push a TWAP observation onto one DEX-priced global asset. */
-export async function updateDexTwap(
-  connection: Connection,
-  wallet: AnchorWallet,
-  assetId: number,
-  twapLiveState: BN,
-  network: Network,
-) {
-  const program = createProgram(wallet, connection);
-  return sendMethod(
-    connection,
-    wallet,
-    (program.methods as any)
-      .updateDexTwap(new BN(assetId), twapLiveState)
-      .accounts({
-        globalState: deriveGlobalStatePda(),
-        assetInfo: deriveAssetInfoPda(assetId),
-        payer: wallet.publicKey,
-        keeper: wallet.publicKey,
-      } as never),
     network,
   );
 }
@@ -1148,7 +1107,8 @@ async function buildDepositIxs(
       systemProgram: SystemProgram.programId,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     } as never)
-    .remainingAccounts(await navRemainingAccounts(connection, ctx, { assetInfoWritable: true }))
+    // AssetInfo is read-only now (no TWAP writeback) — enables parallel deposits.
+    .remainingAccounts(await navRemainingAccounts(connection, ctx, { assetInfoWritable: false }))
     .instruction();
 
   return [...ensureAtaIxs, depositIx];
@@ -1192,8 +1152,12 @@ async function buildRequestRedeemIxs(
       sharesMint: ctx.sharesMint,
       userShareAccount: userShares,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
+      usdcMint: ctx.baseMint,
+      usdcVault: ctx.usdcVault,
+      redeemUsdc: deriveRedeemUsdcPda(user, ctx.vaultId),
       user,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
+      baseTokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     } as never)
     .remainingAccounts(assetAtaRemainingAccounts(ctx))
@@ -1235,7 +1199,7 @@ async function buildClaimIxs(
       usdcMint: ctx.baseMint,
       vaultAuthority: ctx.vaultAuthority,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
-      usdcVault: ctx.usdcVault,
+      redeemUsdc: deriveRedeemUsdcPda(user, ctx.vaultId),
       userUsdcAccount: userBase,
       user,
       treasury,
@@ -1453,6 +1417,7 @@ async function buildSwapUsdcToSolIx(
       solAssetInfo: deriveAssetInfoPda(WSOL_ASSET_ID),
       signer,
       ...whirlpoolUsdcSolAccounts(pool, owners),
+      usdcVault: ctx.usdcVault,
       wsolOwnerAccount: vaultWsolAta,
     } as never)
     .remainingAccounts(assetInfoMetas(ctx))
@@ -1500,6 +1465,7 @@ async function buildSwapUsdcToAssetIx(
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
       assetInfo: asset.assetInfoPda,
+      usdcVault: ctx.usdcVault,
       signer,
     } as never)
     .remainingAccounts(remaining)
@@ -1545,12 +1511,13 @@ async function buildSwapSolToAssetIx(
     assetAta,
   );
 
-  return (program.methods as any)
+    return (program.methods as any)
     .swapSolToAsset(new BN(ctx.vaultId), assetIndex, minAssetOut, aToB)
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
       assetInfo: asset.assetInfoPda,
+      wsolVault: vaultWsolAta,
       signer,
     } as never)
     .remainingAccounts(remaining)
@@ -1603,6 +1570,7 @@ async function buildSwapAssetToSolIx(
       vaultAuthority: ctx.vaultAuthority,
       assetInfo: asset.assetInfoPda,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
+      wsolVault: vaultWsolAta,
       user,
     } as never)
     .remainingAccounts(remaining)
@@ -1626,41 +1594,43 @@ export async function swapAssetToSol(
   return { tx: sig, link: solscanLink(sig, network) };
 }
 
-/** Outflow leg-2 builder (ViaSol): accumulated wSOL for a slot → USDC. */
+/** Outflow leg-2 builder (ViaSol): measured leg-1 wSOL → redeem_usdc escrow. */
 async function buildSwapSolToUsdcIx(
   connection: Connection,
   program: ReturnType<typeof createProgram>,
   ctx: VaultChainCtx,
   assetIndex: number,
-  wsolAmount: BN,
   minUsdcOut: BN,
   user: PublicKey,
 ): Promise<TransactionInstruction> {
   const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
   const pool = await fetchPoolCtx(connection, requireUsdcSolPool(ctx));
-  const owners = ownerAccountsFor(pool, vaultWsolAta, ctx.baseMint, ctx.usdcVault);
+  // Destination is the per-redeem escrow (C-03), not the shared usdc_vault.
+  const redeemUsdc = deriveRedeemUsdcPda(user, ctx.vaultId);
+  const owners = ownerAccountsFor(pool, vaultWsolAta, ctx.baseMint, redeemUsdc);
   const aToB = pool.info.tokenMintA.equals(WSOL_MINT);
 
   return (program.methods as any)
-    .swapSolToUsdc(new BN(ctx.vaultId), assetIndex, wsolAmount, minUsdcOut, aToB)
+    .swapSolToUsdc(new BN(ctx.vaultId), assetIndex, minUsdcOut, aToB)
     .accounts({
       vault: ctx.vaultPda,
       vaultAuthority: ctx.vaultAuthority,
+      solAssetInfo: deriveAssetInfoPda(WSOL_ASSET_ID),
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
-      usdcVault: ctx.usdcVault,
+      redeemUsdc,
+      wsolVault: vaultWsolAta,
       user,
       ...whirlpoolUsdcSolAccounts(pool, owners),
     } as never)
     .instruction();
 }
 
-/** Outflow leg 2 (ViaSol): accumulated wSOL for a slot → USDC. */
+/** Outflow leg 2 (ViaSol): measured leg-1 wSOL → redeem_usdc escrow. */
 export async function swapSolToUsdc(
   connection: Connection,
   wallet: AnchorWallet,
   vaultId: number,
   assetIndex: number,
-  wsolAmount: BN,
   minUsdcOut: BN,
   user: PublicKey,
   network: Network,
@@ -1668,7 +1638,7 @@ export async function swapSolToUsdc(
   const program = createProgram(wallet, connection);
   const ctx = await fetchVaultCtx(connection, vaultId, network);
   const ix = await buildSwapSolToUsdcIx(
-    connection, program, ctx, assetIndex, wsolAmount, minUsdcOut, user,
+    connection, program, ctx, assetIndex, minUsdcOut, user,
   );
   const sig = await sendV0(connection, wallet, [ix]);
   return { tx: sig, link: solscanLink(sig, network) };
@@ -1685,13 +1655,14 @@ async function buildSwapAssetToUsdcIx(
 ): Promise<TransactionInstruction> {
   const asset = assetAt(ctx, assetIndex);
   const assetAta = asset.vaultAssetAtaKey;
+  const redeemUsdc = deriveRedeemUsdcPda(user, ctx.vaultId);
   const { remaining, aToB } = await buildAssetSwapRemaining(
     connection,
     ctx,
     asset,
     asset.mint,
     assetAta,
-    ctx.usdcVault,
+    redeemUsdc,
   );
 
   return (program.methods as any)
@@ -1701,7 +1672,7 @@ async function buildSwapAssetToUsdcIx(
       vaultAuthority: ctx.vaultAuthority,
       assetInfo: asset.assetInfoPda,
       redeemState: deriveRedeemStatePda(user, ctx.vaultId),
-      usdcVault: ctx.usdcVault,
+      redeemUsdc,
       user,
     } as never)
     .remainingAccounts(remaining)
@@ -1733,23 +1704,18 @@ export async function swapAssetToUsdc(
 export type ProgressFn = (message: string) => void;
 
 /**
- * Preflight before mutative deposit / redeem / genesis:
- * 1. DEX TWAP — auto-refresh stale observations (user pays, keeper cosigns).
- *    No confirmation step; refresh runs before the main tx is built.
- * 2. Localhost only — synthetic Pyth + Whirlpool clock (Surfpool).
+ * Preflight before mutative deposit / redeem / genesis.
+ * Localhost only — synthetic Pyth + Whirlpool clock (Surfpool).
+ * Deposit prices DEX assets at live pool spot (no keeper TWAP).
  */
 async function prepareSwapPreflight(
   connection: Connection,
-  wallet: AnchorWallet,
-  program: ReturnType<typeof createProgram>,
+  _wallet: AnchorWallet,
+  _program: ReturnType<typeof createProgram>,
   network: Network,
   ctx: VaultChainCtx,
   onProgress?: ProgressFn,
 ): Promise<void> {
-  const hasDex = ctx.assets.some((a) => a.priceSourceTag === PRICE_SOURCE_DEX);
-  if (hasDex) {
-    await ensureVaultDexTwapFresh(connection, wallet, program, ctx, onProgress);
-  }
   await ensureLocalhostSwapPreflight(
     connection,
     network,
@@ -1989,8 +1955,7 @@ async function diagnoseMissingNavAccounts(
  * On-chain view paths (`get_total_nav_view`, `preview_deposit`,
  * `preview_redeem`) pass `use_spot = true` and price from live DEX spot —
  * they do **not** touch TwapState or the staleness/keeper guard. Do not
- * probe TWAP freshness here (that was the old path and falsely threw 6052).
- * TWAP readiness stays on mutative deposit/redeem via `prepareSwapPreflight`.
+ * DEX assets price at live pool spot — no keeper freshness gate.
  *
  * 1. Localhost: synthetic Pyth + Whirlpool clock.
  * 2. Missing vault ATAs → idempotent create ixs as `preInstructions` only
@@ -2162,25 +2127,27 @@ export async function depositAndDeploy(
 
 // ─── Genesis deposit (one-time seed) ─────────────────────────────────────────
 
-/** Idempotent USDC + shares ATAs for the genesis signer. */
+/** Idempotent USDC ATA for the genesis signer + vault-owned share ATA. */
 function buildSignerAtaIxs(ctx: VaultChainCtx, authority: PublicKey): TransactionInstruction[] {
   const authorityUsdc = baseAta(authority, ctx.baseMint);
-  const authorityShares = getAssociatedTokenAddressSync(
-    ctx.sharesMint, authority, false, TOKEN_2022_PROGRAM_ID,
+  // Genesis shares mint to the vault authority PDA (permanently locked).
+  const vaultShareAccount = getAssociatedTokenAddressSync(
+    ctx.sharesMint, ctx.vaultAuthority, true, TOKEN_2022_PROGRAM_ID,
   );
   return [
     createAssociatedTokenAccountIdempotentInstruction(
       authority, authorityUsdc, authority, ctx.baseMint, TOKEN_PROGRAM_ID,
     ),
     createAssociatedTokenAccountIdempotentInstruction(
-      authority, authorityShares, authority, ctx.sharesMint, TOKEN_2022_PROGRAM_ID,
+      authority, vaultShareAccount, ctx.vaultAuthority, ctx.sharesMint, TOKEN_2022_PROGRAM_ID,
     ),
   ];
 }
 
 /**
- * `genesis_deposit` only — signer ATAs must already exist (built separately
- * by `buildSignerAtaIxs`). remaining_accounts = AssetInfo PDAs in slot order.
+ * `genesis_deposit` only — signer USDC + vault share ATAs must already exist
+ * (built separately by `buildSignerAtaIxs`). remaining_accounts = AssetInfo
+ * PDAs in slot order.
  */
 async function buildGenesisDepositIx(
   program: ReturnType<typeof createProgram>,
@@ -2189,8 +2156,8 @@ async function buildGenesisDepositIx(
   baselineSharePrice: BN,
 ): Promise<TransactionInstruction> {
   const authorityUsdc = baseAta(authority, ctx.baseMint);
-  const authorityShares = getAssociatedTokenAddressSync(
-    ctx.sharesMint, authority, false, TOKEN_2022_PROGRAM_ID,
+  const vaultShareAccount = getAssociatedTokenAddressSync(
+    ctx.sharesMint, ctx.vaultAuthority, true, TOKEN_2022_PROGRAM_ID,
   );
 
   return (program.methods as any)
@@ -2203,7 +2170,7 @@ async function buildGenesisDepositIx(
       usdcVault: ctx.usdcVault,
       shareMint: ctx.sharesMint,
       authorityUsdcAccount: authorityUsdc,
-      authorityShareAccount: authorityShares,
+      vaultShareAccount,
       authority,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       baseTokenProgram: TOKEN_PROGRAM_ID,
@@ -2361,11 +2328,11 @@ export async function deployPendingSwaps(
 
 interface RawRedeemState {
   isRedeemActive: boolean;
-  pendingUsdc: BN;
   numAssets: number;
   assetAmountIn: BN[];
   assetSwapped: boolean[];
   assetToSolDone: boolean[];
+  wsolReceived: BN[];
 }
 
 async function tryFetchRedeemState(
@@ -2382,59 +2349,30 @@ async function tryFetchRedeemState(
     const pick = <T,>(camel: string, snake: string): T => (d[camel] ?? d[snake]) as T;
     return {
       isRedeemActive: Boolean(pick<boolean>('isRedeemActive', 'is_redeem_active')),
-      pendingUsdc: pick<BN>('pendingUsdc', 'pending_usdc'),
       numAssets: Number(pick<number>('numAssets', 'num_assets') ?? 0),
       assetAmountIn: pick<BN[]>('assetAmountIn', 'asset_amount_in') ?? [],
       assetSwapped: pick<boolean[]>('assetSwapped', 'asset_swapped') ?? [],
       assetToSolDone: pick<boolean[]>('assetToSolDone', 'asset_to_sol_done') ?? [],
+      wsolReceived: pick<BN[]>('wsolReceived', 'wsol_received') ?? [],
     };
   } catch {
     return null;
   }
 }
 
-/**
- * Simulate unsigned ixs and return the vault wSOL ATA balance delta.
- * Used to pre-size `swap_sol_to_usdc` so Pass A + Pass B can share one
- * wallet approval (amounts must be known before signing).
- */
-async function simulateVaultWsolDelta(
+/** USDC base units sitting in this user's per-vault redeem escrow (C-03). */
+async function fetchRedeemUsdcBalance(
   connection: Connection,
-  payer: PublicKey,
-  ixs: TransactionInstruction[],
-  lut: AddressLookupTableAccount | null,
-  vaultWsolAta: PublicKey,
-  beforeBalance: bigint,
+  user: PublicKey,
+  vaultId: number,
 ): Promise<bigint> {
-  const { blockhash } = await connection.getLatestBlockhash('confirmed');
-  const tx = buildV0(payer, blockhash, ixs, lut);
-  const sim = await connection.simulateTransaction(tx, {
-    sigVerify: false,
-    replaceRecentBlockhash: true,
-    commitment: 'confirmed',
-    accounts: {
-      encoding: 'base64',
-      addresses: [vaultWsolAta.toBase58()],
-    },
-  });
-  if (sim.value.err) {
-    const logs = sim.value.logs?.length ? `\n${sim.value.logs.join('\n')}` : '';
-    throw new Error(
-      `Redeem simulation failed (could not estimate wSOL out): ${JSON.stringify(sim.value.err)}${logs}`,
-    );
-  }
-  const raw = sim.value.accounts?.[0]?.data;
-  if (raw == null) {
-    throw new Error('Redeem simulation returned no vault wSOL account data.');
-  }
-  const b64 = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof b64 !== 'string' || b64.length === 0) {
-    // Account missing in sim → treat as zero balance after.
+  const redeemUsdc = deriveRedeemUsdcPda(user, vaultId);
+  try {
+    const bal = await connection.getTokenAccountBalance(redeemUsdc);
+    return BigInt(bal.value.amount);
+  } catch {
     return 0n;
   }
-  const decoded = AccountLayout.decode(Buffer.from(b64, 'base64'));
-  const after = BigInt(decoded.amount.toString());
-  return after > beforeBalance ? after - beforeBalance : 0n;
 }
 
 export interface RedeemClaimResult {
@@ -2467,19 +2405,15 @@ export type RedeemSwapOptions = {
 };
 
 /**
- * Phases 1-2 of redeem (Plan.md §8-9) — and optionally phase 3 (`claim`):
+ * Phases 1-2 of redeem — and optionally phase 3 (`claim`):
  *
- *  1. No active redeem → verify share balance, build `request_redeem`.
- *  2. Build all outflow legs (ViaSol pass A + everything → USDC).
+ *  1. No active redeem → verify share balance, build `request_redeem`
+ *     (creates/reuses RedeemState + redeem_usdc escrow).
+ *  2. Build all outflow legs. ViaSol leg-2 no longer takes a client-supplied
+ *     wSOL amount — the program sells `RedeemState.wsol_received[i]` measured
+ *     in leg-1. USDC-terminal legs credit the per-redeem escrow (C-03).
  *  3. Optional `claim` (when `includeClaim`) so USDC lands without a 2nd popup.
- *  4. **One wallet approval** via `signAllTransactions`, then land sequentially
- *     over plain RPC (no Jito). ViaSol leg-2 amounts are pre-sized with
- *     `simulateTransaction` so pass A + pass B can be signed together.
- *
- * Edge case: resume with **multiple** ViaSol legs that already finished
- * asset→wSOL in a prior session (unknown per-asset wSOL split) still runs
- * those sol→USDC legs one-by-one after the main batch (may add a claim popup
- * if `includeClaim` and those legs ran outside the main batch).
+ *  4. **One wallet approval** via `signAllTransactions`, then land sequentially.
  */
 export async function redeemSwap(
   connection: Connection,
@@ -2498,7 +2432,6 @@ export async function redeemSwap(
   const ensured = await ensureVaultAlt(connection, wallet, ctx, altAddress, onProgress);
   const lut = ensured.lut;
   const user = wallet.publicKey;
-  const vaultWsolAta = vaultAssetAta(ctx.vaultAuthority, WSOL_MINT);
 
   const redeemState = await tryFetchRedeemState(program, user, vaultId);
   const needsBurn = !redeemState || !redeemState.isRedeemActive;
@@ -2524,28 +2457,12 @@ export async function redeemSwap(
     burnIxs = await buildRequestRedeemIxs(program, ctx, user, shares);
   }
 
-  // Active redeem state is required to enumerate legs. After a fresh burn the
-  // state only exists once the burn lands — so for a new redeem we must derive
-  // the pending asset list from the vault the same way request_redeem will.
-  // When resuming, use on-chain RedeemState.
   if (!needsBurn && !redeemState) {
     throw new Error('RedeemState missing while redeem is marked active.');
   }
 
-  // For a fresh burn we don't have RedeemState yet. Build outflow ixs that
-  // only need vaultId/assetIndex (amounts come from RedeemState at execution
-  // for DirectUsdc / Pass A). Pass B ViaSol needs a wSOL amount — estimate via
-  // sim that includes the burn + Pass A.
-  //
-  // When resuming, RedeemState already holds amount flags.
-
-  type PassALeg = { index: number; ix: TransactionInstruction };
-  type PassBItem = { index: number; label: string; ix: TransactionInstruction };
-
-  const passALegs: PassALeg[] = [];
-  const passBItems: PassBItem[] = [];
-  /** Resume: leg-1 done earlier, wSOL already in vault — unknown per-asset split. */
-  const resumeFullBalanceViaSol: number[] = [];
+  type OutflowItem = { index: number; label: string; ix: TransactionInstruction };
+  const outflowItems: OutflowItem[] = [];
 
   const numAssets = needsBurn
     ? ctx.numAssets
@@ -2560,7 +2477,6 @@ export async function redeemSwap(
     }
   }
 
-  // Build a provisional "which slots need work" view.
   for (let i = 0; i < numAssets; i++) {
     if (!needsBurn) {
       const state = redeemState as RedeemStateSnap;
@@ -2571,42 +2487,29 @@ export async function redeemSwap(
 
     const asset = assetAt(ctx, i);
 
-    // Native wSOL ViaSol — amount is RedeemState.asset_amount_in (known on resume).
-    // On fresh burn, mirror request_redeem's free*shares/total carve so Pass B
-    // can be signed before the burn lands.
+    // Native wSOL ViaSol — leg-2 only (program uses asset_amount_in / wsol_received).
     if (asset.mint.equals(WSOL_MINT) && asset.route === 'ViaSol') {
-      let wsolIn: BN;
       if (needsBurn) {
-        wsolIn = await estimateRedeemAssetAmount(
+        const wsolIn = await estimateRedeemAssetAmount(
           connection, ctx, i, shares as BN, vaultForEstimate!,
         );
-      } else {
-        wsolIn = new BN(
-          (redeemState as RedeemStateSnap).assetAmountIn[i]!.toString(),
-        );
+        if (wsolIn.isZero()) continue;
       }
-      if (wsolIn.isZero()) continue;
-      passBItems.push({
+      outflowItems.push({
         index: i,
         label: `wSOL-native slot ${i + 1}`,
         ix: await buildSwapSolToUsdcIx(
-          connection, program, ctx, i, wsolIn, new BN(0), user,
+          connection, program, ctx, i, new BN(0), user,
         ),
       });
       continue;
     }
 
     if (asset.route === 'ViaSol') {
-      const legDone = !needsBurn && Boolean(
+      const leg1Done = !needsBurn && Boolean(
         (redeemState as RedeemStateSnap).assetToSolDone?.[i],
       );
-      if (legDone) {
-        // Prior session finished asset→wSOL; convert vault wSOL (resume).
-        resumeFullBalanceViaSol.push(i);
-        continue;
-      }
 
-      // Skip empty slots before building / simulating (fresh burn has no RedeemState yet).
       if (needsBurn) {
         const amt = await estimateRedeemAssetAmount(
           connection, ctx, i, shares as BN, vaultForEstimate!,
@@ -2614,62 +2517,36 @@ export async function redeemSwap(
         if (amt.isZero()) continue;
       }
 
-      const passAIx = await buildSwapAssetToSolIx(
-        connection, program, ctx, i, user, new BN(0),
-      );
-      passALegs.push({ index: i, ix: passAIx });
+      if (!leg1Done) {
+        // Leg-1: asset → vault wSOL (measured into RedeemState.wsol_received).
+        outflowItems.push({
+          index: i,
+          label: `asset→wSOL slot ${i + 1}`,
+          ix: await buildSwapAssetToSolIx(
+            connection, program, ctx, i, user, new BN(0),
+          ),
+        });
+      }
 
-      // Estimate wSOL out so Pass B can be signed in the same popup.
-      onProgress?.(
-        `Estimating ViaSol asset ${i + 1}/${numAssets} → wSOL (simulation)…`,
-      );
-      const before = await vaultWsolBalance(connection, ctx);
-      const simIxs = needsBurn ? [...burnIxs, passAIx] : [passAIx];
-      let estimated: bigint;
-      try {
-        estimated = await simulateVaultWsolDelta(
-          connection, user, simIxs, lut, vaultWsolAta, before,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(
-          `Could not estimate wSOL for ViaSol asset ${i + 1}: ${msg}\n` +
-            `Try again, or press Redeem (swap) after a partial run to resume.`,
-        );
-      }
-      if (estimated <= 0n) {
-        throw new Error(
-          `ViaSol asset ${i + 1} simulation produced 0 wSOL. ` +
-            `Check pool liquidity / vault balances and retry.`,
-        );
-      }
-      passBItems.push({
+      // Leg-2: program sells measured wsol_received[i] into redeem_usdc.
+      outflowItems.push({
         index: i,
         label: `wSOL→USDC asset ${i + 1}`,
         ix: await buildSwapSolToUsdcIx(
-          connection,
-          program,
-          ctx,
-          i,
-          new BN(estimated.toString()),
-          new BN(0),
-          user,
+          connection, program, ctx, i, new BN(0), user,
         ),
       });
       continue;
     }
 
     if (asset.route === 'DirectUsdc') {
-      // On fresh burn, skip slots that will get zero amount — we can't know
-      // precisely without state, but zero free vault balance still builds an
-      // ix that fails at runtime. estimateRedeemAssetAmount filters zeros.
       if (needsBurn) {
         const amt = await estimateRedeemAssetAmount(
           connection, ctx, i, shares as BN, vaultForEstimate!,
         );
         if (amt.isZero()) continue;
       }
-      passBItems.push({
+      outflowItems.push({
         index: i,
         label: `DirectUsdc asset ${i + 1}`,
         ix: await buildSwapAssetToUsdcIx(
@@ -2679,41 +2556,15 @@ export async function redeemSwap(
     }
   }
 
-  // Resume multi ViaSol with unknown split: cannot pre-size into one batch.
-  // Run main batch first (burn + remaining work), then sequential resume legs.
-  const resumeMulti = resumeFullBalanceViaSol.length > 1;
-  if (resumeFullBalanceViaSol.length === 1) {
-    const i = resumeFullBalanceViaSol[0]!;
-    const bal = await vaultWsolBalance(connection, ctx);
-    if (bal <= 0n) {
-      throw new Error(
-        `ViaSol asset ${i + 1} has no vault wSOL to convert on resume. ` +
-          `Press Redeem (swap) again after RPC settles.`,
-      );
-    }
-    passBItems.push({
-      index: i,
-      label: `wSOL→USDC asset ${i + 1} (resume)`,
-      ix: await buildSwapSolToUsdcIx(
-        connection, program, ctx, i, new BN(bal.toString()), new BN(0), user,
-      ),
-    });
-  }
-
-  // Claim can ride the same signed batch: it only needs pending_usdc > 0 at
-  // execution time, which the preceding swap legs establish (same tx or earlier
-  // batch in the sequential send).
   let claimIxs: TransactionInstruction[] = [];
-  if (includeClaim && !resumeMulti) {
-    // resumeMulti may leave claim until after sequential legs finish.
+  if (includeClaim) {
     claimIxs = await buildClaimIxs(connection, program, ctx, user);
   }
 
-  // Ordered payload: burn → Pass A → Pass B → claim (Pass A before its Pass B).
+  // Ordered payload: burn → outflow legs (leg-1 before leg-2 for each ViaSol) → claim.
   const coreIxs: TransactionInstruction[] = [
     ...burnIxs,
-    ...passALegs.map((l) => l.ix),
-    ...passBItems.map((b) => b.ix),
+    ...outflowItems.map((b) => b.ix),
     ...claimIxs,
   ];
 
@@ -2723,7 +2574,7 @@ export async function redeemSwap(
     const batches = packIxsForAlt(user, coreIxs, lut);
     onProgress?.(
       `Redeem: ${burnIxs.length ? 'burn + ' : ''}` +
-        `${passALegs.length} asset→wSOL + ${passBItems.length} →USDC` +
+        `${outflowItems.length} outflow leg(s)` +
         `${claimIxs.length ? ' + claim' : ''} → ` +
         `${batches.length} ALT tx(s), one wallet approval…`,
     );
@@ -2739,18 +2590,6 @@ export async function redeemSwap(
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/already open|AlreadyPending|pending/i.test(msg) && passALegs.length > 0) {
-        const mid = await tryFetchRedeemState(program, user, vaultId);
-        const pendingRaw = mid ? BigInt(mid.pendingUsdc.toString()) : 0n;
-        throw new Error(
-          `Cannot finish remaining ViaSol legs while pending_usdc > 0 on this program build ` +
-            `(got "${msg.split('\n')[0]}"). ` +
-            (pendingRaw > 0n
-              ? `You already have ${pendingRaw} raw USDC pending — press Claim to take it, then open a new redeem for leftover shares after redeploying the program that allows multi-asset ViaSol after partial USDC credit. `
-              : '') +
-            `Or redeploy the program (swap_asset_to_sol no longer requires pending_usdc == 0) and press Redeem (swap) again to resume.`,
-        );
-      }
       throw new Error(
         `Redeem outflow failed: ${msg}\n` +
           `Press Redeem (swap) again to resume remaining legs. Do not start a new redeem.`,
@@ -2758,45 +2597,7 @@ export async function redeemSwap(
     }
   }
 
-  // Edge: multiple resume ViaSol legs with shared vault wSOL (unknown split).
-  // Send one-by-one with a fresh balance read; each is its own popup.
-  if (resumeMulti) {
-    onProgress?.(
-      `Resume: ${resumeFullBalanceViaSol.length} ViaSol →USDC legs need sequential vault wSOL reads…`,
-    );
-    for (const i of resumeFullBalanceViaSol) {
-      const bal = await vaultWsolBalance(connection, ctx);
-      if (bal <= 0n) {
-        throw new Error(
-          `ViaSol asset ${i + 1} has no vault wSOL to convert on resume. ` +
-            `Press Redeem (swap) again after RPC settles.`,
-        );
-      }
-      const ix = await buildSwapSolToUsdcIx(
-        connection, program, ctx, i, new BN(bal.toString()), new BN(0), user,
-      );
-      onProgress?.(`Converting wSOL → USDC for asset ${i + 1} (resume)…`);
-      signatures.push(
-        ...(await sendV0Packed(connection, wallet, [ix], lut, onProgress)),
-      );
-    }
-    if (includeClaim) {
-      onProgress?.('Claiming USDC payout…');
-      signatures.push(
-        ...(await sendV0Packed(
-          connection,
-          wallet,
-          await buildClaimIxs(connection, program, ctx, user),
-          lut,
-          onProgress,
-        )),
-      );
-    }
-  }
-
-  // When claim was included in the main batch, RedeemState is closed — skip
-  // the "pending_usdc > 0" post-check (nothing left to claim).
-  if (includeClaim && !resumeMulti) {
+  if (includeClaim) {
     onProgress?.('Redeem + claim complete.');
     return {
       phase: 'swapped',
@@ -2807,44 +2608,33 @@ export async function redeemSwap(
     };
   }
 
-  if (includeClaim && resumeMulti) {
-    onProgress?.('Redeem + claim complete (resume path).');
-    return {
-      phase: 'swapped',
-      signatures,
-      link: solscanLink(signatures[signatures.length - 1] ?? '', network),
-      altAddress: ensured.altAddress,
-      altCreated: ensured.altCreated,
-    };
-  }
-
-  // Hard check: claim requires pending_usdc > 0.
+  // Hard check: claim requires redeem_usdc balance > 0 and all legs swapped.
   const finalState = await tryFetchRedeemState(program, user, vaultId);
   if (!finalState) {
     throw new Error('RedeemState missing after swaps — cannot claim.');
   }
-  const pending = BigInt(finalState.pendingUsdc.toString());
+  const pending = await fetchRedeemUsdcBalance(connection, user, vaultId);
   const unswapped: number[] = [];
   for (let i = 0; i < finalState.numAssets; i++) {
-    const amt = BigInt(finalState.assetAmountIn[i].toString());
+    const amt = BigInt(finalState.assetAmountIn[i]?.toString() ?? '0');
     if (amt > 0n && !finalState.assetSwapped[i]) unswapped.push(i);
   }
   if (unswapped.length > 0) {
     throw new Error(
       `Outflow incomplete — still unswapped asset slots: [${unswapped.map((i) => i + 1).join(', ')}]. ` +
         (pending > 0n
-          ? `Partial USDC pending (${pending} raw) — do NOT claim yet (claim requires all legs swapped). Press Redeem (swap) again to finish remaining legs. `
+          ? `Partial USDC already in escrow (${pending} raw) — do NOT claim yet (claim requires all legs swapped). Press Redeem (swap) again to finish remaining legs. `
           : `Press Redeem (swap) again to resume. `) +
         `Do not start a new redeem.`,
     );
   }
   if (pending <= 0n) {
     throw new Error(
-      `Outflow finished with pending USDC = 0 (cannot claim). Vault may have held zero free balances at burn time.`,
+      `Outflow finished with redeem USDC escrow = 0 (cannot claim). Vault may have held zero free balances at burn time.`,
     );
   }
 
-  onProgress?.(`Outflow complete — ${pending} USDC raw pending claim.`);
+  onProgress?.(`Outflow complete — ${pending} USDC raw in escrow ready to claim.`);
 
   return {
     phase: 'swapped',
@@ -2855,12 +2645,6 @@ export async function redeemSwap(
   };
 }
 
-/**
- * Off-chain mirror of request_redeem's per-slot carve:
- * `free_balance * shares / total_shares` (integer division).
- * Used so we can build native-wSOL Pass B / filter zero DirectUsdc legs
- * before the burn transaction has landed.
- */
 async function estimateRedeemAssetAmount(
   connection: Connection,
   ctx: VaultChainCtx,
@@ -2924,7 +2708,8 @@ export interface GlobalStateView {
   isEmergency: boolean;
   totalVaults: string;
   treasuryAddr: string;
-  twapKeeper: string;
+  /** ETF creation gate signer; default pubkey means gate disabled. */
+  etfCreationAuthority: string;
   totalAssets: string;
 }
 
@@ -2932,11 +2717,15 @@ export async function getGlobalState(connection: Connection): Promise<GlobalStat
   const program = createProgram(createDummyWallet(), connection);
   const pda = deriveGlobalStatePda();
   const gs = await (program.account as any).globalState.fetch(pda);
+  const etfAuth =
+    (gs.etfCreationAuthority as PublicKey | undefined) ??
+    (gs.etf_creation_authority as PublicKey | undefined) ??
+    PublicKey.default;
   return {
     isEmergency: gs.isEmergency,
     totalVaults: gs.totalVaults.toString(),
     treasuryAddr: (gs.treasuryAddr as PublicKey).toBase58(),
-    twapKeeper: (gs.twapKeeper as PublicKey).toBase58(),
+    etfCreationAuthority: etfAuth.toBase58(),
     totalAssets: gs.totalAssets.toString(),
   };
 }
@@ -2947,12 +2736,12 @@ export interface VaultStateView {
   baseMint: string;
   feeRecipient: string;
   totalShares: string;
-  totalUsdcValue: string;
   totalPendingUsdc: string;
   totalPendingSol: string;
   depositFeeBps: number;
   redeemFeeBps: number;
-  athSharePrice: string;
+  /** Genesis baseline share price (PRICE_SCALE). */
+  baselineSharePrice: string;
   numAssets: number;
   /** Global asset ids in this vault's basket (may include ids whose AssetInfo is missing). */
   assetIds: number[];
@@ -3002,12 +2791,11 @@ export async function getVaultState(
     baseMint: NETWORK_CONSTANTS[network].usdcMint.toBase58(),
     feeRecipient: vault.feeRecipient.toBase58(),
     totalShares: vault.totalShares.toString(),
-    totalUsdcValue: vault.totalUsdcValue.toString(),
     totalPendingUsdc: vault.totalPendingUsdc.toString(),
     totalPendingSol: vault.totalPendingSol.toString(),
     depositFeeBps: vault.depositFeeBps,
     redeemFeeBps: vault.redeemFeeBps,
-    athSharePrice: vault.athSharePrice.toString(),
+    baselineSharePrice: vault.baselineSharePrice.toString(),
     numAssets,
     assetIds,
     assetAllocationBps,
@@ -3186,7 +2974,7 @@ async function computeNavFromChain(
  *
  * Pass `wallet` when available: missing vault ATAs are simulated as
  * preInstructions. Views use on-chain spot pricing (`use_spot`) — stale
- * TWAP does not block this call (deposit/redeem still require TWAP).
+ * DEX assets price at live pool spot (same basis as deposit).
  *
  * On mainnet, NAV is computed client-side from vault ATA balances × Jupiter
  * USD prices (no transaction simulation — no 1232-byte limit). Localhost
@@ -3266,12 +3054,11 @@ export async function getTotalNavView(
 /**
  * Share price used to seed a secondary market (e.g. DAMM share/USDC pool).
  *
- * Prefer live oracle NAV via `get_total_nav_view`. If that fails or returns 0
- * (empty simulation, missing ATAs without a wallet, transient RPC), fall back
- * to on-chain book price `total_usdc_value / total_shares`, then genesis
- * `baseline_share_price`. Never invent a $1 default.
+ * Prefer live oracle NAV via `get_total_nav_view`. If that fails or returns 0,
+ * fall back to genesis `baseline_share_price`. The on-chain book counter
+ * (`total_usdc_value`) was removed in 2.0.2 — never invent a $1 default.
  */
-export type SharePriceSource = 'live_nav' | 'book' | 'baseline';
+export type SharePriceSource = 'live_nav' | 'baseline';
 
 export interface SharePriceQuote {
   /** PRICE_SCALE (1e9) raw units — same as NavView.sharePrice. */
@@ -3282,7 +3069,7 @@ export interface SharePriceQuote {
   /** Short label for the Init price field. */
   sourceLabel: string;
   totalShares: string;
-  /** Present for live/book paths; book NAV = total_usdc_value. */
+  /** Present for live path — NAV TVL in USDC base units. */
   totalUsdcValue?: string;
   note?: string;
 }
@@ -3292,9 +3079,8 @@ function formatSharePriceUsd(sharePriceRaw: string): string {
 }
 
 /**
- * Book share price in PRICE_SCALE units:
- * `floor(total_usdc_value × PRICE_SCALE / total_shares)`.
- * USDC and shares share the same decimal convention (6), so the ratio is USD/share.
+ * @deprecated On-chain book value counter removed (Audit L-01). Kept as a pure
+ * helper for off-chain NAV × shares math only — do not read from Vault account.
  */
 export function bookSharePriceRaw(totalUsdcValue: bigint, totalShares: bigint): bigint {
   if (totalShares <= 0n || totalUsdcValue <= 0n) return 0n;
@@ -3330,7 +3116,7 @@ export async function getVaultSharePriceQuote(
     liveError = err instanceof Error ? err.message : String(err);
   }
 
-  // Book / baseline from the vault account — no simulation, no oracles.
+  // Baseline from the vault account — no simulation, no oracles.
   const { vaultPda } = deriveVaultPdas(vaultId, network);
   const decoded = await fetchDecodedVault(connection, vaultPda);
   if (!decoded) {
@@ -3342,23 +3128,6 @@ export async function getVaultSharePriceQuote(
   }
 
   const totalShares = BigInt(decoded.totalShares.toString());
-  const totalUsdcValue = BigInt(decoded.totalUsdcValue.toString());
-  const bookRaw = bookSharePriceRaw(totalUsdcValue, totalShares);
-  if (bookRaw > 0n) {
-    const sharePrice = bookRaw.toString();
-    return {
-      sharePrice,
-      sharePriceUsd: formatSharePriceUsd(sharePrice),
-      source: 'book',
-      sourceLabel: 'book (total_usdc_value ÷ shares)',
-      totalShares: totalShares.toString(),
-      totalUsdcValue: totalUsdcValue.toString(),
-      note: liveError
-        ? `Using book price — live NAV unavailable: ${liveError.slice(0, 180)}`
-        : undefined,
-    };
-  }
-
   const baseline = BigInt(decoded.baselineSharePrice.toString());
   if (baseline > 0n) {
     const sharePrice = baseline.toString();
@@ -3368,16 +3137,15 @@ export async function getVaultSharePriceQuote(
       source: 'baseline',
       sourceLabel: 'genesis baseline',
       totalShares: totalShares.toString(),
-      totalUsdcValue: totalUsdcValue.toString(),
       note: liveError
         ? `Using genesis baseline — live NAV unavailable: ${liveError.slice(0, 180)}`
-        : 'Using genesis baseline (book value is zero).',
+        : 'Using genesis baseline (live NAV is zero).',
     };
   }
 
   throw new Error(
     (liveError ? `Live NAV: ${liveError.slice(0, 160)}. ` : '') +
-      `Vault ${vaultId} has no usable share price yet (live NAV $0, book $0, baseline unset). ` +
+      `Vault ${vaultId} has no usable share price yet (live NAV $0, baseline unset). ` +
       'Run Genesis deposit (№01) and wait for asset balances before creating a pool.',
   );
 }
@@ -3501,6 +3269,7 @@ export interface UserPosition {
   shareBalance: string;
   redeemState?: {
     isRedeemActive: boolean;
+    /** USDC base units in the per-redeem escrow (`redeem_usdc` PDA). */
     pendingUsdc: string;
     numAssets: number;
     assetAmountIn: string[];
@@ -3527,36 +3296,25 @@ export async function getUserPosition(
     // ata may not exist
   }
 
-  const redeemPda = deriveRedeemStatePda(user, vaultId);
-  let redeemData = null;
-  try {
-    redeemData = await (program.account as any).redeemState.fetch(redeemPda);
-  } catch {
-    // no pending redeem
+  const redeem = await tryFetchRedeemState(program, user, vaultId);
+  if (!redeem) {
+    return { user: user.toBase58(), shareBalance };
   }
+
+  // C-03: pending USDC lives as the real balance of redeem_usdc, not a field.
+  const pendingUsdc = (await fetchRedeemUsdcBalance(connection, user, vaultId)).toString();
 
   return {
     user: user.toBase58(),
     shareBalance,
-    redeemState: redeemData
-      ? (() => {
-          // Program converts IDL to camelCase, but accept snake_case keys too
-          // so a stale client never drops pending state (Claim stays disabled).
-          const d = redeemData as Record<string, unknown>;
-          const pick = <T,>(camel: string, snake: string): T =>
-            (d[camel] ?? d[snake]) as T;
-          const amountArr = pick<BN[]>('assetAmountIn', 'asset_amount_in') ?? [];
-          return {
-            isRedeemActive: Boolean(pick<boolean>('isRedeemActive', 'is_redeem_active')),
-            pendingUsdc: pick<BN>('pendingUsdc', 'pending_usdc').toString(),
-            numAssets: Number(pick<number>('numAssets', 'num_assets') ?? 0),
-            assetAmountIn: amountArr.map((a) => a.toString()),
-            assetSwapped: (pick<boolean[]>('assetSwapped', 'asset_swapped') ?? []) as boolean[],
-            assetToSolDone: (pick<boolean[]>('assetToSolDone', 'asset_to_sol_done') ??
-              []) as boolean[],
-          };
-        })()
-      : undefined,
+    redeemState: {
+      isRedeemActive: redeem.isRedeemActive,
+      pendingUsdc,
+      numAssets: redeem.numAssets,
+      assetAmountIn: redeem.assetAmountIn.map((a) => a.toString()),
+      assetSwapped: redeem.assetSwapped,
+      assetToSolDone: redeem.assetToSolDone,
+    },
   };
 }
 
@@ -3689,16 +3447,6 @@ export function describePreviewError(err: unknown): string {
         'On localhost, also ensure Surfpool Pyth refresh works.'
       );
     }
-  }
-  if (
-    Number(parsed.code) === 6052 ||
-    /LivePriceDiscrepancy|Live price discrepancy|both stale/i.test(blob + parsed.raw)
-  ) {
-    return (
-      'DEX TWAP is stale (observation and keeper stamp both past freshness window). ' +
-      'Use Refresh Price in the error dialog to push pool spots (you pay, keeper cosigns), ' +
-      'then retry. Or: yarn refresh-stale-twap'
-    );
   }
   return formatUserFacingError(err);
 }

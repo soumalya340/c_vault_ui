@@ -512,13 +512,6 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           error={lastError}
           onClose={() => setErrorOpen(false)}
           network={network}
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — retry the action if needed.',
-            });
-          }}
         />
       )}
 

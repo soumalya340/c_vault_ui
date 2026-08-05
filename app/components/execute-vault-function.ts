@@ -11,8 +11,6 @@ import {
   createAsset,
   setAssetActive,
   updateTreasuryAddr,
-  setTwapKeeper,
-  updateDexTwap,
   getVaultState,
   getTotalNavView,
   getUserPosition,
@@ -42,8 +40,6 @@ import {
   FieldError,
 } from '@/lib/registryClient';
 import { assertPoolExists } from '@/lib/poolExists';
-import { fetchUsdPrices } from '@/lib/jupiterPrice';
-import { usdPriceToQ64, describeQ64Price } from '@/lib/twapPrice';
 import { humanizeViewResult, withCommas } from './view-display';
 
 /** Write ALT to Supabase/SQLite after on-chain create. Soft-fails with a note. */
@@ -474,44 +470,6 @@ export async function executeVaultFunction(
       if (!anchorWallet) throw new Error('Wallet required');
       const r = await updateTreasuryAddr(connection, anchorWallet, pk(v.treasury), net);
       return { tx: r.tx, solscan: r.link };
-    }
-    case 'set_twap_keeper': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const keeper = v.keeper?.trim() ? pk(v.keeper) : PublicKey.default;
-      const r = await setTwapKeeper(connection, anchorWallet, keeper, net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'update_dex_twap': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const id = assetId(v);
-
-      // The observation is derived, never typed. `twap_live_state` is Q64.64
-      // raw-USDC-per-raw-asset (see lib/twapPrice.ts) — a value no operator can
-      // enter correctly by hand, and one that loses precision if it ever passes
-      // through a JS number. Sourcing it from Jupiter also keeps the keeper on
-      // the same prices as the NAV tile, so TWAP converges toward what the UI
-      // shows instead of drifting away from it.
-      const asset = await getAssetState(connection, id);
-      if (asset.priceSourceTag !== PRICE_SOURCE_DEX) {
-        throw new Error(
-          `Asset ${id} is Pyth-priced — update_dex_twap only applies to DEX-priced assets.`,
-        );
-      }
-
-      const prices = await fetchUsdPrices([asset.mint]);
-      const price = prices.get(asset.mint);
-      if (!price) throw new Error(`No Jupiter price for asset ${id} (${asset.mint}).`);
-
-      // Decimals come from the on-chain AssetInfo, which is what `sum_nav`
-      // prices against — not Jupiter's copy, which could disagree.
-      const x64 = usdPriceToQ64(price.usdPrice, asset.decimals);
-
-      const r = await updateDexTwap(connection, anchorWallet, id, new BN(x64.toString()), net);
-      return {
-        tx: r.tx,
-        solscan: r.link,
-        observation: describeQ64Price(price.usdPrice, asset.decimals, x64),
-      };
     }
     default:
       throw new Error(`Unknown function: ${fnId}`);
