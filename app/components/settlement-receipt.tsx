@@ -175,7 +175,7 @@ export function SettlementReceipt({
   doneLabel,
 }: {
   /** Drives the stamp wording and the seal colour. */
-  kind: 'deposit' | 'redeem';
+  kind: 'deposit' | 'redeem' | 'create';
   vaultId: number;
   /** What the user gave up — USDC on deposit, shares on redeem. */
   surrendered: SettlementLeg;
@@ -189,7 +189,7 @@ export function SettlementReceipt({
   onDone: () => void;
   doneLabel: string;
 }) {
-  const stampText = kind === 'deposit' ? 'Deposited' : 'Redeemed';
+  const stampText = kind === 'deposit' ? 'Deposited' : kind === 'redeem' ? 'Redeemed' : 'Created';
 
   return (
     <section

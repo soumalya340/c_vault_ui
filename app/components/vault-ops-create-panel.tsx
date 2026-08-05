@@ -13,27 +13,37 @@ import {
   deriveGlobalStatePda,
   pythFeedAccount,
   vaultAssetAta,
+  genesisDepositAndDeploy,
+  parseUnits,
+  formatUnits,
+  getUserUsdcBalance,
   WSOL_MINT,
   SOL_USD_PYTH_FEED_ID,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
+  PRICE_SCALE_DECIMALS,
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import { MAX_METADATA_VALUE_LEN, VAULT_METADATA_DESCRIPTION_KEY } from '@/lib/constants';
+import {
+  MAX_METADATA_VALUE_LEN,
+  USDC_DECIMALS,
+  VAULT_METADATA_DESCRIPTION_KEY,
+} from '@/lib/constants';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
 import { fetchPoolCtx } from '@/lib/whirlpool';
 import { fetchDammPoolCtx } from '@/lib/damm';
 import {
   fetchAssetRegistry,
   saveVault,
+  updateVaultAlts,
+  updateVaultGenesisStatus,
   generateVaultDescription,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
-import { ErrorModal } from './error-modal';
+import { CreateEtfModal } from './create-etf-modal';
 import { ImageDropzone } from './image-dropzone';
-import { LedgerOutput } from './ledger-output';
 import { showVaultOpsToast } from './vault-ops-toast';
 
 interface AssetRow {
@@ -42,6 +52,9 @@ interface AssetRow {
 }
 
 const EMPTY_ROW: AssetRow = { assetId: '', allocationPct: '' };
+
+/** Mirrors GENESIS_SEED_USDC in deps/programs/vault/src/constants.rs — 1 USDC (6 decimals), hardcoded on-chain. */
+const GENESIS_SEED_USDC_RAW = 1_000_000n;
 
 function pctToBps(pct: string): number {
   const n = Number(pct);
@@ -274,17 +287,63 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
   const [redeemFeeBps, setRedeemFeeBps] = useState('100');
   const [fundType, setFundType] = useState<'dynamic' | 'fixed'>('dynamic');
   const [maxShares, setMaxShares] = useState('');
+  const [baselineSharePrice, setBaselineSharePrice] = useState('1.00');
   const [rows, setRows] = useState<AssetRow[]>([{ ...EMPTY_ROW }]);
+
+  // Genesis deposit hard-requires exactly 1 USDC from the connected wallet —
+  // checked here so a manager can't sign create_etf only to have genesis_deposit
+  // fail downstream on insufficient funds.
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [checkingBalance, setCheckingBalance] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!publicKey) {
+      setUsdcBalance(null);
+      return;
+    }
+    setCheckingBalance(true);
+    getUserUsdcBalance(connection, publicKey, network)
+      .then((bal) => {
+        if (!cancelled) setUsdcBalance(bal);
+      })
+      .catch(() => {
+        if (!cancelled) setUsdcBalance(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingBalance(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, publicKey, network]);
+
+  const hasEnoughUsdcForGenesis =
+    usdcBalance !== null ? BigInt(usdcBalance) >= GENESIS_SEED_USDC_RAW : false;
 
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [steps, setSteps] = useState<string[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
   const [result, setResult] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
     solscan?: string;
   } | null>(null);
+  const [createdVault, setCreatedVault] = useState<{
+    vaultId: number;
+    sharesMint: string;
+    altAddress: string | null;
+    genesisSeeded: boolean;
+    solscan?: string;
+  } | null>(null);
   const [lastError, setLastError] = useState<UserFacingError | null>(null);
   const [errorOpen, setErrorOpen] = useState(false);
+
+  const pushStatus = (message: string) => {
+    setStatus(message);
+    setSteps((prev) => [...prev, message]);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -318,7 +377,13 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
   const basketDone =
     Math.abs(allocationTotalBps - 10_000) < 0.001 && rows.length > 0 && rows.every((r) => r.assetId);
   const canCreate =
-    basketDone && name.trim() && symbol.trim() && uri.trim() && !imageUploading;
+    basketDone &&
+    name.trim() &&
+    symbol.trim() &&
+    uri.trim() &&
+    !imageUploading &&
+    Number(baselineSharePrice) > 0 &&
+    hasEnoughUsdcForGenesis;
 
   const handleCopyMint = () => {
     const v = usdcBase58;
@@ -363,9 +428,21 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
       setResult({ type: 'error', text: 'Upload a vault image before creating the vault.' });
       return;
     }
+    if (!hasEnoughUsdcForGenesis) {
+      setResult({
+        type: 'error',
+        text: `Insufficient USDC — genesis deposit requires at least 1 USDC in your wallet (${
+          usdcBalance !== null ? formatUnits(usdcBalance, USDC_DECIMALS) : '0'
+        } available).`,
+      });
+      return;
+    }
 
     setLoading(true);
     setResult(null);
+    setSteps([]);
+    setCreatedVault(null);
+    setModalOpen(true);
 
     try {
       if (rows.length === 0) throw new Error('Add at least one asset.');
@@ -383,7 +460,19 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
       // Fail fast on data:image base64 / oversize metadata (static-tx packet limit).
       assertCreateEtfMetadata(name, symbol, uri);
 
-      setStatus('Creating vault (create_etf)…');
+      let parsedBaselinePrice: BN;
+      try {
+        parsedBaselinePrice = parseUnits(baselineSharePrice || '0', PRICE_SCALE_DECIMALS);
+      } catch (err) {
+        throw new Error(
+          `Opening share price: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (parsedBaselinePrice.lten(0)) {
+        throw new Error('Opening share price must be greater than $0.');
+      }
+
+      pushStatus('Creating vault (create_etf)…');
       const created = await createEtf(
         connection,
         anchorWallet,
@@ -408,7 +497,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
       let metadataNote = '';
       if (trimmedInfo) {
         try {
-          setStatus('Setting additional information (set_share_metadata_fields)…');
+          pushStatus('Setting additional information (set_share_metadata_fields)…');
           await setShareMetadataFields(
             connection,
             anchorWallet,
@@ -427,7 +516,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
       let altAddress: string | null = null;
       let altNote = '';
       try {
-        setStatus('Creating address lookup table…');
+        pushStatus('Creating address lookup table…');
         const whirlpoolAddrs: PublicKey[] = [];
         const dammAddrs: PublicKey[] = [];
 
@@ -507,7 +596,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           `Vault is still on-chain — run Genesis deposit next; it will create the ALT, wait for activation, and save it to the DB before seeding.`;
       }
 
-      setStatus('Recording vault…');
+      pushStatus('Recording vault…');
       let registryNote = '';
       try {
         const manager = publicKey.toBase58();
@@ -547,13 +636,67 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
         }`;
       }
 
+      let genesisNote = '';
+      let genesisSeeded = false;
+      if (altAddress) {
+        try {
+          pushStatus('Seeding genesis deposit (genesis_deposit)…');
+          const genesisResult = await genesisDepositAndDeploy(
+            connection,
+            anchorWallet,
+            created.vaultId,
+            parsedBaselinePrice,
+            altAddress,
+            network,
+          );
+          if (genesisResult.altAddress && genesisResult.altAddress !== altAddress) {
+            altAddress = genesisResult.altAddress;
+            try {
+              await updateVaultAlts(network, created.vaultId, {
+                deposit_alt_address: altAddress,
+                redeem_alt_address: altAddress,
+              });
+            } catch {
+              // Non-fatal — genesis itself already succeeded on-chain.
+            }
+          }
+          genesisSeeded = true;
+          try {
+            await updateVaultGenesisStatus(network, created.vaultId, true);
+          } catch (err) {
+            genesisNote =
+              `\n\nGenesis deposit succeeded on-chain but updating its status failed: ${
+                err instanceof Error ? err.message : String(err)
+              }. Refresh the portfolio page — it reconciles this automatically.`;
+          }
+          genesisNote =
+            `\n\nGenesis deposit seeded — opening share price pinned at $${baselineSharePrice}.` +
+            genesisNote;
+        } catch (err) {
+          genesisNote =
+            `\n\nGenesis deposit failed: ${
+              err instanceof Error ? err.message : String(err)
+            } Vault is still on-chain — run Genesis deposit from the vault's admin panel to retry.`;
+        }
+      } else {
+        genesisNote =
+          '\n\nGenesis deposit skipped — no address lookup table available. Run Genesis deposit from the vault\'s admin panel once the ALT exists.';
+      }
+
+      setCreatedVault({
+        vaultId: created.vaultId,
+        sharesMint: created.sharesMint.toBase58(),
+        altAddress,
+        genesisSeeded,
+        solscan: created.tx ? created.link : undefined,
+      });
       setResult({
         type: 'success',
         text:
           `ETF vault №${created.vaultId} created — share metadata set in the same transaction.\n` +
           `vault: ${created.vaultPda.toBase58()}\n` +
           `shares mint: ${created.sharesMint.toBase58()}\n` +
-          `lookup table: ${altAddress ?? '— (creation failed)'}${metadataNote}${altNote}${registryNote}`,
+          `lookup table: ${altAddress ?? '— (creation failed)'}${metadataNote}${altNote}${genesisNote}${registryNote}`,
         solscan: created.tx ? created.link : undefined,
       });
       showVaultOpsToast('INSTRUCTION QUEUED · CREATE ETF VAULT');
@@ -585,11 +728,23 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
     <section className="border border-border-strong bg-background p-1.5 opacity-0 translate-y-6 transition-all duration-700 ease-[cubic-bezier(.22,1,.36,1)] data-[in=true]:opacity-100 data-[in=true]:translate-y-0"
       data-in="true"
     >
-      {errorOpen && lastError && (
-        <ErrorModal
-          error={lastError}
-          onClose={() => setErrorOpen(false)}
+      {modalOpen && (
+        <CreateEtfModal
           network={network}
+          loading={loading}
+          steps={steps}
+          result={result}
+          lastError={lastError}
+          errorOpen={errorOpen}
+          onErrorOpenChange={setErrorOpen}
+          created={createdVault}
+          onClose={() => setModalOpen(false)}
+          onCreateAnother={() => {
+            setModalOpen(false);
+            setResult(null);
+            setCreatedVault(null);
+            setSteps([]);
+          }}
         />
       )}
 
@@ -600,7 +755,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
             Create ETF Vault
           </div>
           <span className="min-w-0 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-            Vault + share metadata + lookup table
+            Vault + share metadata + lookup table + genesis deposit
           </span>
         </div>
 
@@ -611,10 +766,25 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
             per asset; only the weighting is chosen here.
           </p>
 
+          {connected && (
+            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              wallet USDC balance:{' '}
+              <span className={hasEnoughUsdcForGenesis ? 'text-foreground' : 'text-destructive'}>
+                {checkingBalance
+                  ? '…'
+                  : usdcBalance !== null
+                    ? `${formatUnits(usdcBalance, USDC_DECIMALS)} USDC`
+                    : '—'}
+              </span>
+              {!checkingBalance && !hasEnoughUsdcForGenesis && (
+                <span className="text-destructive"> — need at least 1 USDC for genesis deposit</span>
+              )}
+            </p>
+          )}
+
           <SectionDivider title="Vault metadata" side="A · identity" />
           <div>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
-              {/* Image column: dropzone flex-grows so its bottom edge matches the description box */}
               <div className="flex w-40 shrink-0 flex-col">
                 <FieldLabel>Vault image</FieldLabel>
                 <ImageDropzone
@@ -651,7 +821,9 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
 
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div className="mb-2 flex items-center justify-between gap-3">
-                    <FieldLabel>Description (Optional)</FieldLabel>
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                      Description (Optional)
+                    </span>
                     <button
                       type="button"
                       onClick={handleGenerateInfo}
@@ -671,7 +843,6 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                 </div>
               </div>
             </div>
-            {/* Helper sits outside the stretch row so it doesn't push the description below the dropzone */}
             {uri ? (
               <p className="mt-1.5 max-w-[10rem] truncate font-mono text-[10px] text-muted-foreground">
                 {uri}
@@ -745,6 +916,19 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                   <TextInput value={maxShares} onChange={setMaxShares} placeholder="1000000000" />
                 </div>
               )}
+            </div>
+            <div>
+              <FieldLabel>Opening share price (USD)</FieldLabel>
+              <TextInput
+                value={baselineSharePrice}
+                onChange={setBaselineSharePrice}
+                placeholder="1.00"
+                required
+              />
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
+                Genesis deposit runs automatically right after the vault is created, seeding
+                it with 1 USDC priced at this opening share price.
+              </p>
             </div>
           </div>
 
@@ -901,9 +1085,18 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                     Set a <strong className="text-seal">share name</strong> and{' '}
                     <strong className="text-seal">symbol</strong>
                   </>
-                ) : (
+                ) : !uri.trim() ? (
                   <>
                     Upload a <strong className="text-seal">vault image</strong> first
+                  </>
+                ) : Number(baselineSharePrice) <= 0 ? (
+                  <>
+                    Set an <strong className="text-seal">opening share price</strong> above $0
+                  </>
+                ) : (
+                  <>
+                    Need at least <strong className="text-seal">1 USDC</strong> in your wallet for
+                    genesis deposit
                   </>
                 )
               ) : (
@@ -914,39 +1107,6 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
             </span>
           </div>
 
-          {result && (
-            <div className="max-h-64 overflow-y-auto rounded-[2px] border border-border-strong bg-foreground/[0.04]">
-              <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground md:px-5">
-                OUTPUT
-              </div>
-              <div className="px-4 py-3 md:px-5">
-                <LedgerOutput text={result.text} tone={result.type} />
-                {result.type === 'error' && lastError && (
-                  <div className="mt-2 border-t border-border pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setErrorOpen(true)}
-                      className="font-mono text-[11px] text-accent underline transition-colors hover:text-foreground"
-                    >
-                      View error details
-                    </button>
-                  </div>
-                )}
-                {result.solscan && (
-                  <div className="mt-2 border-t border-border pt-2">
-                    <a
-                      href={result.solscan}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-accent underline transition-colors hover:text-foreground"
-                    >
-                      View on Solscan
-                    </a>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </form>
       </div>
     </section>

@@ -13,10 +13,13 @@ import {
   deriveGlobalStatePda,
   pythFeedAccount,
   vaultAssetAta,
+  genesisDepositAndDeploy,
+  parseUnits,
   WSOL_MINT,
   SOL_USD_PYTH_FEED_ID,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
+  PRICE_SCALE_DECIMALS,
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
@@ -27,6 +30,8 @@ import { fetchDammPoolCtx } from '@/lib/damm';
 import {
   fetchAssetRegistry,
   saveVault,
+  updateVaultAlts,
+  updateVaultGenesisStatus,
   generateVaultDescription,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
@@ -93,6 +98,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const [redeemFeeBps, setRedeemFeeBps] = useState('100');
   const [fundType, setFundType] = useState<'dynamic' | 'fixed'>('dynamic');
   const [maxShares, setMaxShares] = useState('');
+  const [baselineSharePrice, setBaselineSharePrice] = useState('1.00');
   const [rows, setRows] = useState<AssetRow[]>([{ ...EMPTY_ROW }]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
 
@@ -192,6 +198,18 @@ export function CreateEtfPanel({ network }: { network: Network }) {
       });
 
       assertCreateEtfMetadata(name, symbol, uri);
+
+      let parsedBaselinePrice: BN;
+      try {
+        parsedBaselinePrice = parseUnits(baselineSharePrice || '0', PRICE_SCALE_DECIMALS);
+      } catch (err) {
+        throw new Error(
+          `Opening share price: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (parsedBaselinePrice.lten(0)) {
+        throw new Error('Opening share price must be greater than $0.');
+      }
 
       setStatus('Creating vault (create_etf)…');
       const created = await createEtf(
@@ -359,13 +377,58 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         }`;
       }
 
+      let genesisNote = '';
+      if (altAddress) {
+        try {
+          setStatus('Seeding genesis deposit (genesis_deposit)…');
+          const genesisResult = await genesisDepositAndDeploy(
+            connection,
+            anchorWallet,
+            created.vaultId,
+            parsedBaselinePrice,
+            altAddress,
+            network,
+          );
+          if (genesisResult.altAddress && genesisResult.altAddress !== altAddress) {
+            altAddress = genesisResult.altAddress;
+            try {
+              await updateVaultAlts(network, created.vaultId, {
+                deposit_alt_address: altAddress,
+                redeem_alt_address: altAddress,
+              });
+            } catch {
+              // Non-fatal — genesis itself already succeeded on-chain.
+            }
+          }
+          try {
+            await updateVaultGenesisStatus(network, created.vaultId, true);
+          } catch (err) {
+            genesisNote =
+              `\n\nGenesis deposit succeeded on-chain but updating its status failed: ${
+                err instanceof Error ? err.message : String(err)
+              }. Refresh the portfolio page — it reconciles this automatically.`;
+          }
+          genesisNote =
+            `\n\nGenesis deposit seeded — opening share price pinned at $${baselineSharePrice}.` +
+            genesisNote;
+        } catch (err) {
+          genesisNote =
+            `\n\nGenesis deposit failed: ${
+              err instanceof Error ? err.message : String(err)
+            } Vault is still on-chain — run Genesis deposit from the vault's admin panel to retry.`;
+        }
+      } else {
+        genesisNote =
+          '\n\nGenesis deposit skipped — no address lookup table available. Run Genesis deposit from the vault\'s admin panel once the ALT exists.';
+      }
+
       setResult({
         type: 'success',
         text:
           `ETF vault №${created.vaultId} created — share metadata set in the same transaction.\n` +
           `vault: ${created.vaultPda.toBase58()}\n` +
           `shares mint: ${created.sharesMint.toBase58()}\n` +
-          `lookup table: ${altAddress ?? '— (creation failed)'}${metadataNote}${altNote}${registryNote}`,
+          `lookup table: ${altAddress ?? '— (creation failed)'}${metadataNote}${altNote}${genesisNote}${registryNote}`,
         solscan: created.tx ? created.link : undefined,
       });
     } catch (err) {
@@ -400,7 +463,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           Create ETF vault
         </span>
         <span className={`${sectionLabelClass} uppercase`}>
-          vault + vault metadata + lookup table
+          vault + vault metadata + lookup table + genesis deposit
         </span>
       </div>
 
@@ -545,6 +608,23 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               />
             </div>
           )}
+          <div>
+            <label className={fieldLabelClass}>Opening share price (USD)</label>
+            <input
+              className={inputClass}
+              type="number"
+              step="0.00001"
+              min="0.00001"
+              value={baselineSharePrice}
+              onChange={(e) => setBaselineSharePrice(e.target.value)}
+              placeholder="1.00"
+              required
+            />
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+              Genesis deposit runs automatically right after the vault is created, seeding it
+              with 1 USDC priced at this opening share price.
+            </p>
+          </div>
         </div>
 
         <div className="border border-border">
