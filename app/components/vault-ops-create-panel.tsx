@@ -612,7 +612,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           </p>
 
           <SectionDivider title="Vault metadata" side="A · identity" />
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
             <div className="shrink-0">
               <FieldLabel>Vault image</FieldLabel>
               <ImageDropzone value={uri} onChange={setUri} onUploadingChange={setImageUploading} />
@@ -626,58 +626,62 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                 </p>
               )}
             </div>
-            <div className="grid flex-1 grid-cols-1 gap-4">
-              <div>
-                <FieldLabel>Share name</FieldLabel>
-                <TextInput
-                  value={name}
-                  onChange={setName}
-                  placeholder="cVault Shares"
-                  maxLength={32}
-                  required
-                />
+            <div className="flex flex-1 flex-col gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <FieldLabel>Share name</FieldLabel>
+                  <TextInput
+                    value={name}
+                    onChange={setName}
+                    placeholder="cVault Shares"
+                    maxLength={32}
+                    required
+                  />
+                </div>
+                <div>
+                  <FieldLabel>Share symbol</FieldLabel>
+                  <TextInput
+                    value={symbol}
+                    onChange={setSymbol}
+                    placeholder="CVS"
+                    maxLength={10}
+                    style={{ textTransform: 'uppercase' }}
+                    required
+                  />
+                </div>
               </div>
-              <div>
-                <FieldLabel>Share symbol</FieldLabel>
-                <TextInput
-                  value={symbol}
-                  onChange={setSymbol}
-                  placeholder="CVS"
-                  maxLength={10}
-                  style={{ textTransform: 'uppercase' }}
-                  required
+
+              <div className="flex flex-1 flex-col">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <FieldLabel>Description (Optional)</FieldLabel>
+                  <button
+                    type="button"
+                    onClick={handleGenerateInfo}
+                    disabled={generatingInfo || !name.trim()}
+                    className="border border-border-strong bg-background px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {generatingInfo ? 'Generating…' : 'Auto-generate'}
+                  </button>
+                </div>
+                <TextArea
+                  value={additionalInfo}
+                  onChange={setAdditionalInfo}
+                  placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
+                  maxLength={MAX_METADATA_VALUE_LEN}
+                  className="flex-1 resize-none"
                 />
               </div>
             </div>
           </div>
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <FieldLabel>Additional information</FieldLabel>
-              <button
-                type="button"
-                onClick={handleGenerateInfo}
-                disabled={generatingInfo || !name.trim()}
-                className="border border-border-strong bg-background px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {generatingInfo ? 'Generating…' : 'Auto-generate'}
-              </button>
-            </div>
-            <TextArea
-              value={additionalInfo}
-              onChange={setAdditionalInfo}
-              placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
-              maxLength={MAX_METADATA_VALUE_LEN}
-            />
-            {generateInfoError && (
-              <p className="mt-1.5 text-xs leading-relaxed text-destructive">{generateInfoError}</p>
-            )}
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
-              Optional. Draft from the share name via Auto-generate, then edit freely. Written
-              on-chain as share-mint metadata (key{' '}
-              <span className="font-mono">{VAULT_METADATA_DESCRIPTION_KEY}</span>) in a follow-up
-              transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN} bytes.
-            </p>
-          </div>
+          {generateInfoError && (
+            <p className="text-xs leading-relaxed text-destructive">{generateInfoError}</p>
+          )}
+          <p className="text-xs leading-relaxed text-muted-foreground/80">
+            Optional. Draft from the share name via Auto-generate, then edit freely. Written
+            on-chain as share-mint metadata (key{' '}
+            <span className="font-mono">{VAULT_METADATA_DESCRIPTION_KEY}</span>) in a follow-up
+            transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN} bytes.
+          </p>
 
           <SectionDivider title="Economics" side="B · fees in %" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
