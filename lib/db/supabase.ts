@@ -99,6 +99,7 @@ type SupabaseVaultRow = {
   num_assets: number;
   genesis_deposit_status?: boolean | null;
   is_pool_created?: boolean | null;
+  additional_metadata?: string | null;
   created_at: string | null;
 };
 
@@ -109,6 +110,7 @@ function toUnifiedVault(row: SupabaseVaultRow): UnifiedVaultRow {
     redeem_alt_address: row.redeem_alt_address,
     genesis_deposit_status: Boolean(row.genesis_deposit_status),
     is_pool_created: Boolean(row.is_pool_created),
+    additional_metadata: row.additional_metadata ?? null,
   };
 }
 
@@ -193,6 +195,12 @@ export const supabaseDriver: DbDriver = {
         num_assets: row.num_assets,
         genesis_deposit_status: row.genesis_deposit_status ?? false,
         is_pool_created: row.is_pool_created ?? false,
+        // Supabase upsert() sends every key in this object — omit the key
+        // entirely (not just `?? null`) when the caller didn't specify it,
+        // so a sync-from-chain call can't blank out an existing description.
+        ...(row.additional_metadata !== undefined
+          ? { additional_metadata: row.additional_metadata }
+          : {}),
       },
       { onConflict: "vault_address" },
     );

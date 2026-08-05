@@ -9,6 +9,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import {
   assertCreateEtfMetadata,
   createEtf,
+  setShareMetadataFields,
   deriveGlobalStatePda,
   pythFeedAccount,
   vaultAssetAta,
@@ -19,13 +20,18 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import { CREATE_ETF_MAX_METADATA_BYTES } from '@/lib/constants';
+import {
+  CREATE_ETF_MAX_METADATA_BYTES,
+  MAX_METADATA_VALUE_LEN,
+  VAULT_METADATA_DESCRIPTION_KEY,
+} from '@/lib/constants';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
 import { fetchPoolCtx } from '@/lib/whirlpool';
 import { fetchDammPoolCtx } from '@/lib/damm';
 import {
   fetchAssetRegistry,
   saveVault,
+  generateVaultDescription,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
@@ -81,6 +87,9 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [uri, setUri] = useState('');
+  const [additionalInfo, setAdditionalInfo] = useState('');
+  const [generatingInfo, setGeneratingInfo] = useState(false);
+  const [generateInfoError, setGenerateInfoError] = useState<string | null>(null);
   const [feeRecipient, setFeeRecipient] = useState('');
   const [depositFeeBps, setDepositFeeBps] = useState('0');
   const [redeemFeeBps, setRedeemFeeBps] = useState('100');
@@ -139,6 +148,23 @@ export function CreateEtfPanel({ network }: { network: Network }) {
 
   const hasViaSol = rows.some((r) => assetById.get(r.assetId)?.route === 'ViaSol');
 
+  const handleGenerateInfo = async () => {
+    if (!name.trim()) {
+      setGenerateInfoError('Enter a share name first.');
+      return;
+    }
+    setGeneratingInfo(true);
+    setGenerateInfoError(null);
+    try {
+      const text = await generateVaultDescription(name.trim());
+      setAdditionalInfo(text);
+    } catch (err) {
+      setGenerateInfoError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGeneratingInfo(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!connected || !anchorWallet || !publicKey) {
@@ -184,6 +210,26 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         uri,
         network,
       );
+
+      const trimmedInfo = additionalInfo.trim();
+      let metadataNote = '';
+      if (trimmedInfo) {
+        try {
+          setStatus('Setting additional information (set_share_metadata_fields)…');
+          await setShareMetadataFields(
+            connection,
+            anchorWallet,
+            created.vaultId,
+            [{ key: VAULT_METADATA_DESCRIPTION_KEY, value: trimmedInfo }],
+            network,
+          );
+        } catch (err) {
+          metadataNote =
+            `\n\nVault created, but setting additional information failed: ${
+              err instanceof Error ? err.message : String(err)
+            }. Retry from the vault's admin panel.`;
+        }
+      }
 
       let altAddress: string | null = null;
       let altNote = '';
@@ -302,6 +348,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           num_assets: picked.length,
           genesis_deposit_status: false,
           is_pool_created: false,
+          additional_metadata: trimmedInfo || null,
         });
       } catch (err) {
         registryNote = `\n\nVault created on-chain but recording it failed: ${
@@ -315,7 +362,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           `ETF vault №${created.vaultId} created — share metadata set in the same transaction.\n` +
           `vault: ${created.vaultPda.toBase58()}\n` +
           `shares mint: ${created.sharesMint.toBase58()}\n` +
-          `lookup table: ${altAddress ?? '— (creation failed)'}${altNote}${registryNote}`,
+          `lookup table: ${altAddress ?? '— (creation failed)'}${metadataNote}${altNote}${registryNote}`,
         solscan: created.tx ? created.link : undefined,
       });
     } catch (err) {
@@ -350,7 +397,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           Create ETF vault
         </span>
         <span className={`${sectionLabelClass} uppercase`}>
-          vault + share metadata + lookup table
+          vault + vault metadata + lookup table
         </span>
       </div>
 
@@ -402,6 +449,36 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               {CREATE_ETF_MAX_METADATA_BYTES} bytes.
             </p>
           </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <label className={fieldLabelClass}>Additional information</label>
+            <button
+              type="button"
+              onClick={handleGenerateInfo}
+              disabled={generatingInfo || !name.trim()}
+              className={btnGhostClass}
+            >
+              {generatingInfo ? 'Generating…' : 'Auto-generate'}
+            </button>
+          </div>
+          <textarea
+            className={`${inputClass} resize-y`}
+            value={additionalInfo}
+            onChange={(e) => setAdditionalInfo(e.target.value)}
+            placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
+            maxLength={MAX_METADATA_VALUE_LEN}
+            rows={3}
+          />
+          {generateInfoError && (
+            <p className="mt-1 font-mono text-[10px] text-destructive">{generateInfoError}</p>
+          )}
+          <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+            Optional. Draft from the share name via Auto-generate, then edit freely. Written
+            on-chain as share-mint metadata (key {VAULT_METADATA_DESCRIPTION_KEY}) in a follow-up
+            transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN} bytes.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

@@ -43,6 +43,8 @@ export type VaultRow = {
   genesis_deposit_status: boolean;
   /** True once DAMM v2 shares×USDC customizable pool exists on-chain. */
   is_pool_created: boolean;
+  /** Free-text vault description, mirrored on-chain via `set_share_metadata_fields`. */
+  additional_metadata: string | null;
   created_at?: string;
 };
 
@@ -89,6 +91,7 @@ export async function GET(request: Request) {
       num_assets: v.num_assets,
       genesis_deposit_status: Boolean(v.genesis_deposit_status),
       is_pool_created: Boolean(v.is_pool_created),
+      additional_metadata: v.additional_metadata ?? null,
       created_at: v.created_at ?? undefined,
     }));
     return NextResponse.json({ vaults });
@@ -187,6 +190,7 @@ export async function POST(request: Request) {
       num_assets: body.num_assets!,
       genesis_deposit_status: body.genesis_deposit_status ?? false,
       is_pool_created: body.is_pool_created ?? false,
+      additional_metadata: body.additional_metadata ?? null,
       created_at: null,
     });
 

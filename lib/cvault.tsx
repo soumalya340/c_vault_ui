@@ -76,6 +76,9 @@ import {
   MIN_REDEEM_FEE_BPS,
   MAX_REDEEM_FEE_BPS,
   CREATE_ETF_MAX_METADATA_BYTES,
+  MAX_METADATA_KEY_LEN,
+  MAX_METADATA_VALUE_LEN,
+  MAX_ADDITIONAL_METADATA_PAIRS,
 } from './constants';
 import { formatUserFacingError, parseTxError } from './txError';
 import {
@@ -1054,6 +1057,70 @@ export async function createEtf(
     sharesMint: pdas.sharesMint,
     usdcVault: pdas.usdcVault,
   };
+}
+
+export interface MetadataFieldInput {
+  key: string;
+  value: string;
+}
+
+/**
+ * Runs `set_share_metadata_fields` — writes/overwrites `additional_metadata`
+ * key/value pairs on the vault's share mint (Token-2022 `TokenMetadata`).
+ * `create_etf` can only set name/symbol/uri; anything extra goes through here
+ * as a follow-up transaction, signed by the vault manager (who pays the rent
+ * top-up for the grown TLV entry).
+ */
+export async function setShareMetadataFields(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  fields: MetadataFieldInput[],
+  network: Network,
+): Promise<{ tx: string; link: string }> {
+  if (fields.length === 0) {
+    throw new Error('additional_metadata requires at least one field.');
+  }
+  if (fields.length > MAX_ADDITIONAL_METADATA_PAIRS) {
+    throw new Error(
+      `Too many metadata pairs (max ${MAX_ADDITIONAL_METADATA_PAIRS}).`,
+    );
+  }
+  const seenKeys = new Set<string>();
+  for (const { key, value } of fields) {
+    if (!key || Buffer.byteLength(key, 'utf8') > MAX_METADATA_KEY_LEN) {
+      throw new Error(
+        `Metadata key "${key}" must be 1–${MAX_METADATA_KEY_LEN} UTF-8 bytes.`,
+      );
+    }
+    if (Buffer.byteLength(value, 'utf8') > MAX_METADATA_VALUE_LEN) {
+      throw new Error(
+        `Metadata value for "${key}" exceeds ${MAX_METADATA_VALUE_LEN} UTF-8 bytes.`,
+      );
+    }
+    if (seenKeys.has(key)) {
+      throw new Error(`Duplicate metadata key "${key}" in the same request.`);
+    }
+    seenKeys.add(key);
+  }
+
+  const program = createProgram(wallet, connection);
+  const pdas = deriveVaultPdas(vaultId, network);
+
+  const ix = await (program.methods as any)
+    .setShareMetadataFields(new BN(vaultId), fields)
+    .accounts({
+      vault: pdas.vaultPda,
+      sharesMint: pdas.sharesMint,
+      vaultAuthority: pdas.vaultAuthority,
+      vaultManager: wallet.publicKey,
+      systemProgram: SystemProgram.programId,
+      sharesTokenProgram: TOKEN_2022_PROGRAM_ID,
+    })
+    .instruction();
+
+  const sig = await sendV0(connection, wallet, [ix]);
+  return { tx: sig, link: solscanLink(sig, network) };
 }
 
 // ─── Core: deposit / request_redeem / claim ───────────────────────────────────

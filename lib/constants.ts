@@ -148,6 +148,19 @@ export const MAX_REDEEM_FEE_BPS = 1000;
 export const CREATE_ETF_MAX_METADATA_BYTES = 400;
 
 /**
+ * Mirror on-chain `MAX_METADATA_VALUE_LEN` (`set_share_metadata_fields`) —
+ * max UTF-8 bytes for one `additional_metadata` value.
+ */
+export const MAX_METADATA_VALUE_LEN = 128;
+/** Mirror on-chain `MAX_METADATA_KEY_LEN`. */
+export const MAX_METADATA_KEY_LEN = 32;
+/** Mirror on-chain `MAX_ADDITIONAL_METADATA_PAIRS`. */
+export const MAX_ADDITIONAL_METADATA_PAIRS = 4;
+
+/** Key used for the free-text "Additional information" field on vault creation. */
+export const VAULT_METADATA_DESCRIPTION_KEY = 'description';
+
+/**
  * @deprecated TWAP keeper removed from the program (2.0.2). Kept only so dead
  * client modules fail clearly at runtime rather than at import time. Do not use.
  */

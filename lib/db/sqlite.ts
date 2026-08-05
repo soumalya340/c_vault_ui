@@ -61,6 +61,8 @@ function toUnifiedVault(row: PrismaVault): UnifiedVaultRow {
     is_pool_created: Boolean(
       (row as { is_pool_created?: boolean }).is_pool_created,
     ),
+    additional_metadata:
+      (row as { additional_metadata?: string | null }).additional_metadata ?? null,
     created_at: row.created_at || null,
   };
 }
@@ -174,6 +176,7 @@ export const sqliteDriver: DbDriver = {
         num_assets: row.num_assets,
         genesis_deposit_status: row.genesis_deposit_status ?? false,
         is_pool_created: row.is_pool_created ?? false,
+        additional_metadata: row.additional_metadata ?? null,
       },
       update: {
         paused: row.paused,
@@ -184,6 +187,9 @@ export const sqliteDriver: DbDriver = {
         // Only advance false → true; never clear a completed genesis flag on upsert.
         ...(row.genesis_deposit_status ? { genesis_deposit_status: true } : {}),
         ...(row.is_pool_created ? { is_pool_created: true } : {}),
+        ...(row.additional_metadata !== null && row.additional_metadata !== undefined
+          ? { additional_metadata: row.additional_metadata }
+          : {}),
       },
     });
   },

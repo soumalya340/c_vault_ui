@@ -9,6 +9,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import {
   assertCreateEtfMetadata,
   createEtf,
+  setShareMetadataFields,
   deriveGlobalStatePda,
   pythFeedAccount,
   vaultAssetAta,
@@ -19,13 +20,18 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import { CREATE_ETF_MAX_METADATA_BYTES } from '@/lib/constants';
+import {
+  CREATE_ETF_MAX_METADATA_BYTES,
+  MAX_METADATA_VALUE_LEN,
+  VAULT_METADATA_DESCRIPTION_KEY,
+} from '@/lib/constants';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
 import { fetchPoolCtx } from '@/lib/whirlpool';
 import { fetchDammPoolCtx } from '@/lib/damm';
 import {
   fetchAssetRegistry,
   saveVault,
+  generateVaultDescription,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
@@ -116,6 +122,31 @@ function TextInput({
       maxLength={maxLength}
       style={style}
       required={required}
+    />
+  );
+}
+
+function TextArea({
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  rows = 3,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  maxLength?: number;
+  rows?: number;
+}) {
+  return (
+    <textarea
+      className="w-full resize-y border border-border-strong bg-background px-3.5 py-2.5 font-mono text-sm text-foreground transition-[color,background-color,border-color,box-shadow] duration-[250ms] placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)]"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      rows={rows}
     />
   );
 }
@@ -235,6 +266,9 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [uri, setUri] = useState('');
+  const [additionalInfo, setAdditionalInfo] = useState('');
+  const [generatingInfo, setGeneratingInfo] = useState(false);
+  const [generateInfoError, setGenerateInfoError] = useState<string | null>(null);
   const [feeRecipient, setFeeRecipient] = useState('');
   const [depositFeeBps, setDepositFeeBps] = useState('0');
   const [redeemFeeBps, setRedeemFeeBps] = useState('100');
@@ -300,6 +334,23 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
     setRows((prev) => [...prev, { assetId: '', allocationPct: remaining.toFixed(2) }]);
   };
 
+  const handleGenerateInfo = async () => {
+    if (!name.trim()) {
+      setGenerateInfoError('Enter a share name first.');
+      return;
+    }
+    setGeneratingInfo(true);
+    setGenerateInfoError(null);
+    try {
+      const text = await generateVaultDescription(name.trim());
+      setAdditionalInfo(text);
+    } catch (err) {
+      setGenerateInfoError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGeneratingInfo(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!connected || !anchorWallet || !publicKey) {
@@ -346,6 +397,26 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
         uri,
         network,
       );
+
+      const trimmedInfo = additionalInfo.trim();
+      let metadataNote = '';
+      if (trimmedInfo) {
+        try {
+          setStatus('Setting additional information (set_share_metadata_fields)…');
+          await setShareMetadataFields(
+            connection,
+            anchorWallet,
+            created.vaultId,
+            [{ key: VAULT_METADATA_DESCRIPTION_KEY, value: trimmedInfo }],
+            network,
+          );
+        } catch (err) {
+          metadataNote =
+            `\n\nVault created, but setting additional information failed: ${
+              err instanceof Error ? err.message : String(err)
+            }. Retry from the vault's admin panel.`;
+        }
+      }
 
       let altAddress: string | null = null;
       let altNote = '';
@@ -462,6 +533,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           num_assets: picked.length,
           genesis_deposit_status: false,
           is_pool_created: false,
+          additional_metadata: trimmedInfo || null,
         });
       } catch (err) {
         registryNote = `\n\nVault created on-chain but recording it failed: ${
@@ -475,7 +547,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           `ETF vault №${created.vaultId} created — share metadata set in the same transaction.\n` +
           `vault: ${created.vaultPda.toBase58()}\n` +
           `shares mint: ${created.sharesMint.toBase58()}\n` +
-          `lookup table: ${altAddress ?? '— (creation failed)'}${altNote}${registryNote}`,
+          `lookup table: ${altAddress ?? '— (creation failed)'}${metadataNote}${altNote}${registryNote}`,
         solscan: created.tx ? created.link : undefined,
       });
       showVaultOpsToast('INSTRUCTION QUEUED · CREATE ETF VAULT');
@@ -533,7 +605,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
             per asset; only the weighting is chosen here.
           </p>
 
-          <SectionDivider title="Share metadata" side="A · identity" />
+          <SectionDivider title="Vault metadata" side="A · identity" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
               <FieldLabel>Share name</FieldLabel>
@@ -570,6 +642,34 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                 Name + symbol + URI max {CREATE_ETF_MAX_METADATA_BYTES} bytes total.
               </p>
             </div>
+          </div>
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <FieldLabel>Additional information</FieldLabel>
+              <button
+                type="button"
+                onClick={handleGenerateInfo}
+                disabled={generatingInfo || !name.trim()}
+                className="border border-border-strong bg-background px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {generatingInfo ? 'Generating…' : 'Auto-generate'}
+              </button>
+            </div>
+            <TextArea
+              value={additionalInfo}
+              onChange={setAdditionalInfo}
+              placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
+              maxLength={MAX_METADATA_VALUE_LEN}
+            />
+            {generateInfoError && (
+              <p className="mt-1.5 text-xs leading-relaxed text-destructive">{generateInfoError}</p>
+            )}
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
+              Optional. Draft from the share name via Auto-generate, then edit freely. Written
+              on-chain as share-mint metadata (key{' '}
+              <span className="font-mono">{VAULT_METADATA_DESCRIPTION_KEY}</span>) in a follow-up
+              transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN} bytes.
+            </p>
           </div>
 
           <SectionDivider title="Economics" side="B · fees in %" />

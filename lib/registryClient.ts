@@ -62,6 +62,8 @@ export interface VaultRecord {
   genesis_deposit_status: boolean;
   /** True once DAMM v2 shares×USDC customizable pool exists on-chain. */
   is_pool_created: boolean;
+  /** Free-text vault description, mirrored on-chain via `set_share_metadata_fields`. */
+  additional_metadata: string | null;
   created_at?: string;
 }
 
@@ -194,13 +196,26 @@ export async function fetchVaults(network: string): Promise<VaultRecord[]> {
   }));
 }
 
-export async function saveVault(row: Omit<VaultRecord, 'created_at'>): Promise<void> {
+export async function saveVault(
+  row: Omit<VaultRecord, 'created_at' | 'additional_metadata'> & { additional_metadata?: string | null },
+): Promise<void> {
   const res = await fetch('/api/vaults', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(row),
   });
   await jsonOrThrow<{ ok: boolean }>(res);
+}
+
+/** Drafts "Additional information" text from the share name via the server-side NVIDIA route. */
+export async function generateVaultDescription(shareName: string): Promise<string> {
+  const res = await fetch('/api/vault-metadata/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shareName }),
+  });
+  const { text } = await jsonOrThrow<{ text: string }>(res);
+  return text;
 }
 
 /**
