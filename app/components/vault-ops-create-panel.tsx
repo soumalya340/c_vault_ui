@@ -20,11 +20,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import {
-  CREATE_ETF_MAX_METADATA_BYTES,
-  MAX_METADATA_VALUE_LEN,
-  VAULT_METADATA_DESCRIPTION_KEY,
-} from '@/lib/constants';
+import { MAX_METADATA_VALUE_LEN, VAULT_METADATA_DESCRIPTION_KEY } from '@/lib/constants';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
 import { fetchPoolCtx } from '@/lib/whirlpool';
 import { fetchDammPoolCtx } from '@/lib/damm';
@@ -36,6 +32,7 @@ import {
 } from '@/lib/registryClient';
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { ErrorModal } from './error-modal';
+import { ImageDropzone } from './image-dropzone';
 import { LedgerOutput } from './ledger-output';
 import { showVaultOpsToast } from './vault-ops-toast';
 
@@ -132,16 +129,18 @@ function TextArea({
   placeholder,
   maxLength,
   rows = 3,
+  className = '',
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   maxLength?: number;
   rows?: number;
+  className?: string;
 }) {
   return (
     <textarea
-      className="w-full resize-y border border-border-strong bg-background px-3.5 py-2.5 font-mono text-sm text-foreground transition-[color,background-color,border-color,box-shadow] duration-[250ms] placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)]"
+      className={`w-full resize-y border border-border-strong bg-background px-3.5 py-2.5 font-mono text-sm text-foreground transition-[color,background-color,border-color,box-shadow] duration-[250ms] placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)] ${className}`}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -266,6 +265,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [uri, setUri] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [generatingInfo, setGeneratingInfo] = useState(false);
   const [generateInfoError, setGenerateInfoError] = useState<string | null>(null);
@@ -317,7 +317,8 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
 
   const basketDone =
     Math.abs(allocationTotalBps - 10_000) < 0.001 && rows.length > 0 && rows.every((r) => r.assetId);
-  const canCreate = basketDone && name.trim() && symbol.trim() && uri.trim();
+  const canCreate =
+    basketDone && name.trim() && symbol.trim() && uri.trim() && !imageUploading;
 
   const handleCopyMint = () => {
     const v = usdcBase58;
@@ -355,6 +356,11 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
     e.preventDefault();
     if (!connected || !anchorWallet || !publicKey) {
       setVisible(true);
+      return;
+    }
+    if (imageUploading) return;
+    if (!uri.trim()) {
+      setResult({ type: 'error', text: 'Upload a vault image before creating the vault.' });
       return;
     }
 
@@ -606,41 +612,42 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           </p>
 
           <SectionDivider title="Vault metadata" side="A · identity" />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <FieldLabel>Share name</FieldLabel>
-              <TextInput
-                value={name}
-                onChange={setName}
-                placeholder="cVault Shares"
-                maxLength={32}
-                required
-              />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="shrink-0">
+              <FieldLabel>Vault image</FieldLabel>
+              <ImageDropzone value={uri} onChange={setUri} onUploadingChange={setImageUploading} />
+              {uri ? (
+                <p className="mt-1.5 max-w-[10rem] truncate font-mono text-[10px] text-muted-foreground">
+                  {uri}
+                </p>
+              ) : (
+                <p className="mt-1.5 max-w-[10rem] font-mono text-[10px] text-muted-foreground/70">
+                  Required before you can create the vault.
+                </p>
+              )}
             </div>
-            <div>
-              <FieldLabel>Share symbol</FieldLabel>
-              <TextInput
-                value={symbol}
-                onChange={setSymbol}
-                placeholder="CVS"
-                maxLength={10}
-                style={{ textTransform: 'uppercase' }}
-                required
-              />
-            </div>
-            <div>
-              <FieldLabel>Metadata URI</FieldLabel>
-              <TextInput
-                value={uri}
-                onChange={setUri}
-                placeholder="https://arweave.net/… or https://…"
-                maxLength={CREATE_ETF_MAX_METADATA_BYTES}
-                required
-              />
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
-                Short https link only — no base64 <span className="font-mono">data:</span> images.
-                Name + symbol + URI max {CREATE_ETF_MAX_METADATA_BYTES} bytes total.
-              </p>
+            <div className="grid flex-1 grid-cols-1 gap-4">
+              <div>
+                <FieldLabel>Share name</FieldLabel>
+                <TextInput
+                  value={name}
+                  onChange={setName}
+                  placeholder="cVault Shares"
+                  maxLength={32}
+                  required
+                />
+              </div>
+              <div>
+                <FieldLabel>Share symbol</FieldLabel>
+                <TextInput
+                  value={symbol}
+                  onChange={setSymbol}
+                  placeholder="CVS"
+                  maxLength={10}
+                  style={{ textTransform: 'uppercase' }}
+                  required
+                />
+              </div>
             </div>
           </div>
           <div>
@@ -862,11 +869,17 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
               disabled={loading || !canCreate}
               className="relative overflow-hidden border border-moss bg-moss px-8 py-3.5 font-mono text-[11px] font-semibold uppercase tracking-[0.26em] text-background transition-all hover:-translate-x-px hover:-translate-y-px hover:shadow-[4px_4px_0_rgba(23,37,28,0.18)] active:translate-x-0 active:translate-y-0 active:shadow-none disabled:cursor-not-allowed disabled:border-border-strong disabled:bg-foreground/[0.06] disabled:text-muted-foreground disabled:shadow-none"
             >
-              <span className="relative z-10">{loading ? status ?? 'Processing…' : 'Create ETF'}</span>
+              <span className="relative z-10">
+                {loading ? status ?? 'Processing…' : imageUploading ? 'Uploading image…' : 'Create ETF'}
+              </span>
             </button>
             <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground">
               {!canCreate ? (
-                !basketDone ? (
+                imageUploading ? (
+                  <>
+                    Waiting for the <strong className="text-seal">vault image</strong> to finish uploading
+                  </>
+                ) : !basketDone ? (
                   <>
                     Basket must total <strong className="text-seal">100%</strong> and every asset needs a token
                   </>
@@ -877,7 +890,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                   </>
                 ) : (
                   <>
-                    Add a <strong className="text-seal">metadata URI</strong>
+                    Upload a <strong className="text-seal">vault image</strong> first
                   </>
                 )
               ) : (

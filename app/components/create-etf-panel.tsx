@@ -20,11 +20,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/cvault';
-import {
-  CREATE_ETF_MAX_METADATA_BYTES,
-  MAX_METADATA_VALUE_LEN,
-  VAULT_METADATA_DESCRIPTION_KEY,
-} from '@/lib/constants';
+import { MAX_METADATA_VALUE_LEN, VAULT_METADATA_DESCRIPTION_KEY } from '@/lib/constants';
 import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
 import { fetchPoolCtx } from '@/lib/whirlpool';
 import { fetchDammPoolCtx } from '@/lib/damm';
@@ -37,6 +33,7 @@ import {
 import { parseTxError, type UserFacingError } from '@/lib/txError';
 import { SECTION_STYLE } from './function-defs';
 import { ErrorModal } from './error-modal';
+import { ImageDropzone } from './image-dropzone';
 import { LedgerOutput } from './ledger-output';
 import {
   btnGhostClass,
@@ -87,6 +84,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [uri, setUri] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [generatingInfo, setGeneratingInfo] = useState(false);
   const [generateInfoError, setGenerateInfoError] = useState<string | null>(null);
@@ -169,6 +167,11 @@ export function CreateEtfPanel({ network }: { network: Network }) {
     e.preventDefault();
     if (!connected || !anchorWallet || !publicKey) {
       setVisible(true);
+      return;
+    }
+    if (imageUploading) return;
+    if (!uri.trim()) {
+      setResult({ type: 'error', text: 'Upload a vault image before creating the vault.' });
       return;
     }
 
@@ -411,75 +414,76 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           per asset; only the weighting is chosen here.
         </p>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div>
-            <label className={fieldLabelClass}>Share name</label>
-            <input
-              className={inputClass}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="cVault Shares"
-              maxLength={32}
-              required
-            />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+          <div className="shrink-0">
+            <label className={fieldLabelClass}>Vault image</label>
+            <ImageDropzone value={uri} onChange={setUri} onUploadingChange={setImageUploading} />
+            {uri ? (
+              <p className="mt-1.5 max-w-[10rem] truncate font-mono text-[10px] text-muted-foreground">
+                {uri}
+              </p>
+            ) : (
+              <p className="mt-1.5 max-w-[10rem] font-mono text-[10px] text-muted-foreground/70">
+                Required before you can create the vault.
+              </p>
+            )}
           </div>
-          <div>
-            <label className={fieldLabelClass}>Share symbol</label>
-            <input
-              className={inputClass}
-              value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-              placeholder="CVS"
-              maxLength={10}
-              required
-            />
-          </div>
-          <div>
-            <label className={fieldLabelClass}>Metadata URI</label>
-            <input
-              className={inputClass}
-              value={uri}
-              onChange={(e) => setUri(e.target.value)}
-              placeholder="https://arweave.net/… or https://…"
-              maxLength={CREATE_ETF_MAX_METADATA_BYTES}
-              required
-            />
-            <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-              Short https link only — no base64 data: images. Name+symbol+URI ≤{' '}
-              {CREATE_ETF_MAX_METADATA_BYTES} bytes.
-            </p>
-          </div>
-        </div>
+          <div className="flex flex-1 flex-col gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className={fieldLabelClass}>Share name</label>
+                <input
+                  className={inputClass}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="cVault Shares"
+                  maxLength={32}
+                  required
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Share symbol</label>
+                <input
+                  className={inputClass}
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                  placeholder="CVS"
+                  maxLength={10}
+                  required
+                />
+              </div>
+            </div>
 
-        <div>
-          <div className="mb-1.5 flex items-center justify-between gap-3">
-            <label className={fieldLabelClass}>Additional information</label>
-            <button
-              type="button"
-              onClick={handleGenerateInfo}
-              disabled={generatingInfo || !name.trim()}
-              className={btnGhostClass}
-            >
-              {generatingInfo ? 'Generating…' : 'Auto-generate'}
-            </button>
+            <div className="flex flex-1 flex-col">
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <label className={fieldLabelClass}>Description (Optional)</label>
+                <button
+                  type="button"
+                  onClick={handleGenerateInfo}
+                  disabled={generatingInfo || !name.trim()}
+                  className={btnGhostClass}
+                >
+                  {generatingInfo ? 'Generating…' : 'Auto-generate'}
+                </button>
+              </div>
+              <textarea
+                className={`${inputClass} flex-1 resize-none`}
+                value={additionalInfo}
+                onChange={(e) => setAdditionalInfo(e.target.value)}
+                placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
+                maxLength={MAX_METADATA_VALUE_LEN}
+              />
+            </div>
           </div>
-          <textarea
-            className={`${inputClass} resize-y`}
-            value={additionalInfo}
-            onChange={(e) => setAdditionalInfo(e.target.value)}
-            placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
-            maxLength={MAX_METADATA_VALUE_LEN}
-            rows={3}
-          />
-          {generateInfoError && (
-            <p className="mt-1 font-mono text-[10px] text-destructive">{generateInfoError}</p>
-          )}
-          <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-            Optional. Draft from the share name via Auto-generate, then edit freely. Written
-            on-chain as share-mint metadata (key {VAULT_METADATA_DESCRIPTION_KEY}) in a follow-up
-            transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN} bytes.
-          </p>
         </div>
+        {generateInfoError && (
+          <p className="-mt-3 font-mono text-[10px] text-destructive">{generateInfoError}</p>
+        )}
+        <p className="-mt-3 font-mono text-[10px] text-muted-foreground">
+          Optional. Draft from the share name via Auto-generate, then edit freely. Written
+          on-chain as share-mint metadata (key {VAULT_METADATA_DESCRIPTION_KEY}) in a follow-up
+          transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN} bytes.
+        </p>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
@@ -691,9 +695,24 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             Connect your wallet to create a vault.
           </p>
         )}
+        {connected && !uri.trim() && !imageUploading && (
+          <p className="rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-xs text-muted-foreground">
+            Upload a vault image above before creating the vault.
+          </p>
+        )}
 
-        <button type="submit" disabled={loading} className={btnPrimaryClass}>
-          {loading ? (status ?? 'Processing…') : connected ? 'Create ETF' : 'Connect wallet'}
+        <button
+          type="submit"
+          disabled={loading || imageUploading || (connected && !uri.trim())}
+          className={btnPrimaryClass}
+        >
+          {loading
+            ? (status ?? 'Processing…')
+            : imageUploading
+              ? 'Uploading image…'
+              : connected
+                ? 'Create ETF'
+                : 'Connect wallet'}
         </button>
 
         {result && (

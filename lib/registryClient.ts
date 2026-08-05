@@ -218,6 +218,17 @@ export async function generateVaultDescription(shareName: string): Promise<strin
   return text;
 }
 
+/** Uploads an image (already compressed client-side) to Vercel Blob; returns its public URL. */
+export async function uploadVaultMetadataImage(file: File): Promise<string> {
+  const res = await fetch(`/api/vault-metadata/upload-image?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+  const { url } = await jsonOrThrow<{ url: string }>(res);
+  return url;
+}
+
 /**
  * Persist deposit/redeem ALT addresses after create_etf or genesis auto-create.
  * Writes `deposit_alt_address`, `redeem_alt_address`, and legacy `alt_address`
