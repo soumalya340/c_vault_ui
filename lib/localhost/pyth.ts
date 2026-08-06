@@ -22,7 +22,7 @@ import {
   PRICE_SOURCE_DEX,
   PYTH_PUSH_ORACLE_PROGRAM_ID,
 } from '../constants';
-import { fetchPoolCtx } from '../whirlpool';
+import { fetchPoolCtx } from '../onchain/whirlpool';
 import { isSurfnetFail, surfnetRpc } from './surfnet';
 
 /** PDA [shard 0 (u16 LE), feed_id] on the Pyth push-oracle program. */

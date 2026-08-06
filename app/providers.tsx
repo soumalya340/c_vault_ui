@@ -15,7 +15,7 @@ import { WalletProvider, ConnectionContext } from '@solana/wallet-adapter-react'
 import { WalletModalContext } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
-import { createPlatformConnection } from '@/lib/connection';
+import { createPlatformConnection } from '@/lib/onchain/connection';
 import { WalletModal } from './components/wallet-modal';
 
 /**

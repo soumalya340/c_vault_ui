@@ -32,6 +32,8 @@ export interface UnifiedVaultRow {
   genesis_deposit_status: boolean;
   /** True once DAMM v2 shares×USDC customizable pool exists on-chain. */
   is_pool_created: boolean;
+  /** Free-text vault description, mirrored on-chain via `set_share_metadata_fields`. */
+  additional_metadata: string | null;
   created_at: string | null;
 }
 
@@ -101,8 +103,15 @@ export interface DbDriver {
 
   listVaults(network: DbNetwork): Promise<UnifiedVaultRow[]>;
   getVault(network: DbNetwork, vaultId: number): Promise<UnifiedVaultRow | null>;
-  /** Upsert on vault_address (the PK in both backends). */
-  upsertVault(network: DbNetwork, row: UnifiedVaultRow): Promise<void>;
+  /**
+   * Upsert on vault_address (the PK in both backends). `additional_metadata`
+   * is optional: omit it to leave an existing value untouched (e.g. chain-sync
+   * callers that don't know about it), pass `null` to explicitly clear it.
+   */
+  upsertVault(
+    network: DbNetwork,
+    row: Omit<UnifiedVaultRow, 'additional_metadata'> & { additional_metadata?: string | null },
+  ): Promise<void>;
   updateVaultAlts(
     network: DbNetwork,
     vaultId: number,

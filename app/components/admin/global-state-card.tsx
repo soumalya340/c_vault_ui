@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { getGlobalState, type GlobalStateView } from '@/lib/cvault';
+import { getGlobalState, type GlobalStateView } from '@/lib/onchain/cvault';
 import { Skeleton } from '@/components/ui/skeleton';
 import { panelClass } from '../ui-classes';
 
@@ -65,8 +65,8 @@ export function GlobalStateCard() {
             <dd className="font-mono text-[12px] text-foreground">{short(state.treasuryAddr)}</dd>
           </div>
           <div>
-            <dt className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">TWAP keeper</dt>
-            <dd className="font-mono text-[12px] text-foreground">{short(state.twapKeeper)}</dd>
+            <dt className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">ETF creation auth</dt>
+            <dd className="font-mono text-[12px] text-foreground">{short(state.etfCreationAuthority)}</dd>
           </div>
           <div>
             <dt className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Total vaults</dt>

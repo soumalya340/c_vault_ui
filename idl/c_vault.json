@@ -1,5 +1,5 @@
 {
-  "address": "8XF1n5xy8g54Feb6rPqSkHxBDd76dZbRyj8fbizRUvTd",
+  "address": "7zXNwt3NgtpQFUtCewvPuyf45RaaUEPyihibpTKVTg9P",
   "metadata": {
     "name": "c_vault",
     "version": "2.0.0",
@@ -85,21 +85,22 @@
           }
         },
         {
-          "name": "usdc_vault",
+          "name": "redeem_usdc",
+          "docs": [
+            "Audit C-03 remediation: this redeemer's own USDC escrow — the fee",
+            "split and user payout both come from here, signed by `redeem_state`'s",
+            "own PDA seeds (not `vault_authority`)."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
+                "value": [114, 101, 100, 101, 101, 109, 95, 117, 115, 100, 99]
               },
               {
-                "kind": "const",
-                "value": [
-                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
-                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
-                  166, 2, 3, 69, 47, 93, 97
-                ]
+                "kind": "account",
+                "path": "user"
               },
               {
                 "kind": "arg",
@@ -892,9 +893,12 @@
           "writable": true
         },
         {
-          "name": "authority_share_account",
+          "name": "vault_share_account",
           "docs": [
-            "Depositor share ATA (Token-2022) — created idempotently in the handler."
+            "Vault-owned share ATA (Token-2022) — created idempotently in the",
+            "handler. Bug 1 fix: the genesis share slice is minted here (owned by",
+            "`vault_authority`, not the depositor) so it can never be redeemed and",
+            "`total_shares` can never fall back to 0."
           ],
           "writable": true
         },
@@ -1310,6 +1314,66 @@
           }
         },
         {
+          "name": "usdc_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "usdc_vault",
+          "docs": [
+            "The vault's shared USDC account — source of the undeployed-cash carve",
+            "transferred into `redeem_usdc` in Step 5."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
+                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
+                  166, 2, 3, 69, 47, 93, 97
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "redeem_usdc",
+          "docs": [
+            "C-03 remediation: per-user, per-vault USDC escrow that will hold this",
+            "redeemer's swap proceeds, isolated from the shared `usdc_vault`.",
+            "Authority is the `RedeemState` PDA itself — `claim` signs the payout",
+            "with `RedeemState`'s own seeds. Created idempotently here and reused",
+            "across every redeem cycle for this (user, vault) pair, same lifecycle",
+            "as `RedeemState` (never closed; see `RedeemState::reset`)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [114, 101, 100, 101, 101, 109, 95, 117, 115, 100, 99]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
           "name": "user",
           "writable": true,
           "signer": true
@@ -1317,6 +1381,11 @@
         {
           "name": "token_program",
           "docs": ["Token-2022 program (for c_vault share burn)."]
+        },
+        {
+          "name": "base_token_program",
+          "docs": ["Classic SPL Token program (for the USDC escrow account)."],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "system_program",
@@ -1525,37 +1594,193 @@
       ]
     },
     {
-      "name": "set_twap_keeper",
+      "name": "set_share_metadata_fields",
       "docs": [
-        "Admin-only: assign (or clear, via `Pubkey::default()`) the wallet",
-        "allowed to call `update_dex_twap`."
+        "Set `additional_metadata` key/value pairs on this vault's Token-2022",
+        "share mint. `create_etf` can only initialize `name`/`symbol`/`uri`, so",
+        "any extra fields are written here — one CPI per pair, each with a rent",
+        "top-up paid by the vault manager. Existing keys are overwritten."
       ],
-      "discriminator": [230, 148, 202, 190, 241, 104, 231, 188],
+      "discriminator": [141, 30, 1, 239, 182, 85, 121, 94],
       "accounts": [
         {
-          "name": "global_state",
-          "writable": true,
+          "name": "vault",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
-                ]
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
               }
             ]
           }
         },
         {
-          "name": "admin",
-          "signer": true,
-          "address": "cyaibXfQvCC4qKDYNguU4mXryhKjSkszPWkd56KFkrF"
+          "name": "shares_mint",
+          "docs": [
+            "Share mint — is its own metadata account (the `MetadataPointer` set in",
+            "`create_etf` points at itself). `mut` because each field write grows it",
+            "and receives a rent top-up.",
+            "seeds + the stored `vault.shares_mint` above, and by Token-2022 in the CPI."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [115, 104, 97, 114, 101, 115, 95, 109, 105, 110, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "docs": [
+            "Metadata update authority for the share mint (set in `create_etf`)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_manager",
+          "docs": ["Pays the rent top-up for the grown metadata entry."],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "shares_token_program",
+          "docs": ["Token-2022 program — owns the share mint."]
         }
       ],
       "args": [
         {
-          "name": "keeper",
-          "type": "pubkey"
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "additional_metadata",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "MetadataField"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_share_metadata_uri",
+      "docs": [
+        "Overwrite the share mint's Token-2022 metadata `uri` (e.g. point it at",
+        "Metaplex JSON so Jupiter can resolve the icon). Vault manager only."
+      ],
+      "discriminator": [223, 239, 56, 124, 148, 176, 112, 35],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "shares_mint",
+          "docs": [
+            "Share mint — is its own metadata account (the `MetadataPointer` set in",
+            "`create_etf` points at itself). `mut` because each field write grows it",
+            "and receives a rent top-up."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [115, 104, 97, 114, 101, 115, 95, 109, 105, 110, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "docs": [
+            "Metadata update authority for the share mint (set in `create_etf`)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_manager",
+          "docs": ["Pays the rent top-up for the grown metadata entry."],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "shares_token_program",
+          "docs": ["Token-2022 program — owns the share mint."]
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "uri",
+          "type": "string"
         }
       ]
     },
@@ -1680,6 +1905,17 @@
           }
         },
         {
+          "name": "wsol_vault",
+          "docs": [
+            "Bug 2 fix: the vault's own wSOL ATA, passed explicitly so the handler",
+            "can measure its before/after balance independent of whatever",
+            "venue-specific accounts `swap_kind` puts in `remaining_accounts`.",
+            "Constrained to `(mint = wSOL, authority = vault_authority)` so it",
+            "can't be swapped for a spoofed account."
+          ],
+          "writable": true
+        },
+        {
           "name": "user",
           "signer": true
         }
@@ -1783,21 +2019,23 @@
           }
         },
         {
-          "name": "usdc_vault",
+          "name": "redeem_usdc",
+          "docs": [
+            "Audit C-03 remediation: this redeemer's own USDC escrow — swap output",
+            "lands here, not the shared `usdc_vault`. Created in `request_redeem`;",
+            "authority is `redeem_state` itself, so `claim` can sign the payout",
+            "with `RedeemState`'s own seeds."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
+                "value": [114, 101, 100, 101, 101, 109, 95, 117, 115, 100, 99]
               },
               {
-                "kind": "const",
-                "value": [
-                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
-                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
-                  166, 2, 3, 69, 47, 93, 97
-                ]
+                "kind": "account",
+                "path": "user"
               },
               {
                 "kind": "arg",
@@ -1888,6 +2126,14 @@
           }
         },
         {
+          "name": "wsol_vault",
+          "docs": [
+            "Audit C-01: the vault's own wSOL ATA — the only account this leg may",
+            "spend from. Constrained to (mint = wSOL, authority = vault_authority)."
+          ],
+          "writable": true
+        },
+        {
           "name": "signer",
           "docs": [
             "Permissionless caller — any signer may deploy pending wSOL."
@@ -1920,8 +2166,10 @@
       "docs": [
         "Instruction 2 of 3 (per-asset, ViaSol leg 2) — swap accumulated wSOL → USDC",
         "for `asset_index`, deduct the performance fee, and accumulate net USDC into",
-        "`pending_usdc`. `wsol_amount` is the wSOL produced by the prior",
-        "`swap_asset_to_sol` leg (a runtime value, not the stored asset amount)."
+        "`pending_usdc`. The wSOL amount sold is `RedeemState.wsol_received[asset_index]`,",
+        "measured on-chain by the prior `swap_asset_to_sol` leg — not a caller-supplied",
+        "value (Bug 2 fix: a client-supplied amount let a redeemer sell vault wSOL",
+        "that wasn't theirs)."
       ],
       "discriminator": [169, 2, 247, 19, 104, 227, 106, 59],
       "accounts": [
@@ -1999,21 +2247,21 @@
           }
         },
         {
-          "name": "usdc_vault",
+          "name": "redeem_usdc",
+          "docs": [
+            "Audit C-03 remediation: this redeemer's own USDC escrow — swap output",
+            "lands here, not the shared `usdc_vault`. Authority = `redeem_state`."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
+                "value": [114, 101, 100, 101, 101, 109, 95, 117, 115, 100, 99]
               },
               {
-                "kind": "const",
-                "value": [
-                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
-                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
-                  166, 2, 3, 69, 47, 93, 97
-                ]
+                "kind": "account",
+                "path": "user"
               },
               {
                 "kind": "arg",
@@ -2021,6 +2269,14 @@
               }
             ]
           }
+        },
+        {
+          "name": "wsol_vault",
+          "docs": [
+            "Audit C-01: the vault's own wSOL ATA — the source of this leg. Pinned",
+            "here so `token_owner_account_a/b` cannot be swapped for a foreign account."
+          ],
+          "writable": true
         },
         {
           "name": "user",
@@ -2095,10 +2351,6 @@
           "type": "u8"
         },
         {
-          "name": "wsol_amount",
-          "type": "u64"
-        },
-        {
           "name": "min_usdc_out",
           "type": "u64"
         },
@@ -2161,6 +2413,35 @@
               {
                 "kind": "account",
                 "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "docs": [
+            "Audit C-01: the vault's own USDC PDA — the only account this leg may",
+            "spend from. Passed as a typed, seed-and-authority-constrained account",
+            "so it cannot be substituted via `remaining_accounts`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
+                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
+                  166, 2, 3, 69, 47, 93, 97
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
               }
             ]
           }
@@ -2322,10 +2603,43 @@
           "writable": true
         },
         {
+          "name": "usdc_vault",
+          "docs": [
+            "The vault's own USDC PDA — the source of this conversion. Audit C-01:",
+            "pinned by seeds + authority so `token_owner_account_a/b` cannot be",
+            "substituted for a foreign account."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [117, 115, 100, 99, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  198, 250, 122, 243, 190, 219, 173, 58, 61, 101, 243, 106, 171,
+                  201, 116, 49, 177, 187, 228, 194, 210, 246, 224, 228, 124,
+                  166, 2, 3, 69, 47, 93, 97
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
           "name": "wsol_owner_account",
           "docs": [
+            "Vault's wSOL holding account — must be whichever of",
             "token_owner_account_a/_b actually holds wSOL, passed again here so the",
-            "handler can read its balance before/after without guessing which slot."
+            "handler can read its balance before/after without guessing which slot.",
+            "Audit C-01: constrained to (mint = wSOL, authority = vault_authority);",
+            "previously unconstrained, which let a caller point the destination at",
+            "an account the vault does not own."
           ],
           "writable": true
         }
@@ -2416,66 +2730,6 @@
       ]
     },
     {
-      "name": "update_dex_twap",
-      "docs": [
-        "Keeper-only: advance TWAP for one DEX-priced global asset (no mint path)."
-      ],
-      "discriminator": [144, 64, 180, 12, 223, 33, 140, 232],
-      "accounts": [
-        {
-          "name": "global_state",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103, 108, 111, 98, 97, 108, 95, 115, 116, 97, 116, 101
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "asset_info",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [97, 115, 115, 101, 116]
-              },
-              {
-                "kind": "arg",
-                "path": "asset_id"
-              }
-            ]
-          }
-        },
-        {
-          "name": "payer",
-          "docs": ["Pays the transaction (client must set this as fee payer)."],
-          "signer": true
-        },
-        {
-          "name": "keeper",
-          "docs": [
-            "Authorized TWAP keeper — signature / auth only; does not pay."
-          ],
-          "signer": true
-        }
-      ],
-      "args": [
-        {
-          "name": "asset_id",
-          "type": "u64"
-        },
-        {
-          "name": "twap_live_state",
-          "type": "u64"
-        }
-      ]
-    },
-    {
       "name": "update_treasury_addr",
       "docs": ["Update the program-wide treasury recipient address."],
       "discriminator": [89, 118, 189, 91, 22, 6, 105, 149],
@@ -2544,10 +2798,6 @@
       "discriminator": [120, 248, 61, 83, 31, 142, 107, 144]
     },
     {
-      "name": "DexTwapUpdatedEvent",
-      "discriminator": [189, 245, 64, 172, 227, 208, 16, 63]
-    },
-    {
       "name": "EtfCreationAuthorityUpdatedEvent",
       "discriminator": [55, 75, 206, 199, 121, 22, 94, 66]
     },
@@ -2610,10 +2860,6 @@
     {
       "name": "TreasuryAddrUpdatedEvent",
       "discriminator": [41, 10, 212, 246, 207, 255, 150, 52]
-    },
-    {
-      "name": "TwapKeeperUpdatedEvent",
-      "discriminator": [221, 153, 175, 109, 231, 230, 213, 223]
     },
     {
       "name": "VaultDeletedEvent",
@@ -2841,93 +3087,93 @@
     },
     {
       "code": 6042,
-      "name": "AssetInfoNotWritable",
-      "msg": "AssetInfo account must be writable to persist TWAP updates"
-    },
-    {
-      "code": 6043,
       "name": "MissingMaxShares",
       "msg": "A Fixed vault must declare a max_shares supply cap"
     },
     {
-      "code": 6044,
+      "code": 6043,
       "name": "InvalidMaxShares",
       "msg": "max_shares must be greater than zero"
     },
     {
-      "code": 6045,
+      "code": 6044,
       "name": "ShareCapExceeded",
       "msg": "Deposit would exceed the Fixed vault's max_shares supply cap"
     },
     {
-      "code": 6046,
+      "code": 6045,
       "name": "QuoteMintNotEligible",
       "msg": "usdc_mint must be the canonical USDC mint"
     },
     {
-      "code": 6047,
+      "code": 6046,
       "name": "EligibleMintListFull",
       "msg": "Eligible base mint list is full"
     },
     {
-      "code": 6048,
+      "code": 6047,
       "name": "EligibleMintAlreadyListed",
       "msg": "Mint is already on the eligible base mint list"
     },
     {
-      "code": 6049,
+      "code": 6048,
       "name": "EligibleMintNotFound",
       "msg": "Mint is not on the eligible base mint list"
     },
     {
-      "code": 6050,
+      "code": 6049,
       "name": "InvalidPendingAssetSlot",
       "msg": "asset_index refers to a USDC-native or wSOL-native slot, which never enters the pending pool"
     },
     {
-      "code": 6051,
-      "name": "TwapWindowTooShort",
-      "msg": "Insufficient TWAP history to mint/redeem against this asset yet"
-    },
-    {
-      "code": 6052,
+      "code": 6050,
       "name": "UnsupportedDexKind",
       "msg": "Pool account owner does not match the asset's declared DexKind"
     },
     {
-      "code": 6053,
-      "name": "TwapKeeperNotSet",
-      "msg": "No TWAP keeper has been assigned yet"
-    },
-    {
-      "code": 6054,
-      "name": "UnauthorizedTwapKeeper",
-      "msg": "Signer is not the assigned TWAP keeper"
-    },
-    {
-      "code": 6055,
-      "name": "LivePriceDiscrepancy",
-      "msg": "Live price discrepancy — source not reliable (TWAP observation and keeper stamp both stale)"
-    },
-    {
-      "code": 6056,
+      "code": 6051,
       "name": "NotDexPricedAsset",
       "msg": "asset_index does not refer to a Dex-priced asset"
     },
     {
-      "code": 6057,
+      "code": 6052,
       "name": "InvalidPoolPair",
       "msg": "Pool must include USDC or wSOL as one side of the pair"
     },
     {
-      "code": 6058,
+      "code": 6053,
       "name": "InvalidTokenProgram",
       "msg": "token_program_tag must be 0 (SPL Token) or 1 (Token-2022)"
     },
     {
-      "code": 6059,
+      "code": 6054,
       "name": "UnsupportedSwapKind",
       "msg": "remaining_accounts don't match this asset's configured swap_kind"
+    },
+    {
+      "code": 6055,
+      "name": "InvalidSwapPool",
+      "msg": "Swap pool does not match the asset's declared pool_address"
+    },
+    {
+      "code": 6056,
+      "name": "InvalidSwapTokenAccount",
+      "msg": "Swap input/output account is not the vault's own token account for this leg"
+    },
+    {
+      "code": 6057,
+      "name": "InvalidSwapPoolMints",
+      "msg": "Swap pool mints do not match the expected (asset, quote) pair for this leg"
+    },
+    {
+      "code": 6058,
+      "name": "InvalidDammV2Authority",
+      "msg": "DAMM v2 pool_authority / event_authority account does not match the canonical cp-amm PDA"
+    },
+    {
+      "code": 6059,
+      "name": "ZeroSwapOutput",
+      "msg": "Swap produced no output — refusing to credit a zero or unattributable amount"
     },
     {
       "code": 6060,
@@ -2938,6 +3184,26 @@
       "code": 6061,
       "name": "VaultNotEmpty",
       "msg": "Vault cannot be deleted — it has received real deposits beyond the one-time genesis seed"
+    },
+    {
+      "code": 6062,
+      "name": "TooManyMetadataPairs",
+      "msg": "Too many additional_metadata pairs — see MAX_ADDITIONAL_METADATA_PAIRS"
+    },
+    {
+      "code": 6063,
+      "name": "InvalidMetadataKey",
+      "msg": "additional_metadata key is empty or exceeds MAX_METADATA_KEY_LEN bytes"
+    },
+    {
+      "code": 6064,
+      "name": "InvalidMetadataValue",
+      "msg": "additional_metadata value exceeds MAX_METADATA_VALUE_LEN bytes"
+    },
+    {
+      "code": 6065,
+      "name": "DuplicateMetadataKey",
+      "msg": "Duplicate additional_metadata key in the same request"
     }
   ],
   "types": [
@@ -3103,20 +3369,6 @@
               "- `ViaSol`     → `WSOL_MINT`, then × Pyth SOL/USD (`SOL_USD_PYTH_FEED_ID`)"
             ],
             "type": "pubkey"
-          },
-          {
-            "name": "twap",
-            "docs": [
-              "Self-maintained on-chain TWAP state for this asset, shared globally",
-              "across every vault referencing it. Only advances when",
-              "`price_source_tag` is Dex and a deposit/redeem/keeper call touches",
-              "this asset; unused (all-zero) for Pyth-priced assets."
-            ],
-            "type": {
-              "defined": {
-                "name": "TwapState"
-              }
-            }
           },
           {
             "name": "swap_kind",
@@ -3315,34 +3567,6 @@
       }
     },
     {
-      "name": "DexTwapUpdatedEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "keeper",
-            "type": "pubkey"
-          },
-          {
-            "name": "asset_id",
-            "type": "u64"
-          },
-          {
-            "name": "last_price_x64",
-            "type": "u128"
-          },
-          {
-            "name": "last_update_ts",
-            "type": "i64"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
       "name": "EtfCreationAuthorityUpdatedEvent",
       "type": {
         "kind": "struct",
@@ -3494,10 +3718,6 @@
             "type": "pubkey"
           },
           {
-            "name": "twap_keeper",
-            "type": "pubkey"
-          },
-          {
             "name": "total_assets",
             "docs": [
               "Global asset counter — next `create_asset` call is assigned this id"
@@ -3596,6 +3816,27 @@
             "type": {
               "option": "u64"
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MetadataField",
+      "docs": [
+        "One key/value pair written into the share mint's Token-2022",
+        "`additional_metadata` list. Defined as a named struct (not a tuple) so",
+        "Anchor's IDL builder can serialize it — `Vec<(String, String)>` is rejected."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "key",
+            "type": "string"
+          },
+          {
+            "name": "value",
+            "type": "string"
           }
         ]
       }
@@ -3714,8 +3955,9 @@
           {
             "name": "estimated_usdc_value",
             "docs": [
-              "Oracle-priced USDC value of those assets (6 decimals) — gross, before",
-              "the redeem fee, i.e. what the redeemed basket is worth right now."
+              "Oracle-priced USDC value of the asset slice plus the redeemer's",
+              "proportional undeployed `total_pending_usdc` carve (6 decimals) — gross,",
+              "before the redeem fee."
             ],
             "type": "u64"
           },
@@ -3792,14 +4034,6 @@
             "type": "bool"
           },
           {
-            "name": "pending_usdc",
-            "docs": [
-              "Running total of net USDC accumulated across all per-asset swaps.",
-              "Incremented each time an asset is swapped; `claim` transfers this amount."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "bump",
             "type": "u8"
           },
@@ -3843,6 +4077,20 @@
             "type": {
               "array": ["bool", 8]
             }
+          },
+          {
+            "name": "wsol_received",
+            "docs": [
+              "wSOL actually produced by `swap_asset_to_sol` for asset[i], measured",
+              "on-chain as the vault wSOL ATA's before/after delta. `swap_sol_to_usdc`",
+              "(leg-2) consumes exactly this amount — never a caller-supplied",
+              "`wsol_amount` — so a redeemer can never sell vault wSOL that isn't",
+              "theirs (deposit-pipeline wSOL, other users' in-flight leg-1 output, or",
+              "portfolio wSOL). Zeroed once leg-2 consumes it."
+            ],
+            "type": {
+              "array": ["u64", 8]
+            }
           }
         ]
       }
@@ -3862,6 +4110,13 @@
           },
           {
             "name": "shares_burned",
+            "type": "u64"
+          },
+          {
+            "name": "pending_usdc_credited",
+            "docs": [
+              "Undeployed USDC carved from `Vault.total_pending_usdc` into this redeem."
+            ],
             "type": "u64"
           },
           {
@@ -3918,6 +4173,10 @@
           },
           {
             "name": "asset_in",
+            "type": "u64"
+          },
+          {
+            "name": "wsol_received",
             "type": "u64"
           },
           {
@@ -4156,89 +4415,6 @@
       }
     },
     {
-      "name": "TwapKeeperUpdatedEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "admin",
-            "type": "pubkey"
-          },
-          {
-            "name": "old_keeper",
-            "type": "pubkey"
-          },
-          {
-            "name": "new_keeper",
-            "type": "pubkey"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "TwapState",
-      "docs": [
-        "Self-maintained cumulative-price TWAP for one DEX-priced asset.",
-        "",
-        "Sampled whenever a vault instruction already touches this asset's price",
-        "(deposit, redeem — never nav_view/preview, which discard their mutation).",
-        "No permissionless crank exists; the per-observation move cap",
-        "(`MAX_TWAP_MOVE_BPS`) is what stops a single attacker-triggered sample",
-        "after a quiet period from dominating the accumulated average.",
-        "",
-        "Lives inline on the global `AssetInfo` PDA (plain Borsh `#[account]`,",
-        "not zero_copy) — mutated on every deposit/redeem touching a DEX-priced",
-        "asset, which pays full Borsh (de)serialization of `AssetInfo` per",
-        "mutation. Accepted trade-off: `AssetInfo` is small and this isn't the",
-        "hottest path in the program."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "cumulative_price",
-            "docs": [
-              "Σ (price_x64 × seconds_elapsed) since asset listing (never reset;",
-              "the window is derived by subtracting `window_start_cumulative`)."
-            ],
-            "type": "u128"
-          },
-          {
-            "name": "window_start_cumulative",
-            "docs": [
-              "Snapshot of `cumulative_price` as of `window_start_ts` — the start of",
-              "the current rolling window. Advanced together with `window_start_ts`",
-              "each time the window rolls in `record_observation`."
-            ],
-            "type": "u128"
-          },
-          {
-            "name": "last_price_x64",
-            "docs": [
-              "Last recorded (post-clamp) price observation, Q64.64 fixed point."
-            ],
-            "type": "u128"
-          },
-          {
-            "name": "last_update_ts",
-            "type": "i64"
-          },
-          {
-            "name": "last_update_twap_keeper_ts",
-            "type": "i64"
-          },
-          {
-            "name": "window_start_ts",
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
       "name": "Vault",
       "docs": [
         "Vault state mapped in-place via `AccountLoader` (damm-v2 zero_copy pattern).",
@@ -4295,10 +4471,6 @@
             "type": "u64"
           },
           {
-            "name": "total_usdc_value",
-            "type": "u64"
-          },
-          {
             "name": "genesis_done",
             "docs": [
               "`0` = not seeded, `1` = seeded. Use `is_genesis_done` / `set_genesis_done`."
@@ -4317,29 +4489,6 @@
             "docs": [
               "Shares minted by `genesis_deposit`. Written once; never modified."
             ],
-            "type": "u64"
-          },
-          {
-            "name": "ath_share_price",
-            "docs": ["All-time high share price (PRICE_SCALE units)."],
-            "type": "u64"
-          },
-          {
-            "name": "rolling_high_price",
-            "docs": ["30-day rolling high share price."],
-            "type": "u64"
-          },
-          {
-            "name": "rolling_window_start",
-            "docs": ["Unix timestamp of rolling window start."],
-            "type": "i64"
-          },
-          {
-            "name": "total_deposited",
-            "type": "u64"
-          },
-          {
-            "name": "total_withdrawn",
             "type": "u64"
           },
           {
@@ -4389,6 +4538,41 @@
             "type": {
               "array": ["u16", 8]
             }
+          },
+          {
+            "name": "sol_deploy_remaining_bps",
+            "docs": [
+              "Audit M-07: bps still owed deployment in the current wSOL round — the",
+              "live denominator for `swap_sol_to_asset` sizing.",
+              "",
+              "Each leg deploys `total_pending_sol × sol_target_bps[idx] /",
+              "sol_deploy_remaining_bps` and then subtracts its own bps here. Dividing",
+              "by the *remaining* bps rather than a fixed `10_000` is what makes the",
+              "legs partition the balance: `total_pending_sol` shrinks as legs run, so",
+              "a `10_000` denominator would size every leg against an already-reduced",
+              "base and strand a large residual (~29.6% with three equal legs). The",
+              "final leg of a round sees `sol_deploy_remaining_bps == sol_target_bps",
+              "[idx]` and therefore sweeps the exact remainder.",
+              "",
+              "Reset to `10_000` by `swap_usdc_to_sol` when a new wSOL batch lands.",
+              "`0` = round complete (or no ViaSol legs); legs no-op."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "sol_deploy_done_mask",
+            "docs": [
+              "Audit M-07: bitmask of asset slots already deployed in the current wSOL",
+              "round — bit `i` set means slot `i` has run. `MAX_ASSETS == 8`, so one",
+              "`u8` covers every slot.",
+              "",
+              "The bps counter alone cannot enforce this: it only records *how much*",
+              "weight was retired, not *which* slots retired it. Since these legs are",
+              "permissionless, without the mask a caller could replay one slot until",
+              "the counter drained and route the entire batch into a single asset,",
+              "breaking the vault's target weights. Cleared alongside the bps reset."
+            ],
+            "type": "u8"
           },
           {
             "name": "reserved_assets",

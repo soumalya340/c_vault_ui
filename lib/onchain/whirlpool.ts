@@ -1,5 +1,5 @@
 import { AccountInfo, Connection, PublicKey } from '@solana/web3.js';
-import { WHIRLPOOL_PROGRAM_ID, WSOL_MINT } from './constants';
+import { WHIRLPOOL_PROGRAM_ID, WSOL_MINT } from '../constants';
 
 const TICK_ARRAY_SIZE = 88;
 

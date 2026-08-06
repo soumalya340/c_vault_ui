@@ -9,28 +9,37 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import {
   assertCreateEtfMetadata,
   createEtf,
+  setShareMetadataFields,
   deriveGlobalStatePda,
   pythFeedAccount,
   vaultAssetAta,
+  genesisDepositAndDeploy,
+  parseUnits,
   WSOL_MINT,
   SOL_USD_PYTH_FEED_ID,
   PRICE_SOURCE_PYTH,
   PRICE_SOURCE_DEX,
+  PRICE_SCALE_DECIMALS,
   NETWORK_CONSTANTS,
   type Network,
-} from '@/lib/cvault';
-import { CREATE_ETF_MAX_METADATA_BYTES } from '@/lib/constants';
-import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
-import { fetchPoolCtx } from '@/lib/whirlpool';
-import { fetchDammPoolCtx } from '@/lib/damm';
+} from '@/lib/onchain/cvault';
+import { MAX_METADATA_VALUE_LEN, VAULT_METADATA_DESCRIPTION_KEY } from '@/lib/constants';
+import { buildVaultAltAddresses, createVaultAlt } from '@/lib/onchain/alt';
+import { fetchPoolCtx } from '@/lib/onchain/whirlpool';
+import { fetchDammPoolCtx } from '@/lib/onchain/damm';
 import {
   fetchAssetRegistry,
   saveVault,
+  updateVaultAlts,
+  updateVaultGenesisStatus,
+  generateVaultDescription,
+  uploadVaultMetadataJson,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { SECTION_STYLE } from './function-defs';
 import { ErrorModal } from './error-modal';
+import { ImageDropzone } from './image-dropzone';
 import { LedgerOutput } from './ledger-output';
 import {
   btnGhostClass,
@@ -81,11 +90,16 @@ export function CreateEtfPanel({ network }: { network: Network }) {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [uri, setUri] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
+  const [additionalInfo, setAdditionalInfo] = useState('');
+  const [generatingInfo, setGeneratingInfo] = useState(false);
+  const [generateInfoError, setGenerateInfoError] = useState<string | null>(null);
   const [feeRecipient, setFeeRecipient] = useState('');
   const [depositFeeBps, setDepositFeeBps] = useState('0');
   const [redeemFeeBps, setRedeemFeeBps] = useState('100');
   const [fundType, setFundType] = useState<'dynamic' | 'fixed'>('dynamic');
   const [maxShares, setMaxShares] = useState('');
+  const [baselineSharePrice, setBaselineSharePrice] = useState('1.00');
   const [rows, setRows] = useState<AssetRow[]>([{ ...EMPTY_ROW }]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
 
@@ -139,10 +153,32 @@ export function CreateEtfPanel({ network }: { network: Network }) {
 
   const hasViaSol = rows.some((r) => assetById.get(r.assetId)?.route === 'ViaSol');
 
+  const handleGenerateInfo = async () => {
+    if (!name.trim()) {
+      setGenerateInfoError('Enter a share name first.');
+      return;
+    }
+    setGeneratingInfo(true);
+    setGenerateInfoError(null);
+    try {
+      const text = await generateVaultDescription(name.trim());
+      setAdditionalInfo(text);
+    } catch (err) {
+      setGenerateInfoError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGeneratingInfo(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!connected || !anchorWallet || !publicKey) {
       setVisible(true);
+      return;
+    }
+    if (imageUploading) return;
+    if (!uri.trim()) {
+      setResult({ type: 'error', text: 'Upload a vault image before creating the vault.' });
       return;
     }
 
@@ -162,7 +198,30 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         return { entry, allocationBps: pctToBps(row.allocationPct) };
       });
 
-      assertCreateEtfMetadata(name, symbol, uri);
+      // `uri` state holds the raw image URL (dropzone preview). Jupiter and
+      // most indexers need Metaplex JSON at on-chain `uri` with an `image`
+      // field — publish that now and write the JSON URL on-chain instead.
+      const trimmedInfo = additionalInfo.trim();
+      setStatus('Publishing token metadata JSON…');
+      const metadataUri = await uploadVaultMetadataJson({
+        name: name.trim(),
+        symbol: symbol.trim(),
+        image: uri.trim(),
+        description: trimmedInfo,
+      });
+      assertCreateEtfMetadata(name, symbol, metadataUri);
+
+      let parsedBaselinePrice: BN;
+      try {
+        parsedBaselinePrice = parseUnits(baselineSharePrice || '0', PRICE_SCALE_DECIMALS);
+      } catch (err) {
+        throw new Error(
+          `Opening share price: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (parsedBaselinePrice.lten(0)) {
+        throw new Error('Opening share price must be greater than $0.');
+      }
 
       setStatus('Creating vault (create_etf)…');
       const created = await createEtf(
@@ -181,9 +240,28 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         },
         name,
         symbol,
-        uri,
+        metadataUri,
         network,
       );
+
+      let metadataNote = '';
+      if (trimmedInfo) {
+        try {
+          setStatus('Setting additional information (set_share_metadata_fields)…');
+          await setShareMetadataFields(
+            connection,
+            anchorWallet,
+            created.vaultId,
+            [{ key: VAULT_METADATA_DESCRIPTION_KEY, value: trimmedInfo }],
+            network,
+          );
+        } catch (err) {
+          metadataNote =
+            `\n\nVault created, but setting additional information failed: ${
+              err instanceof Error ? err.message : String(err)
+            }. Retry from the vault's admin panel.`;
+        }
+      }
 
       let altAddress: string | null = null;
       let altNote = '';
@@ -284,7 +362,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           usdc_vault: created.usdcVault.toBase58(),
           name,
           symbol,
-          uri,
+          uri: metadataUri,
           fee_recipient: feeRcpt,
           fund_type: fundType,
           max_shares: maxShares.trim() || null,
@@ -302,11 +380,57 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           num_assets: picked.length,
           genesis_deposit_status: false,
           is_pool_created: false,
+          additional_metadata: trimmedInfo || null,
         });
       } catch (err) {
         registryNote = `\n\nVault created on-chain but recording it failed: ${
           err instanceof Error ? err.message : String(err)
         }`;
+      }
+
+      let genesisNote = '';
+      if (altAddress) {
+        try {
+          setStatus('Seeding genesis deposit (genesis_deposit)…');
+          const genesisResult = await genesisDepositAndDeploy(
+            connection,
+            anchorWallet,
+            created.vaultId,
+            parsedBaselinePrice,
+            altAddress,
+            network,
+          );
+          if (genesisResult.altAddress && genesisResult.altAddress !== altAddress) {
+            altAddress = genesisResult.altAddress;
+            try {
+              await updateVaultAlts(network, created.vaultId, {
+                deposit_alt_address: altAddress,
+                redeem_alt_address: altAddress,
+              });
+            } catch {
+              // Non-fatal — genesis itself already succeeded on-chain.
+            }
+          }
+          try {
+            await updateVaultGenesisStatus(network, created.vaultId, true);
+          } catch (err) {
+            genesisNote =
+              `\n\nGenesis deposit succeeded on-chain but updating its status failed: ${
+                err instanceof Error ? err.message : String(err)
+              }. Refresh the portfolio page — it reconciles this automatically.`;
+          }
+          genesisNote =
+            `\n\nGenesis deposit seeded — opening share price pinned at $${baselineSharePrice}.` +
+            genesisNote;
+        } catch (err) {
+          genesisNote =
+            `\n\nGenesis deposit failed: ${
+              err instanceof Error ? err.message : String(err)
+            } Vault is still on-chain — run Genesis deposit from the vault's admin panel to retry.`;
+        }
+      } else {
+        genesisNote =
+          '\n\nGenesis deposit skipped — no address lookup table available. Run Genesis deposit from the vault\'s admin panel once the ALT exists.';
       }
 
       setResult({
@@ -315,7 +439,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           `ETF vault №${created.vaultId} created — share metadata set in the same transaction.\n` +
           `vault: ${created.vaultPda.toBase58()}\n` +
           `shares mint: ${created.sharesMint.toBase58()}\n` +
-          `lookup table: ${altAddress ?? '— (creation failed)'}${altNote}${registryNote}`,
+          `lookup table: ${altAddress ?? '— (creation failed)'}${metadataNote}${altNote}${genesisNote}${registryNote}`,
         solscan: created.tx ? created.link : undefined,
       });
     } catch (err) {
@@ -339,13 +463,6 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           error={lastError}
           onClose={() => setErrorOpen(false)}
           network={network}
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — retry the action if needed.',
-            });
-          }}
         />
       )}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">
@@ -357,7 +474,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           Create ETF vault
         </span>
         <span className={`${sectionLabelClass} uppercase`}>
-          vault + share metadata + lookup table
+          vault + vault metadata + lookup table + genesis deposit
         </span>
       </div>
 
@@ -371,45 +488,76 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           per asset; only the weighting is chosen here.
         </p>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div>
-            <label className={fieldLabelClass}>Share name</label>
-            <input
-              className={inputClass}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="cVault Shares"
-              maxLength={32}
-              required
-            />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+          <div className="shrink-0">
+            <label className={fieldLabelClass}>Vault image</label>
+            <ImageDropzone value={uri} onChange={setUri} onUploadingChange={setImageUploading} />
+            {uri ? (
+              <p className="mt-1.5 max-w-[10rem] truncate font-mono text-[10px] text-muted-foreground">
+                {uri}
+              </p>
+            ) : (
+              <p className="mt-1.5 max-w-[10rem] font-mono text-[10px] text-muted-foreground/70">
+                Required before you can create the vault.
+              </p>
+            )}
           </div>
-          <div>
-            <label className={fieldLabelClass}>Share symbol</label>
-            <input
-              className={inputClass}
-              value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-              placeholder="CVS"
-              maxLength={10}
-              required
-            />
-          </div>
-          <div>
-            <label className={fieldLabelClass}>Metadata URI</label>
-            <input
-              className={inputClass}
-              value={uri}
-              onChange={(e) => setUri(e.target.value)}
-              placeholder="https://arweave.net/… or https://…"
-              maxLength={CREATE_ETF_MAX_METADATA_BYTES}
-              required
-            />
-            <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-              Short https link only — no base64 data: images. Name+symbol+URI ≤{' '}
-              {CREATE_ETF_MAX_METADATA_BYTES} bytes.
-            </p>
+          <div className="flex flex-1 flex-col gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className={fieldLabelClass}>Share name</label>
+                <input
+                  className={inputClass}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="cVault Shares"
+                  maxLength={32}
+                  required
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Share symbol</label>
+                <input
+                  className={inputClass}
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                  placeholder="CVS"
+                  maxLength={10}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-1 flex-col">
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <label className={fieldLabelClass}>Description (Optional)</label>
+                <button
+                  type="button"
+                  onClick={handleGenerateInfo}
+                  disabled={generatingInfo || !name.trim()}
+                  className={btnGhostClass}
+                >
+                  {generatingInfo ? 'Generating…' : 'Auto-generate'}
+                </button>
+              </div>
+              <textarea
+                className={`${inputClass} flex-1 resize-none`}
+                value={additionalInfo}
+                onChange={(e) => setAdditionalInfo(e.target.value)}
+                placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
+                maxLength={MAX_METADATA_VALUE_LEN}
+              />
+            </div>
           </div>
         </div>
+        {generateInfoError && (
+          <p className="-mt-3 font-mono text-[10px] text-destructive">{generateInfoError}</p>
+        )}
+        <p className="-mt-3 font-mono text-[10px] text-muted-foreground">
+          Optional. Draft from the share name via Auto-generate, then edit freely. Written
+          on-chain as share-mint metadata (key {VAULT_METADATA_DESCRIPTION_KEY}) in a follow-up
+          transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN} bytes.
+        </p>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
@@ -471,6 +619,23 @@ export function CreateEtfPanel({ network }: { network: Network }) {
               />
             </div>
           )}
+          <div>
+            <label className={fieldLabelClass}>Opening share price (USD)</label>
+            <input
+              className={inputClass}
+              type="number"
+              step="0.00001"
+              min="0.00001"
+              value={baselineSharePrice}
+              onChange={(e) => setBaselineSharePrice(e.target.value)}
+              placeholder="1.00"
+              required
+            />
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+              Genesis deposit runs automatically right after the vault is created, seeding it
+              with 1 USDC priced at this opening share price.
+            </p>
+          </div>
         </div>
 
         <div className="border border-border">
@@ -621,9 +786,24 @@ export function CreateEtfPanel({ network }: { network: Network }) {
             Connect your wallet to create a vault.
           </p>
         )}
+        {connected && !uri.trim() && !imageUploading && (
+          <p className="rounded-[2px] border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-xs text-muted-foreground">
+            Upload a vault image above before creating the vault.
+          </p>
+        )}
 
-        <button type="submit" disabled={loading} className={btnPrimaryClass}>
-          {loading ? (status ?? 'Processing…') : connected ? 'Create ETF' : 'Connect wallet'}
+        <button
+          type="submit"
+          disabled={loading || imageUploading || (connected && !uri.trim())}
+          className={btnPrimaryClass}
+        >
+          {loading
+            ? (status ?? 'Processing…')
+            : imageUploading
+              ? 'Uploading image…'
+              : connected
+                ? 'Create ETF'
+                : 'Connect wallet'}
         </button>
 
         {result && (

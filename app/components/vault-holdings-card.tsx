@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import type { Connection } from '@solana/web3.js';
-import type { VaultChainAsset } from '@/lib/cvault';
+import type { VaultChainAsset } from '@/lib/onchain/cvault';
 import { formatTokenUi } from './pending-claim-button';
 import { VaultPanel } from './vault-panel';
 import { VaultSourceTag } from './vault-source-tag';

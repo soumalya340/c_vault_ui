@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { getUserPosition, type Network } from '@/lib/cvault';
+import { getUserPosition, type Network } from '@/lib/onchain/cvault';
 import type { VaultRecord } from '@/lib/registryClient';
 import { formatResult } from './execute-vault-function';
 import { displayVaultName, humanizeViewResult } from './view-display';

@@ -15,7 +15,7 @@
 
 import { Spinner } from '@/components/ui/spinner';
 
-export type PhaseId = 'preflight' | 'swap' | 'claim';
+export type PhaseId = 'preflight' | 'swap' | 'claim' | 'vault' | 'metadata' | 'genesis' | 'record';
 
 type Phase = { id: PhaseId; label: string };
 
@@ -32,23 +32,42 @@ const REDEEM_PHASES: Phase[] = [
 
 const CLAIM_ONLY_PHASES: Phase[] = [{ id: 'claim', label: 'Claiming payout' }];
 
+const CREATE_PHASES: Phase[] = [
+  { id: 'vault', label: 'Creating vault' },
+  { id: 'metadata', label: 'Setting metadata' },
+  { id: 'preflight', label: 'Creating lookup table' },
+  { id: 'record', label: 'Recording vault' },
+  { id: 'genesis', label: 'Seeding genesis deposit' },
+];
+
 /**
  * Keyword → phase. Order matters: first match wins, and claim-ish language
  * is checked before swap-ish language since a redeem's final step can say
  * both ("Redeem: burn + swap + claim → …").
  */
-function classify(message: string): PhaseId {
+function classify(message: string, flow: 'deposit' | 'redeem' | 'claim' | 'create'): PhaseId {
   const m = message.toLowerCase();
+  if (flow === 'create') {
+    if (/genesis/.test(m)) return 'genesis';
+    if (/record/.test(m)) return 'record';
+    if (/lookup table|alt/.test(m)) return 'preflight';
+    if (/metadata/.test(m)) return 'metadata';
+    return 'vault';
+  }
   if (/claim/.test(m)) return 'claim';
   if (/twap|alt|lookup table|preflight|activation/.test(m)) return 'preflight';
   return 'swap';
 }
 
 /** Highest phase index reached by any message seen so far (monotonic — never regresses). */
-function furthestPhaseIndex(steps: string[], phases: Phase[]): number {
+function furthestPhaseIndex(
+  steps: string[],
+  phases: Phase[],
+  flow: 'deposit' | 'redeem' | 'claim' | 'create',
+): number {
   let idx = 0;
   for (const step of steps) {
-    const phaseId = classify(step);
+    const phaseId = classify(step, flow);
     const i = phases.findIndex((p) => p.id === phaseId);
     if (i > idx) idx = i;
   }
@@ -60,7 +79,7 @@ export function TransactionPhases({
   steps,
   active,
 }: {
-  flow: 'deposit' | 'redeem' | 'claim';
+  flow: 'deposit' | 'redeem' | 'claim' | 'create';
   steps: string[];
   /** False once the flow has settled (success or error) — freezes the strip. */
   active: boolean;
@@ -68,8 +87,14 @@ export function TransactionPhases({
   if (steps.length === 0) return null;
 
   const phases =
-    flow === 'deposit' ? DEPOSIT_PHASES : flow === 'claim' ? CLAIM_ONLY_PHASES : REDEEM_PHASES;
-  const currentIdx = furthestPhaseIndex(steps, phases);
+    flow === 'deposit'
+      ? DEPOSIT_PHASES
+      : flow === 'claim'
+        ? CLAIM_ONLY_PHASES
+        : flow === 'create'
+          ? CREATE_PHASES
+          : REDEEM_PHASES;
+  const currentIdx = furthestPhaseIndex(steps, phases, flow);
 
   return (
     <div

@@ -1,7 +1,7 @@
-import { PublicKey } from '@solana/web3.js';
-import { BN } from '@coral-xyz/anchor';
-import type { AnchorWallet } from '@solana/wallet-adapter-react';
-import type { Connection } from '@solana/web3.js';
+import { PublicKey } from "@solana/web3.js";
+import { BN } from "@coral-xyz/anchor";
+import type { AnchorWallet } from "@solana/wallet-adapter-react";
+import type { Connection } from "@solana/web3.js";
 import {
   initGlobalState,
   setEmergency,
@@ -11,8 +11,6 @@ import {
   createAsset,
   setAssetActive,
   updateTreasuryAddr,
-  setTwapKeeper,
-  updateDexTwap,
   getVaultState,
   getTotalNavView,
   getUserPosition,
@@ -29,9 +27,9 @@ import {
   SOL_USD_PYTH_FEED_ID,
   NETWORK_CONSTANTS,
   type Network,
-} from '@/lib/cvault';
-import { WSOL_DECIMALS } from '@/lib/constants';
-import { assetNameForMint } from '@/lib/presets/canonical-data';
+} from "@/lib/onchain/cvault";
+import { WSOL_DECIMALS } from "@/lib/constants";
+import { assetNameForMint } from "@/lib/presets/canonical-data";
 import {
   fetchTokens,
   fetchAssetRegistry,
@@ -40,11 +38,9 @@ import {
   updateVaultAlts,
   updateVaultGenesisStatus,
   FieldError,
-} from '@/lib/registryClient';
-import { assertPoolExists } from '@/lib/poolExists';
-import { fetchUsdPrices } from '@/lib/jupiterPrice';
-import { usdPriceToQ64, describeQ64Price } from '@/lib/twapPrice';
-import { humanizeViewResult, withCommas } from './view-display';
+} from "@/lib/registryClient";
+import { assertPoolExists } from "@/lib/onchain/poolExists";
+import { humanizeViewResult, withCommas } from "./view-display";
 
 /** Write ALT to Supabase/SQLite after on-chain create. Soft-fails with a note. */
 async function persistVaultAlt(
@@ -53,7 +49,7 @@ async function persistVaultAlt(
   altAddress: string,
   altCreated: boolean,
 ): Promise<string> {
-  if (!altAddress) return '';
+  if (!altAddress) return "";
   try {
     await updateVaultAlts(network, vaultId, {
       deposit_alt_address: altAddress,
@@ -71,12 +67,12 @@ async function persistVaultAlt(
   }
 }
 
-function bn(v: string | undefined, fallback = '0'): BN {
+function bn(v: string | undefined, fallback = "0"): BN {
   return new BN(v && v.length > 0 ? v : fallback);
 }
 
 function pk(v: string | undefined): PublicKey {
-  if (!v || v.trim().length === 0) throw new Error('Missing required address');
+  if (!v || v.trim().length === 0) throw new Error("Missing required address");
   return new PublicKey(v.trim());
 }
 
@@ -86,8 +82,8 @@ function parseId(
   label: string,
   fallback?: number,
 ): number {
-  const trimmed = raw?.trim() ?? '';
-  const field = label === 'Vault ID' ? 'vault_id' : 'asset_id';
+  const trimmed = raw?.trim() ?? "";
+  const field = label === "Vault ID" ? "vault_id" : "asset_id";
   if (!trimmed) {
     if (fallback !== undefined) return fallback;
     throw new FieldError(`${label} is required.`, field);
@@ -103,18 +99,19 @@ function parseId(
 }
 
 function vaultId(v: Record<string, string>): number {
-  return parseId(v.vault_id, 'Vault ID', DEFAULT_VAULT_ID);
+  return parseId(v.vault_id, "Vault ID", DEFAULT_VAULT_ID);
 }
 
 function assetId(v: Record<string, string>): number {
-  return parseId(v.asset_id, 'Asset ID', 0);
+  return parseId(v.asset_id, "Asset ID", 0);
 }
 
 /** 32-byte Pyth feed id as hex (with or without 0x); blank => zero feed. */
 function pythFeedIdBytes(v: string | undefined): number[] {
-  const hex = (v ?? '').trim().replace(/^0x/i, '');
+  const hex = (v ?? "").trim().replace(/^0x/i, "");
   if (hex.length === 0) return Array(32).fill(0);
-  if (hex.length !== 64) throw new Error('Pyth feed ID must be 64 hex chars (32 bytes)');
+  if (hex.length !== 64)
+    throw new Error("Pyth feed ID must be 64 hex chars (32 bytes)");
   const bytes: number[] = [];
   for (let i = 0; i < 64; i += 2) bytes.push(parseInt(hex.slice(i, i + 2), 16));
   return bytes;
@@ -141,15 +138,15 @@ export async function executeVaultFunction(
   const id = vaultId(v);
 
   switch (fnId) {
-    case 'view_vault_state':
+    case "view_vault_state":
       return humanizeViewResult(fnId, await getVaultState(connection, id, net));
-    case 'view_nav':
+    case "view_nav":
       // Pass wallet so missing vault ATAs can be simulated as preInstructions.
       return humanizeViewResult(
         fnId,
         await getTotalNavView(connection, id, net, anchorWallet),
       );
-    case 'view_vault_asset_balances': {
+    case "view_vault_asset_balances": {
       const [balances, tokens, registry] = await Promise.all([
         getVaultAssetBalances(connection, id, net),
         fetchTokens().catch(() => []),
@@ -162,7 +159,9 @@ export async function executeVaultFunction(
         }
       }
       if (balances.length === 0) {
-        return { note: 'No on-chain reserves yet — vault asset ATAs are empty.' };
+        return {
+          note: "No on-chain reserves yet — vault asset ATAs are empty.",
+        };
       }
       // Flat map asset → human amount so LedgerOutput renders certificate rows.
       const out: Record<string, string> = {};
@@ -175,21 +174,27 @@ export async function executeVaultFunction(
       }
       return out;
     }
-    case 'view_my_position':
-      if (!publicKey) throw new Error('Connect wallet');
-      return humanizeViewResult(fnId, await getUserPosition(connection, id, publicKey, net));
-    case 'view_asset_state': {
+    case "view_my_position":
+      if (!publicKey) throw new Error("Connect wallet");
+      return humanizeViewResult(
+        fnId,
+        await getUserPosition(connection, id, publicKey, net),
+      );
+    case "view_asset_state": {
       const assetIdNum = assetId(v);
       const [state, registry] = await Promise.all([
         getAssetState(connection, assetIdNum),
         fetchAssetRegistry(net).catch(() => []),
       ]);
       const entry = registry.find((r) => Number(r.asset_id) === assetIdNum);
-      const enriched = { ...state, assetName: entry?.asset_name?.trim() || null };
+      const enriched = {
+        ...state,
+        assetName: entry?.asset_name?.trim() || null,
+      };
       return humanizeViewResult(fnId, enriched);
     }
-    case 'init_global_state': {
-      if (!anchorWallet) throw new Error('Wallet required');
+    case "init_global_state": {
+      if (!anchorWallet) throw new Error("Wallet required");
       // Nothing is read from the form — the genesis wSOL asset is fully
       // fixed: per-network USDC/wSOL Whirlpool, Pyth SOL/USD pricing. The
       // Admin №01 fields only display these same constants to the admin.
@@ -200,10 +205,25 @@ export async function executeVaultFunction(
       // Whirlpool that swap_usdc_to_sol / swap_sol_to_usdc validate against,
       // so it must decode as a Whirlpool and carry both legs (USDC and wSOL).
       try {
-        await assertPoolExists(connection, poolAddress, 'whirlpool', 'DirectUsdc', net);
-        await assertPoolExists(connection, poolAddress, 'whirlpool', 'ViaSol', net);
+        await assertPoolExists(
+          connection,
+          poolAddress,
+          "whirlpool",
+          "DirectUsdc",
+          net,
+        );
+        await assertPoolExists(
+          connection,
+          poolAddress,
+          "whirlpool",
+          "ViaSol",
+          net,
+        );
       } catch (err) {
-        throw new FieldError(err instanceof Error ? err.message : String(err), 'pool_address');
+        throw new FieldError(
+          err instanceof Error ? err.message : String(err),
+          "pool_address",
+        );
       }
 
       const r = await initGlobalState(
@@ -229,16 +249,18 @@ export async function executeVaultFunction(
         await saveAssetRegistryEntry({
           network: net,
           asset_id: String(WSOL_ASSET_ID),
-          asset_name: 'SOL',
+          asset_name: "SOL",
           mint: WSOL_MINT.toBase58(),
           pool_address: poolAddress.toBase58(),
-          pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
+          pyth_feed_id: pythFeedId
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join(""),
           decimals: WSOL_DECIMALS,
-          route: 'DirectUsdc',
+          route: "DirectUsdc",
           price_source_tag: PRICE_SOURCE_PYTH,
           price_dex_kind: 0,
           price_pool_address: PublicKey.default.toBase58(),
-          swap_kind: 'Whirlpool',
+          swap_kind: "Whirlpool",
           token_program_tag: 0,
           active: true,
         });
@@ -255,20 +277,28 @@ export async function executeVaultFunction(
 
       return { tx: r.tx, solscan: r.link, wsolAssetId: WSOL_ASSET_ID };
     }
-    case 'set_emergency': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setEmergency(connection, anchorWallet, v.is_emergency === 'true', net);
+    case "set_emergency": {
+      if (!anchorWallet) throw new Error("Wallet required");
+      const r = await setEmergency(
+        connection,
+        anchorWallet,
+        v.is_emergency === "true",
+        net,
+      );
       return { tx: r.tx, solscan: r.link };
     }
-    case 'genesis_deposit': {
-      if (!anchorWallet) throw new Error('Wallet required');
+    case "genesis_deposit": {
+      if (!anchorWallet) throw new Error("Wallet required");
       let baselineSharePrice: BN;
       try {
-        baselineSharePrice = parseUnits(v.baseline_share_price || '0', PRICE_SCALE_DECIMALS);
+        baselineSharePrice = parseUnits(
+          v.baseline_share_price || "0",
+          PRICE_SCALE_DECIMALS,
+        );
       } catch (err) {
         throw new FieldError(
           err instanceof Error ? err.message : String(err),
-          'baseline_share_price',
+          "baseline_share_price",
         );
       }
       // Reuse DB ALT if live; otherwise create one before signing. Multi-asset
@@ -277,17 +307,20 @@ export async function executeVaultFunction(
       const vaults = await fetchVaults(net).catch(() => []);
       const row = vaults.find((vrow) => vrow.vault_id === id);
       if (row?.genesis_deposit_status) {
-        throw new Error('Genesis deposit already completed for this vault.');
+        throw new Error("Genesis deposit already completed for this vault.");
       }
       // DB may lag on-chain (genesis via CLI / other client) — reconcile once.
       try {
         const state = await getVaultState(connection, id, net);
         if (state.genesisDone) {
           await updateVaultGenesisStatus(net, id, true).catch(() => undefined);
-          throw new Error('Genesis deposit already completed on-chain for this vault.');
+          throw new Error(
+            "Genesis deposit already completed on-chain for this vault.",
+          );
         }
       } catch (err) {
-        if (err instanceof Error && err.message.includes('already completed')) throw err;
+        if (err instanceof Error && err.message.includes("already completed"))
+          throw err;
         // Missing vault / RPC blip — let the on-chain ix surface the real error.
       }
       const altAddress = row?.alt_address ?? null;
@@ -307,12 +340,12 @@ export async function executeVaultFunction(
         ? await persistVaultAlt(net, id, r.altAddress, r.altCreated)
         : r.altAddress
           ? `\nALT: ${r.altAddress}`
-          : '';
+          : "";
       // Genesis succeeded on-chain — pin the flag so UI can disable re-entry.
-      let genesisNote = '';
+      let genesisNote = "";
       try {
         await updateVaultGenesisStatus(net, id, true);
-        genesisNote = '\nGenesis deposit status: done';
+        genesisNote = "\nGenesis deposit status: done";
       } catch (err) {
         genesisNote = `\nGenesis succeeded on-chain but DB update failed: ${
           err instanceof Error ? err.message : String(err)
@@ -321,10 +354,11 @@ export async function executeVaultFunction(
       const multiTxNote =
         r.signatures.length > 1
           ? `Sent in ${r.signatures.length} transactions (>4 assets).`
-          : '';
+          : "";
       const note =
-        [multiTxNote, altNote.trim(), genesisNote.trim()].filter(Boolean).join('') ||
-        undefined;
+        [multiTxNote, altNote.trim(), genesisNote.trim()]
+          .filter(Boolean)
+          .join("") || undefined;
       return {
         tx: r.tx,
         solscan: r.link,
@@ -335,23 +369,41 @@ export async function executeVaultFunction(
         note,
       };
     }
-    case 'set_paused': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setPaused(connection, anchorWallet, id, v.paused === 'true', net);
+    case "set_paused": {
+      if (!anchorWallet) throw new Error("Wallet required");
+      const r = await setPaused(
+        connection,
+        anchorWallet,
+        id,
+        v.paused === "true",
+        net,
+      );
       return { tx: r.tx, solscan: r.link };
     }
-    case 'set_fee_recipient': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setFeeRecipient(connection, anchorWallet, id, pk(v.fee_recipient), net);
+    case "set_fee_recipient": {
+      if (!anchorWallet) throw new Error("Wallet required");
+      const r = await setFeeRecipient(
+        connection,
+        anchorWallet,
+        id,
+        pk(v.fee_recipient),
+        net,
+      );
       return { tx: r.tx, solscan: r.link };
     }
-    case 'set_vault_emergency_lock': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await setVaultEmergencyLock(connection, anchorWallet, id, v.locked === 'true', net);
+    case "set_vault_emergency_lock": {
+      if (!anchorWallet) throw new Error("Wallet required");
+      const r = await setVaultEmergencyLock(
+        connection,
+        anchorWallet,
+        id,
+        v.locked === "true",
+        net,
+      );
       return { tx: r.tx, solscan: r.link };
     }
-    case 'create_asset': {
-      if (!anchorWallet) throw new Error('Wallet required');
+    case "create_asset": {
+      if (!anchorWallet) throw new Error("Wallet required");
       const mint = pk(v.mint);
 
       // Guard before signing: the program itself has no duplicate-mint check
@@ -360,7 +412,10 @@ export async function executeVaultFunction(
       const existingAssets = await fetchAssetRegistry(net).catch(() => []);
       const dupe = existingAssets.find((a) => a.mint === mint.toBase58());
       if (dupe) {
-        throw new FieldError(`Mint already listed as asset #${dupe.asset_id}.`, 'mint');
+        throw new FieldError(
+          `Mint already listed as asset #${dupe.asset_id}.`,
+          "mint",
+        );
       }
 
       // Display name for pre_approved_token_registry — resolve before signing
@@ -372,15 +427,16 @@ export async function executeVaultFunction(
         assetNameForMint(mint.toBase58()) ||
         token?.name?.trim() ||
         token?.symbol?.trim() ||
-        '';
+        "";
       if (!assetName) {
         throw new FieldError(
-          'Asset name is required — enter a name or use a preset mint.',
-          'asset_name',
+          "Asset name is required — enter a name or use a preset mint.",
+          "asset_name",
         );
       }
 
-      const route = v.route === 'directUsdc' ? { directUsdc: {} } : { viaSol: {} };
+      const route =
+        v.route === "directUsdc" ? { directUsdc: {} } : { viaSol: {} };
       const priceSourceTag = Number(v.price_source_tag || 0);
       const priceDexKind = Number(v.price_dex_kind || 0);
       const poolAddress = pk(v.pool_address);
@@ -388,7 +444,8 @@ export async function executeVaultFunction(
       // pool doubles as the DEX price pool, and swap_kind mirrors the chosen
       // DEX type, which is the common case and what the remaining-accounts
       // logic in createAsset() assumes.
-      const pricePoolAddress = priceSourceTag === PRICE_SOURCE_DEX ? poolAddress : PublicKey.default;
+      const pricePoolAddress =
+        priceSourceTag === PRICE_SOURCE_DEX ? poolAddress : PublicKey.default;
       const swapKind = priceDexKind === 1 ? { dammV2: {} } : { whirlpool: {} };
       const pythFeedId = pythFeedIdBytes(v.pyth_feed_id);
       const tokenProgramTag = Number(v.token_program_tag || 0);
@@ -400,15 +457,15 @@ export async function executeVaultFunction(
         await assertPoolExists(
           connection,
           poolAddress,
-          priceDexKind === 1 ? 'dammV2' : 'whirlpool',
-          v.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
+          priceDexKind === 1 ? "dammV2" : "whirlpool",
+          v.route === "directUsdc" ? "DirectUsdc" : "ViaSol",
           net,
           mint,
         );
       } catch (err) {
         throw new FieldError(
           err instanceof Error ? err.message : String(err),
-          'pool_address',
+          "pool_address",
         );
       }
 
@@ -436,13 +493,15 @@ export async function executeVaultFunction(
           asset_name: assetName,
           mint: mint.toBase58(),
           pool_address: poolAddress.toBase58(),
-          pyth_feed_id: pythFeedId.map((b) => b.toString(16).padStart(2, '0')).join(''),
+          pyth_feed_id: pythFeedId
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join(""),
           decimals: r.decimals,
-          route: v.route === 'directUsdc' ? 'DirectUsdc' : 'ViaSol',
+          route: v.route === "directUsdc" ? "DirectUsdc" : "ViaSol",
           price_source_tag: priceSourceTag,
           price_dex_kind: priceDexKind,
           price_pool_address: pricePoolAddress.toBase58(),
-          swap_kind: priceDexKind === 1 ? 'DammV2' : 'Whirlpool',
+          swap_kind: priceDexKind === 1 ? "DammV2" : "Whirlpool",
           token_program_tag: tokenProgramTag,
           active: true,
         });
@@ -459,59 +518,26 @@ export async function executeVaultFunction(
 
       return { tx: r.tx, solscan: r.link, assetId: r.assetId };
     }
-    case 'set_asset_active': {
-      if (!anchorWallet) throw new Error('Wallet required');
+    case "set_asset_active": {
+      if (!anchorWallet) throw new Error("Wallet required");
       const r = await setAssetActive(
         connection,
         anchorWallet,
         assetId(v),
-        v.active === 'true',
+        v.active === "true",
         net,
       );
       return { tx: r.tx, solscan: r.link };
     }
-    case 'update_treasury_addr': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const r = await updateTreasuryAddr(connection, anchorWallet, pk(v.treasury), net);
+    case "update_treasury_addr": {
+      if (!anchorWallet) throw new Error("Wallet required");
+      const r = await updateTreasuryAddr(
+        connection,
+        anchorWallet,
+        pk(v.treasury),
+        net,
+      );
       return { tx: r.tx, solscan: r.link };
-    }
-    case 'set_twap_keeper': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const keeper = v.keeper?.trim() ? pk(v.keeper) : PublicKey.default;
-      const r = await setTwapKeeper(connection, anchorWallet, keeper, net);
-      return { tx: r.tx, solscan: r.link };
-    }
-    case 'update_dex_twap': {
-      if (!anchorWallet) throw new Error('Wallet required');
-      const id = assetId(v);
-
-      // The observation is derived, never typed. `twap_live_state` is Q64.64
-      // raw-USDC-per-raw-asset (see lib/twapPrice.ts) — a value no operator can
-      // enter correctly by hand, and one that loses precision if it ever passes
-      // through a JS number. Sourcing it from Jupiter also keeps the keeper on
-      // the same prices as the NAV tile, so TWAP converges toward what the UI
-      // shows instead of drifting away from it.
-      const asset = await getAssetState(connection, id);
-      if (asset.priceSourceTag !== PRICE_SOURCE_DEX) {
-        throw new Error(
-          `Asset ${id} is Pyth-priced — update_dex_twap only applies to DEX-priced assets.`,
-        );
-      }
-
-      const prices = await fetchUsdPrices([asset.mint]);
-      const price = prices.get(asset.mint);
-      if (!price) throw new Error(`No Jupiter price for asset ${id} (${asset.mint}).`);
-
-      // Decimals come from the on-chain AssetInfo, which is what `sum_nav`
-      // prices against — not Jupiter's copy, which could disagree.
-      const x64 = usdPriceToQ64(price.usdPrice, asset.decimals);
-
-      const r = await updateDexTwap(connection, anchorWallet, id, new BN(x64.toString()), net);
-      return {
-        tx: r.tx,
-        solscan: r.link,
-        observation: describeQ64Price(price.usdPrice, asset.decimals, x64),
-      };
     }
     default:
       throw new Error(`Unknown function: ${fnId}`);
@@ -520,11 +546,11 @@ export async function executeVaultFunction(
 
 export function formatResult(data: unknown): string {
   if (data == null) return String(data);
-  if (typeof data === 'string') return data;
+  if (typeof data === "string") return data;
   try {
     const s = JSON.stringify(
       data,
-      (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
+      (_key, value) => (typeof value === "bigint" ? value.toString() : value),
       2,
     );
     // JSON.stringify(undefined) → undefined; never hand React an empty text.

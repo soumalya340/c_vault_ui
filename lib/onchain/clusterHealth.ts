@@ -1,5 +1,5 @@
 import { Connection, PublicKey, type Commitment } from '@solana/web3.js';
-import { C_VAULT_PROGRAM_ID } from './constants';
+import { C_VAULT_PROGRAM_ID } from '../constants';
 
 /**
  * Live cluster probe: is the RPC reachable, and is c_vault deployed

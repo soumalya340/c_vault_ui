@@ -69,6 +69,8 @@ model Vault {
   genesis_deposit_status Boolean @default(false)
   /// True once the DAMM v2 shares×USDC customizable pool exists on-chain.
   is_pool_created        Boolean @default(false)
+  /// Free-text vault description, mirrored on-chain via `set_share_metadata_fields`.
+  additional_metadata    String?
 
   @@unique([network, vault_id])
   @@map("vaults")

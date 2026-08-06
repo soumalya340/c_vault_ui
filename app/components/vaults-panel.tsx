@@ -9,7 +9,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
   type VaultChainAsset,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import {
   fetchVaults,
   fetchAssetRegistry,

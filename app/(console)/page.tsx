@@ -6,7 +6,7 @@ import {
   C_VAULT_PROGRAM_ID,
   DEFAULT_VAULT_ID,
   deriveVaultPdas,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 
 export default function HomePage() {
   const { network } = useConsoleNetwork();

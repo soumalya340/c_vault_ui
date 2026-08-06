@@ -16,9 +16,9 @@ import {
   describePreviewError,
   NETWORK_CONSTANTS,
   type Network,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import { PRICE_SCALE_DECIMALS, USDC_DECIMALS } from '@/lib/constants';
-import { isTwapRefreshableError, parseTxError, type UserFacingError } from '@/lib/txError';
+import { isTwapRefreshableError, parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { fetchTokens, updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
@@ -220,13 +220,7 @@ export function DepositModal({
         `≈ ${sharesUi} ${vault.symbol} shares · vault NAV $${navUi} · price $${priceUi}/share`,
       );
     } catch (err) {
-      const parsed = parseTxError(err);
-      if (isTwapRefreshableError(parsed)) {
-        setLastError(parsed);
-        setErrorOpen(true);
-      } else {
-        setPreview(describePreviewError(err));
-      }
+      setPreview(describePreviewError(err));
     } finally {
       setPreviewing(false);
     }
@@ -342,13 +336,6 @@ export function DepositModal({
           onClose={() => setErrorOpen(false)}
           network={network}
           vaultId={vault.vault_id}
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — try Deposit again.',
-            });
-          }}
         />
       )}
       <div

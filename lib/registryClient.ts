@@ -62,6 +62,8 @@ export interface VaultRecord {
   genesis_deposit_status: boolean;
   /** True once DAMM v2 shares×USDC customizable pool exists on-chain. */
   is_pool_created: boolean;
+  /** Free-text vault description, mirrored on-chain via `set_share_metadata_fields`. */
+  additional_metadata: string | null;
   created_at?: string;
 }
 
@@ -194,13 +196,64 @@ export async function fetchVaults(network: string): Promise<VaultRecord[]> {
   }));
 }
 
-export async function saveVault(row: Omit<VaultRecord, 'created_at'>): Promise<void> {
+export async function saveVault(
+  row: Omit<VaultRecord, 'created_at' | 'additional_metadata'> & { additional_metadata?: string | null },
+): Promise<void> {
   const res = await fetch('/api/vaults', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(row),
   });
   await jsonOrThrow<{ ok: boolean }>(res);
+}
+
+/** Drafts "Additional information" text from the share name via the server-side NVIDIA route. */
+export async function generateVaultDescription(shareName: string): Promise<string> {
+  const res = await fetch('/api/vault-metadata/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shareName }),
+  });
+  const { text } = await jsonOrThrow<{ text: string }>(res);
+  return text;
+}
+
+/** Uploads an image (already compressed client-side) to Vercel Blob; returns its public URL. */
+export async function uploadVaultMetadataImage(file: File): Promise<string> {
+  const res = await fetch(`/api/vault-metadata/upload-image?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+  const { url } = await jsonOrThrow<{ url: string }>(res);
+  return url;
+}
+
+/**
+ * Host Metaplex-compatible token metadata JSON on Vercel Blob.
+ *
+ * Jupiter / Birdeye / Dexscreener crawl on-chain `uri` and expect JSON with an
+ * `image` field — NOT a raw `.jpg`/`.png` URL. Phantom will still render a bare
+ * image URI; Jupiter will not. Always put the returned JSON URL on-chain.
+ */
+export async function uploadVaultMetadataJson(input: {
+  name: string;
+  symbol: string;
+  image: string;
+  description?: string;
+}): Promise<string> {
+  const res = await fetch('/api/vault-metadata/upload-json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: input.name,
+      symbol: input.symbol,
+      image: input.image,
+      description: input.description ?? '',
+    }),
+  });
+  const { url } = await jsonOrThrow<{ url: string }>(res);
+  return url;
 }
 
 /**

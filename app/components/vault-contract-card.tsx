@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import type { Network } from '@/lib/solscanLink';
-import { solscanAccountLink } from '@/lib/solscanLink';
+import type { Network } from '@/lib/onchain/solscanLink';
+import { solscanAccountLink } from '@/lib/onchain/solscanLink';
 import { VaultPanel } from './vault-panel';
 import { VaultSourceTag } from './vault-source-tag';
 

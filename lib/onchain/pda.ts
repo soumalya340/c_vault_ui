@@ -9,8 +9,9 @@ import {
   SHARES_MINT_SEED,
   USDC_VAULT_SEED,
   REDEEM_SEED,
+  REDEEM_USDC_SEED,
   type Network,
-} from './constants';
+} from '../constants';
 
 export function vaultIdBuf(vaultId: number): Buffer {
   const arr = new Uint8Array(8);
@@ -77,6 +78,19 @@ export function deriveVaultPdas(
 export function deriveRedeemStatePda(user: PublicKey, vaultId: number): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
     [REDEEM_SEED, user.toBuffer(), vaultIdBuf(vaultId)],
+    C_VAULT_PROGRAM_ID,
+  );
+  return pda;
+}
+
+/**
+ * Per-redeem USDC escrow token account PDA
+ * `seeds = ["redeem_usdc", user, vault_id]` — authority = RedeemState PDA.
+ * Not an ATA; created `init_if_needed` in `request_redeem`.
+ */
+export function deriveRedeemUsdcPda(user: PublicKey, vaultId: number): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [REDEEM_USDC_SEED, user.toBuffer(), vaultIdBuf(vaultId)],
     C_VAULT_PROGRAM_ID,
   );
   return pda;

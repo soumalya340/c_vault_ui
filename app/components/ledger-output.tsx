@@ -16,11 +16,10 @@ const LABEL_OVERRIDES: Record<string, string> = {
   totalNavUsd: 'TVL',
   sharePrice: 'Share price',
   sharePriceUsd: 'Share price',
-  sharePriceAth: 'ATH share price',
+  baselineSharePrice: 'Baseline share price',
   totalShares: 'Shares outstanding',
   totalSharesUi: 'Shares outstanding',
   sharesToMint: 'Shares to mint',
-  totalUsdcValue: 'Portfolio value',
   totalPendingUsdc: 'Pending USDC',
   totalPendingSol: 'Pending SOL',
   estimatedUsdcValue: 'Estimated USDC',
@@ -54,7 +53,7 @@ const LABEL_OVERRIDES: Record<string, string> = {
   address: 'Vault address',
   baseMint: 'Quote mint',
   treasury: 'Treasury',
-  twapKeeper: 'TWAP keeper',
+  etfCreationAuthority: 'ETF creation authority',
   totalVaults: 'Total vaults',
   totalAssets: 'Total assets',
   redeemAssets: 'Redeem assets',
@@ -76,7 +75,6 @@ const LABEL_OVERRIDES: Record<string, string> = {
  * already be present, and never as a standalone row either.
  */
 const RAW_KEYS_HIDDEN = new Set([
-  'athSharePrice',
   'assetAmounts',
   'assetAllocationBps',
   'depositFeeBps',
@@ -106,7 +104,6 @@ const EMPHASIS_KEYS = new Set([
   'totalSharesUi',
   'sharesToMint',
   'estimatedUsdcValue',
-  'totalUsdcValue',
   'shareBalance',
 ]);
 
@@ -123,10 +120,9 @@ const KEY_ORDER = [
   'numAssets',
   'perAssetAmounts',
   'shareBalance',
-  'totalUsdcValue',
   'totalPendingUsdc',
   'totalPendingSol',
-  'sharePriceAth',
+  'baselineSharePrice',
   'depositFee',
   'redeemFee',
   'note',

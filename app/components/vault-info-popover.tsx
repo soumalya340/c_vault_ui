@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useReducedMotion } from 'motion/react';
-import { getVaultState, type Network } from '@/lib/cvault';
+import { getVaultState, type Network } from '@/lib/onchain/cvault';
 import {
   Popover,
   PopoverContent,

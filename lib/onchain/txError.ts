@@ -26,19 +26,11 @@ export interface UserFacingError {
 }
 
 /**
- * TWAP recovery UX (Refresh Asset button).
- * 6050 keeper unset · 6051 wrong keeper · 6052 dual-stale · message fallbacks.
+ * @deprecated TWAP keeper path removed (2.0.2). Always false — kept so call
+ * sites that still import the helper compile without a TWAP refresh button.
  */
-export function isTwapRefreshableError(error: UserFacingError | null | undefined): boolean {
-  if (!error) return false;
-  const codeNum = Number(String(error.code ?? '').replace(/[^\d]/g, '') || NaN);
-  if (codeNum === 6050 || codeNum === 6051 || codeNum === 6052) return true;
-  // code may be "LivePriceDiscrepancy · 0x17a4" style
-  if (/\b6050\b|\b6051\b|\b6052\b|0x17a[234]/i.test(String(error.code ?? ''))) return true;
-  const blob = `${error.title}\n${error.summary}\n${error.fix ?? ''}\n${error.details ?? ''}\n${error.raw}`;
-  return /TwapKeeperNotSet|UnauthorizedTwapKeeper|LivePriceDiscrepancy|Live price discrepancy|both stale|TWAP observation|No TWAP keeper|TWAP keeper|update_dex_twap|Update Dex Twap|DEX TWAP is stale|past freshness window|Refresh Price in the error/i.test(
-    blob,
-  );
+export function isTwapRefreshableError(_error: UserFacingError | null | undefined): boolean {
+  return false;
 }
 
 /** @deprecated use isTwapRefreshableError */
@@ -46,7 +38,12 @@ export function isLivePriceDiscrepancyError(error: UserFacingError | null | unde
   return isTwapRefreshableError(error);
 }
 
-/** Anchor `#[error_code]` codes start at 6000; keep in sync with vault errors.rs. */
+/**
+ * Anchor `#[error_code]` codes start at 6000; keep in sync with vault errors.rs
+ * / idl/c_vault.json `errors`. Codes are NOT stable across program versions —
+ * removing an enum variant shifts every code declared after it. Re-verify
+ * this table against the IDL whenever errors.rs changes.
+ */
 const ANCHOR_ERRORS: Record<
   number,
   { name: string; title: string; summary: string; fix?: string }
@@ -70,238 +67,350 @@ const ANCHOR_ERRORS: Record<
     fix: 'Connect the admin wallet and try again.',
   },
   6003: {
+    name: 'UnauthorizedGateAuthority',
+    title: 'Not the ETF creation authority',
+    summary: 'This wallet is not the configured ETF creation authority.',
+    fix: 'Connect the wallet set as the platform\'s ETF creation authority, then retry.',
+  },
+  6004: {
     name: 'VaultPaused',
     title: 'Vault is paused',
     summary: 'Deposits are paused for this vault.',
     fix: 'Wait for the vault manager to unpause, or use redeem if you need to exit.',
   },
-  6004: {
+  6005: {
     name: 'VaultAdminLocked',
     title: 'Vault locked by admin',
     summary: 'This vault is under an admin emergency lock.',
     fix: 'Contact the protocol admin. Only withdrawals may remain available.',
   },
-  6005: {
+  6006: {
     name: 'GenesisNotSeeded',
     title: 'Vault not seeded yet',
     summary: 'This vault has no shares — genesis deposit has not run.',
     fix: 'Run Genesis deposit (admin or vault manager) before normal deposits.',
   },
-  6006: {
+  6007: {
     name: 'GenesisAlreadySeeded',
     title: 'Genesis already done',
     summary: 'This vault already has shares from a prior genesis seed.',
     fix: 'Use Deposit instead of Genesis deposit.',
   },
-  6007: {
+  6008: {
     name: 'InvalidBaselineSharePrice',
     title: 'Opening price out of range',
     summary: 'baseline_share_price must be between $0.00001 and $100,000.',
     fix: 'Pick an opening share price inside that range (e.g. 1.00).',
   },
-  6008: {
+  6009: {
     name: 'EmergencyMode',
     title: 'Emergency mode active',
     summary: 'The protocol is in emergency mode — only withdrawals are allowed.',
     fix: 'Wait for admin to clear emergency mode, or redeem if you hold shares.',
   },
-  6009: {
+  6010: {
     name: 'NotInEmergency',
     title: 'Not in emergency mode',
     summary: 'That action only works while emergency mode is on.',
   },
-  6010: {
+  6011: {
     name: 'InsufficientShares',
     title: 'Not enough shares',
     summary: 'You tried to redeem more shares than this wallet holds.',
     fix: 'Lower the share amount to your balance and retry.',
   },
-  6011: {
+  6012: {
     name: 'StaleOracle',
     title: 'Oracle price is stale',
     summary: 'A Pyth (or related) price feed is too old for a safe NAV.',
     fix: 'On localhost/Surfpool, retry once (feeds auto-refresh). On mainnet, wait a moment and try again.',
   },
-  6012: {
+  6013: {
     name: 'InvalidOraclePrice',
     title: 'Invalid oracle price',
     summary: 'An oracle reported zero or a negative price.',
     fix: 'Retry shortly. If it persists on localhost, refresh Surfpool Pyth accounts.',
   },
-  6013: {
+  6014: {
     name: 'InvalidOracleOwner',
     title: 'Bad oracle account',
     summary: 'A price account is not owned by the expected Pyth program.',
     fix: 'Check the asset’s price feed id and that you are on the correct network.',
   },
-  6014: {
+  6015: {
     name: 'SlippageExceeded',
     title: 'Slippage too high',
     summary: 'The swap moved past your min-out tolerance.',
     fix: 'Retry with a slightly lower min-out, or wait for a quieter market.',
   },
-  6015: {
+  6016: {
     name: 'CpiFailure',
     title: 'External program call failed',
     summary: 'A swap or token CPI into another program failed.',
     fix: 'Open technical details below. Often pool liquidity, clock, or account wiring.',
   },
-  6016: {
+  6017: {
     name: 'InsufficientWsolBalance',
     title: 'Not enough wSOL in the vault',
     summary: 'The vault’s wSOL balance cannot cover the required swap legs.',
     fix: 'Deploy pending USDC→wSOL first, or deposit more before this swap path.',
   },
-  6017: {
+  6018: {
     name: 'InvalidMint',
     title: 'Wrong token mint',
     summary: 'A token account’s mint does not match what the vault expects.',
     fix: 'Confirm the UI network matches the vault (localhost vs mainnet USDC).',
   },
-  6018: {
+  6019: {
     name: 'AccountNotInitialized',
     title: 'Token account missing',
     summary: 'A required token account is not initialized.',
     fix: 'Retry — the UI creates missing vault ATAs. Ensure the wallet has SOL for rent.',
   },
-  6019: {
+  6020: {
     name: 'IncorrectOwner',
     title: 'Wrong token account owner',
     summary: 'A token account is not owned by the expected authority.',
   },
-  6020: {
+  6021: {
     name: 'InvalidAccountsLength',
     title: 'Wrong number of accounts',
     summary: 'remaining_accounts length does not match the vault’s asset count.',
     fix: 'Refresh the page and retry. If it persists, re-sync the vault registry.',
   },
-  6021: {
+  6022: {
     name: 'MismatchedAccount',
     title: 'Unexpected account',
-    summary: 'An account in the transaction does not match the vault’s stored ATA.',
+    summary: 'An account in the transaction does not match the vault’s stored ATA or pricing pool.',
   },
-  6022: {
+  6023: {
     name: 'MathOverflow',
     title: 'Math overflow',
     summary: 'An on-chain calculation overflowed.',
     fix: 'Try a smaller amount. Report this if it happens on a normal size.',
   },
-  6023: {
+  6024: {
     name: 'FeeTooHigh',
     title: 'Deposit fee too high',
     summary: 'Deposit fee cannot exceed 6% (600 bps).',
   },
-  6024: {
+  6025: {
     name: 'InvalidRedeemFee',
     title: 'Invalid redeem fee',
     summary: 'Redeem fee must be between 0.5% and 10%.',
   },
-  6025: {
+  6026: {
+    name: 'RedeemInactive',
+    title: 'No active redeem',
+    summary: 'This wallet has no open redeem to act on.',
+    fix: 'Start a new redeem request first.',
+  },
+  6027: {
     name: 'TooEarlyRedeem',
     title: 'Redeem cooldown still active',
     summary: 'You cannot claim yet — the unlock time has not passed.',
     fix: 'Wait until the unlock time shown in the redeem panel, then claim.',
   },
-  6026: {
-    name: 'InvalidDuration',
-    title: 'Invalid duration',
-    summary: 'Duration must be between 0 and 7 days.',
+  6028: {
+    name: 'InvalidCooldown',
+    title: 'Invalid cooldown',
+    summary: 'Cooldown must be between 0 and 7 days.',
   },
-  6027: {
+  6029: {
     name: 'NothingToClaim',
     title: 'Nothing to claim',
     summary: 'No USDC is pending for this redeem.',
     fix: 'Finish outflow swaps first, then press Claim.',
   },
-  6028: {
+  6030: {
+    name: 'AssetNotSwapped',
+    title: 'Asset not swapped yet',
+    summary: 'Not all assets have been swapped yet for this redeem.',
+    fix: 'Finish every per-asset swap leg before claiming.',
+  },
+  6031: {
     name: 'RedeemAlreadyPending',
     title: 'Redeem already open',
     summary: 'This wallet already has a pending redeem on this vault.',
     fix: 'Finish or claim the existing redeem before starting another.',
   },
-  6029: {
+  6032: {
     name: 'InvalidAllocation',
     title: 'Allocation must total 100%',
     summary: 'Asset allocation BPS must sum to exactly 10,000.',
     fix: 'Adjust weights so they add to 100% and recreate / update the vault.',
   },
-  6030: {
+  6033: {
     name: 'TooManyAssets',
     title: 'Too many assets',
     summary: 'The vault exceeds the maximum asset slots.',
   },
-  6031: {
+  6034: {
     name: 'NoAssets',
     title: 'No assets',
     summary: 'The asset list must contain at least one asset.',
   },
-  6032: {
+  6035: {
     name: 'InvalidVaultId',
     title: 'Wrong vault id',
     summary: 'vault_id must equal the next sequential id (global_state.total_vaults).',
     fix: 'Refresh vaults and use the next free vault id.',
   },
-  6033: {
+  6036: {
     name: 'MissingUsdcSolPool',
     title: 'Missing USDC/SOL pool',
     summary: 'ViaSol assets require a USDC↔wSOL pool.',
   },
-  6034: {
+  6037: {
     name: 'AssetAlreadySwapped',
     title: 'Asset already swapped',
     summary: 'This redeem slot was already swapped in the current flow.',
   },
-  6035: {
+  6038: {
     name: 'AssetInactive',
     title: 'Asset is inactive',
     summary: 'A referenced asset exists but has been deactivated by admin.',
     fix: 'Reactivate the asset or use a vault that does not include it.',
   },
+  6039: {
+    name: 'NoTokenInfoUpdate',
+    title: 'No changes provided',
+    summary: 'update_token_info needs at least one field to change.',
+  },
   6040: {
+    name: 'TokenInfoPoolRequired',
+    title: 'Pool address required',
+    summary: 'Changing swap_kind or route requires also providing pool_address.',
+  },
+  6041: {
+    name: 'AssetIdMismatch',
+    title: 'Asset id mismatch',
+    summary: 'A remaining_accounts entry does not derive to the claimed asset id.',
+  },
+  6042: {
+    name: 'MissingMaxShares',
+    title: 'Share cap required',
+    summary: 'A Fixed vault must declare a max_shares supply cap.',
+  },
+  6043: {
+    name: 'InvalidMaxShares',
+    title: 'Invalid share cap',
+    summary: 'max_shares must be greater than zero.',
+  },
+  6044: {
     name: 'ShareCapExceeded',
     title: 'Share cap exceeded',
     summary: 'This deposit would mint past the Fixed vault’s max_shares cap.',
     fix: 'Deposit a smaller amount, or use a Dynamic vault.',
   },
-  6041: {
+  6045: {
     name: 'QuoteMintNotEligible',
     title: 'Wrong USDC mint',
     summary: 'usdc_mint must be the program’s canonical USDC mint for this cluster.',
     fix: 'Switch the UI network to match the vault (localhost uses mainnet USDC mint).',
   },
+  6046: {
+    name: 'EligibleMintListFull',
+    title: 'Eligible mint list full',
+    summary: 'The eligible base mint list has no free slots.',
+  },
   6047: {
-    name: 'TwapWindowTooShort',
-    title: 'TWAP history too short',
-    summary: 'There is not enough TWAP history to mint or redeem against this asset yet.',
-    fix: 'Wait for keepers to record more observations, then retry.',
+    name: 'EligibleMintAlreadyListed',
+    title: 'Mint already eligible',
+    summary: 'This mint is already on the eligible base mint list.',
+  },
+  6048: {
+    name: 'EligibleMintNotFound',
+    title: 'Mint not eligible',
+    summary: 'This mint is not on the eligible base mint list.',
+  },
+  6049: {
+    name: 'InvalidPendingAssetSlot',
+    title: 'Invalid pending asset slot',
+    summary: 'That asset slot is USDC- or wSOL-native and never enters the pending pool.',
   },
   6050: {
-    name: 'TwapKeeperNotSet',
-    title: 'TWAP keeper not set',
-    summary: 'No TWAP keeper is assigned on global_state yet.',
-    fix: 'Click Refresh Price (admin assigns the canonical keeper, then refreshes spots).',
+    name: 'UnsupportedDexKind',
+    title: 'Unsupported DEX',
+    summary: 'Pool account owner does not match the asset\'s declared DexKind.',
+    fix: 'Pass the Whirlpool or DAMM v2 pool that matches the listed asset.',
   },
   6051: {
-    name: 'UnauthorizedTwapKeeper',
-    title: 'Unauthorized TWAP keeper',
-    summary: 'The signer is not the assigned TWAP keeper.',
-    fix: 'Click Refresh Price to use the server keeper cosign, or re-set twap_keeper via admin.',
-  },
-  6052: {
-    name: 'LivePriceDiscrepancy',
-    title: 'Live price unreliable',
-    summary: 'TWAP observation and keeper stamp are both too stale.',
-    fix: 'Click Refresh Price — you pay one multi-ix tx; the keeper cosigns.',
-  },
-  6053: {
     name: 'NotDexPricedAsset',
     title: 'Not a DEX-priced asset',
-    summary: 'update_dex_twap only applies to DEX-priced AssetInfo slots.',
+    summary: 'This instruction only applies to DEX-priced AssetInfo slots.',
   },
-  6054: {
+  6052: {
     name: 'InvalidPoolPair',
     title: 'Invalid pool pair',
     summary: 'The pool must include USDC or wSOL as one side of the pair.',
+  },
+  6053: {
+    name: 'InvalidTokenProgram',
+    title: 'Invalid token program',
+    summary: 'token_program_tag must be SPL Token or Token-2022.',
+  },
+  6054: {
+    name: 'UnsupportedSwapKind',
+    title: 'Unsupported swap kind',
+    summary: 'remaining_accounts don\'t match this asset\'s configured swap_kind.',
+  },
+  6055: {
+    name: 'InvalidSwapPool',
+    title: 'Invalid swap pool',
+    summary: 'Swap pool does not match the asset\'s declared pool_address.',
+    fix: 'Pass AssetInfo.pool_address (and price_pool_address for NAV) exactly.',
+  },
+  6056: {
+    name: 'InvalidSwapTokenAccount',
+    title: 'Invalid swap token account',
+    summary: 'Swap input/output is not the vault\'s own account (or redeem escrow on USDC-terminal legs).',
+  },
+  6057: {
+    name: 'InvalidSwapPoolMints',
+    title: 'Invalid swap pool mints',
+    summary: 'Pool mints do not match the expected (asset, quote) pair for this leg.',
+  },
+  6058: {
+    name: 'InvalidDammV2Authority',
+    title: 'Invalid DAMM v2 authority',
+    summary: 'DAMM v2 pool_authority / event_authority is not the canonical cp-amm PDA.',
+  },
+  6059: {
+    name: 'ZeroSwapOutput',
+    title: 'Zero swap output',
+    summary: 'Swap produced no output — refusing to credit a zero amount.',
+    fix: 'Check pool liquidity and retry with a sane min_out.',
+  },
+  6060: {
+    name: 'GlobalStateNotEmpty',
+    title: 'Global state not empty',
+    summary: 'GlobalState cannot be closed while vaults exist or non-genesis assets are listed.',
+  },
+  6061: {
+    name: 'VaultNotEmpty',
+    title: 'Vault not empty',
+    summary: 'This vault cannot be deleted — it has received real deposits beyond the genesis seed.',
+  },
+  6062: {
+    name: 'TooManyMetadataPairs',
+    title: 'Too many metadata pairs',
+    summary: 'Too many additional_metadata pairs were provided.',
+  },
+  6063: {
+    name: 'InvalidMetadataKey',
+    title: 'Invalid metadata key',
+    summary: 'An additional_metadata key is empty or too long.',
+  },
+  6064: {
+    name: 'InvalidMetadataValue',
+    title: 'Invalid metadata value',
+    summary: 'An additional_metadata value is too long.',
+  },
+  6065: {
+    name: 'DuplicateMetadataKey',
+    title: 'Duplicate metadata key',
+    summary: 'The same additional_metadata key was provided twice in one request.',
   },
 };
 
@@ -421,21 +530,6 @@ export function parseTxError(err: unknown): UserFacingError {
   const instruction = extractInstruction(blob);
   const ixLabel = instructionHint(instruction);
   const details = blob.length > raw.length ? blob : raw;
-
-  // describePreviewError / legacy wraps — still surface Refresh Price in the modal.
-  if (/DEX TWAP is stale/i.test(raw)) {
-    const a = ANCHOR_ERRORS[6052];
-    return {
-      kind: 'error',
-      title: a.title,
-      summary: a.summary,
-      fix: a.fix,
-      instruction: ixLabel,
-      code: `${a.name} · 6052`,
-      details,
-      raw,
-    };
-  }
 
   if (isUserRejection(blob) || isUserRejection(raw)) {
     return {

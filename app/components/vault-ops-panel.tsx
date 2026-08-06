@@ -10,14 +10,14 @@ import {
   parseUnits,
   PRICE_SCALE_DECIMALS,
   type Network,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import {
   updateVaultGenesisStatus,
   updateVaultPoolCreated,
   type VaultRecord,
 } from '@/lib/registryClient';
 import { resolveVaultShareUsdcPool } from '@/lib/meteora';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
@@ -239,13 +239,6 @@ function OperationAccordion({
           onClose={() => setErrorOpen(false)}
           network={network}
           vaultId={vaultId ? Number(vaultId) : null}
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — run the action again if needed.',
-            });
-          }}
         />
       )}
 

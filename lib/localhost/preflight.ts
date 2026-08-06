@@ -4,9 +4,9 @@
  * 1. Refresh synthetic Pyth feeds (StaleOracle)
  * 2. Advance Whirlpool clock if needed (InvalidTimestamp)
  *
- * No-op on mainnet. DEX TWAP freshness (Orca/DAMM spot → update_dex_twap)
- * is handled separately by `lib/twap/refresh.ts` on mutative flows — depositor
- * pays, server-held keeper cosigns.
+ * No-op on mainnet. DEX-priced assets read live pool spot directly (no
+ * on-chain TWAP or keeper as of 2.0.2), so no separate freshness step is
+ * needed for them here.
  */
 
 import type { Connection, PublicKey } from '@solana/web3.js';

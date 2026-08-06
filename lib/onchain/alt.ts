@@ -33,7 +33,7 @@ import {
   DAMM_V2_EVENT_AUTHORITY,
   MEMO_PROGRAM_ID,
   WSOL_MINT,
-} from './constants';
+} from '../constants';
 import type { PoolCtx } from './whirlpool';
 import type { DammPoolCtx } from './damm';
 import { confirmBySignaturePolling } from './confirm';

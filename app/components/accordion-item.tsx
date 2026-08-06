@@ -5,8 +5,8 @@ import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapte
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
 import type { Connection } from '@solana/web3.js';
-import { parseUnits, PRICE_SCALE_DECIMALS, type AssetRoute, type Network } from '@/lib/cvault';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { parseUnits, PRICE_SCALE_DECIMALS, type AssetRoute, type Network } from '@/lib/onchain/cvault';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import {
   fetchAssetRegistry,
   fetchAssetPresets,
@@ -15,7 +15,7 @@ import {
   type AssetPresetRecord,
 } from '@/lib/registryClient';
 import { assetNameForMint } from '@/lib/presets/canonical-data';
-import { checkPoolExists } from '@/lib/poolExists';
+import { checkPoolExists } from '@/lib/onchain/poolExists';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { displayVaultName } from './view-display';
 import {
@@ -617,13 +617,6 @@ export function AccordionItem({
               ? Number(values.vault_id)
               : null
           }
-          onRefreshSuccess={() => {
-            setErrorOpen(false);
-            setResult({
-              type: 'info',
-              text: 'DEX TWAP refreshed — run the action again (e.g. Get Total NAV View).',
-            });
-          }}
         />
       )}
       <button

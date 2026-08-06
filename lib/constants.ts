@@ -25,6 +25,8 @@ export const VAULT_AUTHORITY_SEED = Buffer.from('vault_authority');
 export const SHARES_MINT_SEED = Buffer.from('shares_mint');
 export const USDC_VAULT_SEED = Buffer.from('usdc_vault');
 export const REDEEM_SEED = Buffer.from('redeem');
+/** Per-user, per-vault USDC escrow for the async redeem flow (C-03). */
+export const REDEEM_USDC_SEED = Buffer.from('redeem_usdc');
 
 /**
  * Quote mint per cluster. The program hardcodes a single `USDC_MINT` constant
@@ -145,16 +147,27 @@ export const MAX_REDEEM_FEE_BPS = 1000;
  */
 export const CREATE_ETF_MAX_METADATA_BYTES = 400;
 
-/** Mirror on-chain TWAP_OBSERVATION_MAX_STALE_SECS (45 minutes). */
-export const TWAP_OBSERVATION_MAX_STALE_SECS = 45 * 60;
-/** Mirror on-chain TWAP_KEEPER_MAX_STALE_SECS (1 hour). */
-export const TWAP_KEEPER_MAX_STALE_SECS = 60 * 60;
+/**
+ * Mirror on-chain `MAX_METADATA_VALUE_LEN` (`set_share_metadata_fields`) —
+ * max UTF-8 bytes for one `additional_metadata` value.
+ */
+export const MAX_METADATA_VALUE_LEN = 128;
+/** Mirror on-chain `MAX_METADATA_KEY_LEN`. */
+export const MAX_METADATA_KEY_LEN = 32;
+/** Mirror on-chain `MAX_ADDITIONAL_METADATA_PAIRS`. */
+export const MAX_ADDITIONAL_METADATA_PAIRS = 4;
+
+/** Key used for the free-text "Additional information" field on vault creation. */
+export const VAULT_METADATA_DESCRIPTION_KEY = 'description';
 
 /**
- * Canonical on-chain `global_state.twap_keeper` for local/dev (matches c_vault_script).
- * Auth signer only — never the fee payer. Secret stays server-side
- * (`TWAP_KEEPER_SECRET` or monorepo script keypair file).
+ * @deprecated TWAP keeper removed from the program (2.0.2). Kept only so dead
+ * client modules fail clearly at runtime rather than at import time. Do not use.
  */
+export const TWAP_OBSERVATION_MAX_STALE_SECS = 45 * 60;
+/** @deprecated See TWAP_OBSERVATION_MAX_STALE_SECS. */
+export const TWAP_KEEPER_MAX_STALE_SECS = 60 * 60;
+/** @deprecated TWAP keeper instruction removed. */
 export const TWAP_KEEPER_PUBKEY = new PublicKey(
   'DExJYXEqEGCzbsN93FeeoQu6cQZkuEB8PBEn64GJKt7W',
 );
@@ -168,9 +181,11 @@ export const PRICE_SCALE = 1_000_000_000;
 export const PRICE_SCALE_DECIMALS = 9;
 
 /**
- * Baskets with more than this many assets cannot fit deposit / redeem / genesis
- * in one v0 transaction (trace depth + account limits). Split when `numAssets` exceeds
- * this value — mirrors `c_vault_script/Rules.md` and `MULTI_TX_ASSET_THRESHOLD`.
+ * Soft guide only — historical “try one tx under this size” threshold.
+ * Runtime deposit / redeem / genesis **always** pack via `packIxsForAlt`
+ * (64-account lock + 1232-byte probe). Small baskets still overflow the lock
+ * when vault ATAs + seed/deposit + swap legs share one message.
+ * Mirrors `c_vault_script/Rules.md` naming for docs compatibility.
  */
 export const MULTI_TX_ASSET_THRESHOLD = 4;
 
@@ -183,9 +198,8 @@ export const MULTI_TX_ASSET_THRESHOLD = 4;
 export const SWAP_LEGS_PER_TX = 2;
 
 /**
- * Max vault-authority ATA create instructions per v0 tx when a basket exceeds
- * MULTI_TX_ASSET_THRESHOLD. Each ix adds a unique mint + ATA pubkey to the
- * message — with an ALT these compress to 1-byte indices, so 8 ATAs stay well
- * under the 1232-byte tx cap.
+ * Soft guide for vault-authority ATA create density. Runtime packing uses
+ * `packIxsForAlt` rather than this fixed chunk size. Kept for docs / callers
+ * that still reference the constant.
  */
 export const VAULT_ATA_IXS_PER_TX = 8;

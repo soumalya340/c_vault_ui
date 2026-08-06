@@ -24,7 +24,6 @@ pre_approved_token_registry (17 column(s)):
   - price_source_tag (smallint)
   - price_dex_kind (smallint)
   - price_pool_address (text)
-  - twap (jsonb)
   - swap_kind (text)
   - token_program_tag (smallint)
   - active (boolean)
@@ -62,3 +61,5 @@ vaults (28 column(s)):
   - redeem_alt_address (text)
   - genesis_deposit_status (boolean) //  This is new 
   - is_pool_created (boolean, not null default false)
+  - is_deactivated (boolean, not null default false)
+  - additional_metadata (text, nullable)
