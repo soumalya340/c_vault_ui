@@ -1,6 +1,6 @@
 'use client';
 
-import type { Network } from '@/lib/cvault';
+import type { Network } from '@/lib/onchain/cvault';
 import { AccordionItem } from './accordion-item';
 import { panelClass, sectionLabelClass } from './ui-classes';
 import { SECTION_STYLE, type FunctionDef, type SectionId } from './function-defs';

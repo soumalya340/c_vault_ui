@@ -23,14 +23,14 @@ import {
   parseUnits,
   PRICE_SCALE_DECIMALS,
   type SharePriceQuote,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import { NETWORK_CONSTANTS, USDC_DECIMALS, type Network } from '@/lib/constants';
 import {
   updateVaultPoolCreated,
   type VaultRecord,
 } from '@/lib/registryClient';
-import { solscanLink } from '@/lib/solscanLink';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { solscanLink } from '@/lib/onchain/solscanLink';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatResult } from './execute-vault-function';

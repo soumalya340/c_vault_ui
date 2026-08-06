@@ -23,11 +23,11 @@ import {
   getUserUsdcBalance,
   NETWORK_CONSTANTS,
   type Network,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import { USDC_DECIMALS } from '@/lib/constants';
 import type { VaultRecord } from '@/lib/registryClient';
-import { solscanLink } from '@/lib/solscanLink';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { solscanLink } from '@/lib/onchain/solscanLink';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
 import { useModalTransition } from './use-modal-transition';

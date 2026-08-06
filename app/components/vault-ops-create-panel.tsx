@@ -24,24 +24,25 @@ import {
   PRICE_SCALE_DECIMALS,
   NETWORK_CONSTANTS,
   type Network,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import {
   MAX_METADATA_VALUE_LEN,
   USDC_DECIMALS,
   VAULT_METADATA_DESCRIPTION_KEY,
 } from '@/lib/constants';
-import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
-import { fetchPoolCtx } from '@/lib/whirlpool';
-import { fetchDammPoolCtx } from '@/lib/damm';
+import { buildVaultAltAddresses, createVaultAlt } from '@/lib/onchain/alt';
+import { fetchPoolCtx } from '@/lib/onchain/whirlpool';
+import { fetchDammPoolCtx } from '@/lib/onchain/damm';
 import {
   fetchAssetRegistry,
   saveVault,
   updateVaultAlts,
   updateVaultGenesisStatus,
   generateVaultDescription,
+  uploadVaultMetadataJson,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { CreateEtfModal } from './create-etf-modal';
 import { ImageDropzone } from './image-dropzone';
 import { showVaultOpsToast } from './vault-ops-toast';
@@ -457,8 +458,19 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
         return { entry, allocationBps: pctToBps(row.allocationPct) };
       });
 
+      // `uri` state is the raw image URL (dropzone preview). Jupiter needs
+      // Metaplex JSON at on-chain `uri` with an `image` field — publish that
+      // JSON now and write its URL on-chain (Phantom also accepts this).
+      const trimmedInfo = additionalInfo.trim();
+      pushStatus('Publishing token metadata JSON…');
+      const metadataUri = await uploadVaultMetadataJson({
+        name: name.trim(),
+        symbol: symbol.trim(),
+        image: uri.trim(),
+        description: trimmedInfo,
+      });
       // Fail fast on data:image base64 / oversize metadata (static-tx packet limit).
-      assertCreateEtfMetadata(name, symbol, uri);
+      assertCreateEtfMetadata(name, symbol, metadataUri);
 
       let parsedBaselinePrice: BN;
       try {
@@ -471,6 +483,10 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
       if (parsedBaselinePrice.lten(0)) {
         throw new Error('Opening share price must be greater than $0.');
       }
+
+      const metadataFields = trimmedInfo
+        ? [{ key: VAULT_METADATA_DESCRIPTION_KEY, value: trimmedInfo }]
+        : undefined;
 
       pushStatus('Creating vault (create_etf)…');
       const created = await createEtf(
@@ -489,13 +505,15 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
         },
         name,
         symbol,
-        uri,
+        metadataUri,
         network,
+        metadataFields,
       );
 
-      const trimmedInfo = additionalInfo.trim();
+      // Normally the description rides along inside create_etf (one signature).
+      // It only needs its own transaction when the combined packet was too big.
       let metadataNote = '';
-      if (trimmedInfo) {
+      if (trimmedInfo && !created.metadataInlined) {
         try {
           pushStatus('Setting additional information (set_share_metadata_fields)…');
           await setShareMetadataFields(
@@ -610,7 +628,7 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
           usdc_vault: created.usdcVault.toBase58(),
           name,
           symbol,
-          uri,
+          uri: metadataUri,
           fee_recipient: feeRcpt,
           fund_type: fundType,
           max_shares: maxShares.trim() || null,
@@ -693,7 +711,11 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
       setResult({
         type: 'success',
         text:
-          `ETF vault №${created.vaultId} created — share metadata set in the same transaction.\n` +
+          `ETF vault №${created.vaultId} created${
+            created.metadataInlined
+              ? ' — name, symbol, URI and description all set in the same transaction'
+              : ' — name, symbol and URI set in the same transaction'
+          }.\n` +
           `vault: ${created.vaultPda.toBase58()}\n` +
           `shares mint: ${created.sharesMint.toBase58()}\n` +
           `lookup table: ${altAddress ?? '— (creation failed)'}${metadataNote}${altNote}${genesisNote}${registryNote}`,
@@ -1101,7 +1123,8 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                 )
               ) : (
                 <>
-                  Ready — <strong className="text-seal">1 instruction</strong> will be signed
+                  Ready — <strong className="text-seal">3 wallet approvals</strong>: create vault ·
+                  lookup table · genesis deposit
                 </>
               )}
             </span>

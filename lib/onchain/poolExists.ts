@@ -1,16 +1,16 @@
-import { Connection, PublicKey } from '@solana/web3.js';
-import { ParsableWhirlpool } from '@orca-so/whirlpools-sdk';
-import { CpAmm } from '@meteora-ag/cp-amm-sdk';
+import { Connection, PublicKey } from "@solana/web3.js";
+import { ParsableWhirlpool } from "@orca-so/whirlpools-sdk";
+import { CpAmm } from "@meteora-ag/cp-amm-sdk";
 import {
   WHIRLPOOL_PROGRAM_ID,
   DAMM_V2_PROGRAM_ID,
   WSOL_MINT,
   NETWORK_CONSTANTS,
   type Network,
-} from './constants';
-import type { AssetRoute } from './cvault';
+} from "../constants";
+import type { AssetRoute } from "./cvault";
 
-export type DexKindLabel = 'whirlpool' | 'dammV2';
+export type DexKindLabel = "whirlpool" | "dammV2";
 
 export type PoolCheckResult =
   | {
@@ -19,7 +19,7 @@ export type PoolCheckResult =
       mintA: string;
       mintB: string;
       /** Short label for UI (which SDK decoded the pool). */
-      source: 'orca-whirlpools-sdk' | 'meteora-cp-amm-sdk';
+      source: "orca-whirlpools-sdk" | "meteora-cp-amm-sdk";
     }
   | { ok: false; message: string };
 
@@ -36,24 +36,27 @@ function checkRouteMatch(
   const hasSol = mintA.equals(WSOL_MINT) || mintB.equals(WSOL_MINT);
 
   if (!hasUsdc && !hasSol) {
-    return { ok: false, message: 'Pool must include USDC or wSOL as one leg.' };
+    return { ok: false, message: "Pool must include USDC or wSOL as one leg." };
   }
-  if (route === 'DirectUsdc' && !hasUsdc) {
+  if (route === "DirectUsdc" && !hasUsdc) {
     return {
       ok: false,
       message: `DirectUsdc route needs the network USDC mint (${usdcMint.toBase58().slice(0, 8)}…) as one leg of this pool.`,
     };
   }
-  if (route === 'ViaSol' && !hasSol) {
-    return { ok: false, message: 'ViaSol route needs wSOL as one leg of this pool.' };
+  if (route === "ViaSol" && !hasSol) {
+    return {
+      ok: false,
+      message: "ViaSol route needs wSOL as one leg of this pool.",
+    };
   }
   // Satisfies the union only when ok — callers ignore success fields here.
   return {
     ok: true,
-    venue: 'whirlpool',
+    venue: "whirlpool",
     mintA: mintA.toBase58(),
     mintB: mintB.toBase58(),
-    source: 'orca-whirlpools-sdk',
+    source: "orca-whirlpools-sdk",
   };
 }
 
@@ -68,7 +71,7 @@ function checkAssetIsPoolLeg(
   route: AssetRoute,
   usdcMint: PublicKey,
 ): PoolCheckResult {
-  const quote = route === 'ViaSol' ? WSOL_MINT : usdcMint;
+  const quote = route === "ViaSol" ? WSOL_MINT : usdcMint;
   const hasAsset = mintA.equals(assetMint) || mintB.equals(assetMint);
   const hasQuote = mintA.equals(quote) || mintB.equals(quote);
 
@@ -78,16 +81,16 @@ function checkAssetIsPoolLeg(
       message:
         `Pool mints are not this asset. Pool legs: ${mintA.toBase58().slice(0, 8)}… / ${mintB.toBase58().slice(0, 8)}… — ` +
         `expected the asset mint (${assetMint.toBase58().slice(0, 8)}…) as one leg and ` +
-        `${route === 'ViaSol' ? 'wSOL' : 'USDC'} as the other.`,
+        `${route === "ViaSol" ? "wSOL" : "USDC"} as the other.`,
     };
   }
   if (!hasQuote) {
     return {
       ok: false,
       message:
-        route === 'ViaSol'
-          ? 'ViaSol needs an asset/wSOL pool (not asset/USDC only).'
-          : 'DirectUsdc needs an asset/USDC pool for this network.',
+        route === "ViaSol"
+          ? "ViaSol needs an asset/wSOL pool (not asset/USDC only)."
+          : "DirectUsdc needs an asset/USDC pool for this network.",
     };
   }
   const other = mintA.equals(assetMint) ? mintB : mintA;
@@ -96,15 +99,15 @@ function checkAssetIsPoolLeg(
       ok: false,
       message:
         `Pool other leg is ${other.toBase58().slice(0, 8)}… — for ${route} it must be ` +
-        `${route === 'ViaSol' ? 'wSOL' : 'this network’s USDC'}.`,
+        `${route === "ViaSol" ? "wSOL" : "this network’s USDC"}.`,
     };
   }
   return {
     ok: true,
-    venue: 'whirlpool',
+    venue: "whirlpool",
     mintA: mintA.toBase58(),
     mintB: mintB.toBase58(),
-    source: 'orca-whirlpools-sdk',
+    source: "orca-whirlpools-sdk",
   };
 }
 
@@ -121,46 +124,52 @@ export async function checkPoolExists(
   pool: PublicKey,
   kind: DexKindLabel,
   route?: AssetRoute,
-  network: Network = 'mainnet',
+  network: Network = "mainnet",
   assetMint?: PublicKey,
 ): Promise<PoolCheckResult> {
   const accountInfo = await connection.getAccountInfo(pool);
   if (!accountInfo) {
-    return { ok: false, message: 'No account found at this address.' };
+    return { ok: false, message: "No account found at this address." };
   }
 
   let mintA: PublicKey;
   let mintB: PublicKey;
-  let source: 'orca-whirlpools-sdk' | 'meteora-cp-amm-sdk';
+  let source: "orca-whirlpools-sdk" | "meteora-cp-amm-sdk";
 
-  if (kind === 'whirlpool') {
+  if (kind === "whirlpool") {
     if (!accountInfo.owner.equals(WHIRLPOOL_PROGRAM_ID)) {
       return {
         ok: false,
         message:
-          'Not an Orca Whirlpool — owner is not whirLbMi…. Pick DEX Type = Whirlpool only for Whirlpool pools.',
+          "Not an Orca Whirlpool — owner is not whirLbMi…. Pick DEX Type = Whirlpool only for Whirlpool pools.",
       };
     }
     // Owner-checked first: ParsableWhirlpool.parse only console.errors on mismatch.
     const parsed = ParsableWhirlpool.parse(pool, accountInfo);
     if (!parsed) {
-      return { ok: false, message: 'Not a valid Whirlpool pool account (Orca SDK parse failed).' };
+      return {
+        ok: false,
+        message: "Not a valid Whirlpool pool account (Orca SDK parse failed).",
+      };
     }
     mintA = parsed.tokenMintA;
     mintB = parsed.tokenMintB;
-    source = 'orca-whirlpools-sdk';
+    source = "orca-whirlpools-sdk";
   } else {
     if (!accountInfo.owner.equals(DAMM_V2_PROGRAM_ID)) {
       return {
         ok: false,
         message:
-          'Not a Meteora DAMM v2 pool — owner is not cpamdp…. Pick DEX Type = DammV2 only for DAMM v2 pools.',
+          "Not a Meteora DAMM v2 pool — owner is not cpamdp…. Pick DEX Type = DammV2 only for DAMM v2 pools.",
       };
     }
     const cpAmm = new CpAmm(connection);
     const exists = await cpAmm.isPoolExist(pool);
     if (!exists) {
-      return { ok: false, message: 'DAMM v2 pool does not exist (Meteora CpAmm.isPoolExist).' };
+      return {
+        ok: false,
+        message: "DAMM v2 pool does not exist (Meteora CpAmm.isPoolExist).",
+      };
     }
     try {
       const poolState = await cpAmm.fetchPoolState(pool);
@@ -174,7 +183,7 @@ export async function checkPoolExists(
         }`,
       };
     }
-    source = 'meteora-cp-amm-sdk';
+    source = "meteora-cp-amm-sdk";
   }
 
   const success = (): PoolCheckResult => ({
@@ -204,9 +213,16 @@ export async function assertPoolExists(
   pool: PublicKey,
   kind: DexKindLabel,
   route?: AssetRoute,
-  network: Network = 'mainnet',
+  network: Network = "mainnet",
   assetMint?: PublicKey,
 ): Promise<void> {
-  const result = await checkPoolExists(connection, pool, kind, route, network, assetMint);
+  const result = await checkPoolExists(
+    connection,
+    pool,
+    kind,
+    route,
+    network,
+    assetMint,
+  );
   if (!result.ok) throw new Error(result.message);
 }

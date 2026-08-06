@@ -1694,6 +1694,97 @@
       ]
     },
     {
+      "name": "update_share_metadata_uri",
+      "docs": [
+        "Overwrite the share mint's Token-2022 metadata `uri` (e.g. point it at",
+        "Metaplex JSON so Jupiter can resolve the icon). Vault manager only."
+      ],
+      "discriminator": [223, 239, 56, 124, 148, 176, 112, 35],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [101, 116, 102, 95, 118, 97, 117, 108, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "shares_mint",
+          "docs": [
+            "Share mint — is its own metadata account (the `MetadataPointer` set in",
+            "`create_etf` points at itself). `mut` because each field write grows it",
+            "and receives a rent top-up."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [115, 104, 97, 114, 101, 115, 95, 109, 105, 110, 116]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "docs": [
+            "Metadata update authority for the share mint (set in `create_etf`)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
+                  116, 121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_manager",
+          "docs": ["Pays the rent top-up for the grown metadata entry."],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "shares_token_program",
+          "docs": ["Token-2022 program — owns the share mint."]
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        },
+        {
+          "name": "uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
       "name": "set_vault_emergency_lock",
       "docs": [
         "Admin-only: lock or unlock deposits for a single vault (redemptions",

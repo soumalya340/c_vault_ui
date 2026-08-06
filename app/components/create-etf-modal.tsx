@@ -1,6 +1,6 @@
 'use client';
 
-import type { UserFacingError } from '@/lib/txError';
+import type { UserFacingError } from '@/lib/onchain/txError';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
 import { outputPanelClass } from './ui-classes';
@@ -8,7 +8,7 @@ import { useModalTransition } from './use-modal-transition';
 import { SettlementReceipt } from './settlement-receipt';
 import { TransactionPhases } from './transaction-phases';
 import { Spinner } from '@/components/ui/spinner';
-import type { Network } from '@/lib/cvault';
+import type { Network } from '@/lib/onchain/cvault';
 
 /**
  * Progress + result overlay for Create ETF — opened by the /create form on

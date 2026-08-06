@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 /**
  * Build + create Address Lookup Tables for a vault (deposit/redeem packing).
@@ -10,27 +10,23 @@
  * ensureVaultAlt fails.
  */
 
-import { Buffer as NodeBuffer } from 'buffer';
+import { Buffer as NodeBuffer } from "buffer";
 import {
   AddressLookupTableAccount,
   Connection,
   PublicKey,
-} from '@solana/web3.js';
-import type { AnchorWallet } from '@solana/wallet-adapter-react';
+} from "@solana/web3.js";
+import type { AnchorWallet } from "@solana/wallet-adapter-react";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
-} from '@solana/spl-token';
+} from "@solana/spl-token";
 
-import {
-  buildVaultAltAddresses,
-  createVaultAlt,
-  fetchAlt,
-} from './alt';
-import { fetchPoolCtx } from './whirlpool';
-import { fetchDammPoolCtx } from './damm';
-import { deriveGlobalStatePda } from './pda';
+import { buildVaultAltAddresses, createVaultAlt, fetchAlt } from "./alt";
+import { fetchPoolCtx } from "./whirlpool";
+import { fetchDammPoolCtx } from "./damm";
+import { deriveGlobalStatePda } from "./pda";
 import {
   WSOL_MINT,
   PRICE_SOURCE_PYTH,
@@ -39,8 +35,8 @@ import {
   PYTH_PUSH_ORACLE_PROGRAM_ID,
   TOKEN_PROGRAM_TAG_SPL,
   TOKEN_PROGRAM_TAG_TOKEN_2022,
-} from './constants';
-import type { VaultChainCtx } from './cvault';
+} from "../constants";
+import type { VaultChainCtx } from "./cvault";
 
 export type ProgressFn = (message: string) => void;
 
@@ -54,7 +50,9 @@ function pythFeedAccount(pythFeedId: number[] | Uint8Array): PublicKey {
 }
 
 function tokenProgramForTag(tag: number): PublicKey {
-  return tag === TOKEN_PROGRAM_TAG_TOKEN_2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+  return tag === TOKEN_PROGRAM_TAG_TOKEN_2022
+    ? TOKEN_2022_PROGRAM_ID
+    : TOKEN_PROGRAM_ID;
 }
 
 function vaultAssetAta(
@@ -80,7 +78,7 @@ export async function waitForAltActive(
   minAddresses = 1,
   onProgress?: ProgressFn,
 ): Promise<AddressLookupTableAccount> {
-  onProgress?.('Waiting for ALT activation…');
+  onProgress?.("Waiting for ALT activation…");
   for (let i = 0; i < 40; i++) {
     const lut = await fetchAlt(connection, altAddress);
     if (lut && lut.state.addresses.length >= minAddresses) {
@@ -111,7 +109,7 @@ export async function createAltForVault(
   if (ctx.usdcSolPool) whirlpoolAddrs.push(ctx.usdcSolPool);
 
   for (const a of ctx.assets) {
-    if (a.swapKind === 'DammV2') dammAddrs.push(a.poolAddress);
+    if (a.swapKind === "DammV2") dammAddrs.push(a.poolAddress);
     else whirlpoolAddrs.push(a.poolAddress);
 
     if (
@@ -124,21 +122,29 @@ export async function createAltForVault(
     }
   }
 
-  const uniqueWp = [...new Map(whirlpoolAddrs.map((p) => [p.toBase58(), p])).values()];
-  const uniqueDamm = [...new Map(dammAddrs.map((p) => [p.toBase58(), p])).values()];
+  const uniqueWp = [
+    ...new Map(whirlpoolAddrs.map((p) => [p.toBase58(), p])).values(),
+  ];
+  const uniqueDamm = [
+    ...new Map(dammAddrs.map((p) => [p.toBase58(), p])).values(),
+  ];
 
   onProgress?.(
     `Fetching ${uniqueWp.length} Whirlpool + ${uniqueDamm.length} DAMM pool(s) for ALT…`,
   );
   const poolCtxs = (
-    await Promise.all(uniqueWp.map((p) => fetchPoolCtx(connection, p).catch(() => null)))
+    await Promise.all(
+      uniqueWp.map((p) => fetchPoolCtx(connection, p).catch(() => null)),
+    )
   ).filter((p): p is NonNullable<typeof p> => p != null);
   const dammCtxs = (
-    await Promise.all(uniqueDamm.map((p) => fetchDammPoolCtx(connection, p).catch(() => null)))
+    await Promise.all(
+      uniqueDamm.map((p) => fetchDammPoolCtx(connection, p).catch(() => null)),
+    )
   ).filter((p): p is NonNullable<typeof p> => p != null);
 
   const assetMints = ctx.assets.map((a) => a.mint);
-  const hasViaSol = ctx.assets.some((a) => a.route === 'ViaSol');
+  const hasViaSol = ctx.assets.some((a) => a.route === "ViaSol");
   const ataMints =
     hasViaSol && !assetMints.some((m) => m.equals(WSOL_MINT))
       ? [...assetMints, WSOL_MINT]
@@ -153,7 +159,7 @@ export async function createAltForVault(
   }
   if (
     ctx.assets.some(
-      (a) => a.priceSourceTag === PRICE_SOURCE_DEX && a.route === 'ViaSol',
+      (a) => a.priceSourceTag === PRICE_SOURCE_DEX && a.route === "ViaSol",
     )
   ) {
     priceFeeds.push(pythFeedAccount(SOL_USD_PYTH_FEED_ID));
@@ -182,7 +188,12 @@ export async function createAltForVault(
 
   onProgress?.(`Creating ALT with ${addresses.length} addresses…`);
   const altPk = await createVaultAlt(connection, wallet, addresses);
-  const lut = await waitForAltActive(connection, altPk, addresses.length, onProgress);
+  const lut = await waitForAltActive(
+    connection,
+    altPk,
+    addresses.length,
+    onProgress,
+  );
   return { altAddress: altPk.toBase58(), lut };
 }
 
@@ -204,7 +215,7 @@ export async function ensureVaultAlt(
   altAddress: string | null | undefined,
   onProgress?: ProgressFn,
 ): Promise<EnsuredVaultAlt> {
-  let resolved = altAddress ? String(altAddress).trim() : '';
+  let resolved = altAddress ? String(altAddress).trim() : "";
   if (resolved) {
     try {
       const lut = await fetchAlt(connection, new PublicKey(resolved));
@@ -227,7 +238,12 @@ export async function ensureVaultAlt(
   }
 
   try {
-    const created = await createAltForVault(connection, wallet, ctx, onProgress);
+    const created = await createAltForVault(
+      connection,
+      wallet,
+      ctx,
+      onProgress,
+    );
     return {
       lut: created.lut,
       altAddress: created.altAddress,

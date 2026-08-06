@@ -9,7 +9,12 @@ const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024; // pre-compression cap; compressed output is far smaller
 
 export interface ImageDropzoneProps {
-  /** Uploaded image URL (also the on-chain metadata `uri`). Empty string = no image yet. */
+  /**
+   * Uploaded **image** URL (Vercel Blob). Used for the form preview and as the
+   * Metaplex JSON `image` field. On-chain Token-2022 `uri` is a separate JSON
+   * URL published at create-ETF submit time — bare image URIs work in Phantom
+   * but not Jupiter.
+   */
   value: string;
   onChange: (url: string) => void;
   /** Reports upload-in-flight state so callers can gate submission on it. */
@@ -20,7 +25,8 @@ export interface ImageDropzoneProps {
 /**
  * Click-or-drag image upload: compresses client-side (lib/imageCompress),
  * uploads to Vercel Blob (`/api/vault-metadata/upload-image`), and reports
- * back the resulting public URL — the vault manager never types a link.
+ * back the public image URL for preview. Create-ETF then wraps it in Metaplex
+ * JSON before writing on-chain `uri`.
  */
 export function ImageDropzone({ value, onChange, onUploadingChange, className }: ImageDropzoneProps) {
   const inputId = useId();

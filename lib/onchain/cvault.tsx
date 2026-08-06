@@ -45,7 +45,7 @@ import {
 import { fetchDecodedVault, type DecodedVault } from './vaultAccount';
 import { fetchPoolCtx, ownerAccountsFor, type PoolCtx } from './whirlpool';
 import { fetchDammPoolCtx, type DammPoolCtx } from './damm';
-import { ensureLocalhostSwapPreflight } from './localhost';
+import { ensureLocalhostSwapPreflight } from '../localhost';
 import {
   C_VAULT_PROGRAM_ID,
   ADMIN_PUBKEY,
@@ -79,7 +79,7 @@ import {
   MAX_METADATA_KEY_LEN,
   MAX_METADATA_VALUE_LEN,
   MAX_ADDITIONAL_METADATA_PAIRS,
-} from './constants';
+} from '../constants';
 import { formatUserFacingError, parseTxError } from './txError';
 import {
   type AssetHolding,
@@ -89,8 +89,8 @@ import {
   sharePriceRaw,
   previewSharesToMint,
   previewUsdcOut,
-} from './navCalc';
-import { fetchUsdPrices } from './jupiterPrice';
+} from '../navCalc';
+import { fetchUsdPrices } from '../jupiterPrice';
 export { parseTxError, formatUserFacingError, type UserFacingError } from './txError';
 
 export {
@@ -834,6 +834,12 @@ export interface CreatedVaultInfo {
   vaultAuthority: PublicKey;
   sharesMint: PublicKey;
   usdcVault: PublicKey;
+  /**
+   * True when `additional_metadata` rode along in the create transaction.
+   * False when none was supplied, or when it did not fit the static-key packet
+   * and the caller must send `set_share_metadata_fields` separately.
+   */
+  metadataInlined: boolean;
 }
 
 /**
@@ -928,6 +934,14 @@ export async function createEtf(
   symbol: string,
   uri: string,
   network: Network,
+  /**
+   * Optional `additional_metadata` pairs. When present, the
+   * `set_share_metadata_fields` instruction is appended to the *same*
+   * transaction as `create_etf` — one wallet signature instead of two. All of
+   * its accounts are PDAs derived from the vault id we already know here, so it
+   * validates fine against a vault created earlier in the same transaction.
+   */
+  metadataFields?: MetadataFieldInput[],
 ): Promise<CreatedVaultInfo> {
   // ── Client-side mirrors of create_etf_handler validation ─────────────────
   if (!name.trim()) throw new Error('Vault name is required.');
@@ -1045,9 +1059,36 @@ export async function createEtf(
     data,
   });
 
+  const ixs: TransactionInstruction[] = [createIx];
+  let metadataInlined = false;
+  if (metadataFields && metadataFields.length > 0) {
+    // Same transaction, executed right after create_etf — saves a signature.
+    // create_etf is static-key (the vault ALT does not exist yet), so a big
+    // basket plus a long description can exceed the 1232-byte packet. When it
+    // does, we drop back to sending the metadata separately rather than
+    // failing the whole vault creation — the caller checks `metadataInlined`
+    // and sends the follow-up transaction itself.
+    const metaIx = await buildSetShareMetadataFieldsIx(
+      connection,
+      wallet,
+      vaultId,
+      metadataFields,
+      network,
+    );
+    const latest = await connection.getLatestBlockhash('confirmed');
+    try {
+      buildV0(wallet.publicKey, latest.blockhash, [...ixs, metaIx]);
+      ixs.push(metaIx);
+      metadataInlined = true;
+    } catch {
+      // Too large / too many locks — leave it out and let the caller follow up.
+      metadataInlined = false;
+    }
+  }
+
   // sendV0 (not Anchor `.rpc()`): polls signature status instead of the flaky
   // public-RPC websocket 30s confirm path.
-  const sig = await sendV0(connection, wallet, [createIx]);
+  const sig = await sendV0(connection, wallet, ixs);
   return {
     tx: sig,
     link: solscanLink(sig, network),
@@ -1056,6 +1097,7 @@ export async function createEtf(
     vaultAuthority: pdas.vaultAuthority,
     sharesMint: pdas.sharesMint,
     usdcVault: pdas.usdcVault,
+    metadataInlined,
   };
 }
 
@@ -1064,20 +1106,8 @@ export interface MetadataFieldInput {
   value: string;
 }
 
-/**
- * Runs `set_share_metadata_fields` — writes/overwrites `additional_metadata`
- * key/value pairs on the vault's share mint (Token-2022 `TokenMetadata`).
- * `create_etf` can only set name/symbol/uri; anything extra goes through here
- * as a follow-up transaction, signed by the vault manager (who pays the rent
- * top-up for the grown TLV entry).
- */
-export async function setShareMetadataFields(
-  connection: Connection,
-  wallet: AnchorWallet,
-  vaultId: number,
-  fields: MetadataFieldInput[],
-  network: Network,
-): Promise<{ tx: string; link: string }> {
+/** Shared validation for `set_share_metadata_fields` inputs. Throws on any violation. */
+function assertMetadataFields(fields: MetadataFieldInput[]): void {
   if (fields.length === 0) {
     throw new Error('additional_metadata requires at least one field.');
   }
@@ -1103,12 +1133,97 @@ export async function setShareMetadataFields(
     }
     seenKeys.add(key);
   }
+}
+
+/**
+ * Build the `set_share_metadata_fields` instruction without sending it.
+ *
+ * Every account here is *derived* from `vaultId` — nothing is fetched — so this
+ * can be appended to the same transaction as `create_etf` and execute against a
+ * vault that only comes into existence earlier in that same transaction.
+ */
+export async function buildSetShareMetadataFieldsIx(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  fields: MetadataFieldInput[],
+  network: Network,
+): Promise<TransactionInstruction> {
+  assertMetadataFields(fields);
+
+  const program = createProgram(wallet, connection);
+  const pdas = deriveVaultPdas(vaultId, network);
+
+  return (await (program.methods as any)
+    .setShareMetadataFields(new BN(vaultId), fields)
+    .accounts({
+      vault: pdas.vaultPda,
+      sharesMint: pdas.sharesMint,
+      vaultAuthority: pdas.vaultAuthority,
+      vaultManager: wallet.publicKey,
+      systemProgram: SystemProgram.programId,
+      sharesTokenProgram: TOKEN_2022_PROGRAM_ID,
+    })
+    .instruction()) as TransactionInstruction;
+}
+
+/**
+ * Runs `set_share_metadata_fields` — writes/overwrites `additional_metadata`
+ * key/value pairs on the vault's share mint (Token-2022 `TokenMetadata`).
+ * `create_etf` can only set name/symbol/uri; anything extra goes through here
+ * as a follow-up transaction, signed by the vault manager (who pays the rent
+ * top-up for the grown TLV entry).
+ *
+ * At vault-creation time prefer passing the fields to `createEtf` directly —
+ * it appends this instruction to the create transaction, saving a signature.
+ */
+export async function setShareMetadataFields(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  fields: MetadataFieldInput[],
+  network: Network,
+): Promise<{ tx: string; link: string }> {
+  const ix = await buildSetShareMetadataFieldsIx(
+    connection,
+    wallet,
+    vaultId,
+    fields,
+    network,
+  );
+  const sig = await sendV0(connection, wallet, [ix]);
+  return { tx: sig, link: solscanLink(sig, network) };
+}
+
+/**
+ * Overwrite the share mint's Token-2022 metadata `uri`.
+ *
+ * Use this to point an existing vault (e.g. one created with a raw image URL)
+ * at Metaplex JSON so Jupiter can resolve the icon. Requires the deployed
+ * program to include `update_share_metadata_uri` and the connected wallet to
+ * be `vault_manager`.
+ */
+export async function updateShareMetadataUri(
+  connection: Connection,
+  wallet: AnchorWallet,
+  vaultId: number,
+  uri: string,
+  network: Network,
+): Promise<{ tx: string; link: string }> {
+  const u = uri.trim();
+  if (!u) throw new Error('Metadata URI is required.');
+  if (/^data:/i.test(u)) {
+    throw new Error('Metadata URI cannot be a data: URL — use a short https:// JSON link.');
+  }
+  if (Buffer.byteLength(u, 'utf8') > 256) {
+    throw new Error('Metadata URI is too long (max 256 UTF-8 bytes).');
+  }
 
   const program = createProgram(wallet, connection);
   const pdas = deriveVaultPdas(vaultId, network);
 
   const ix = await (program.methods as any)
-    .setShareMetadataFields(new BN(vaultId), fields)
+    .updateShareMetadataUri(new BN(vaultId), u)
     .accounts({
       vault: pdas.vaultPda,
       sharesMint: pdas.sharesMint,
@@ -1764,9 +1879,10 @@ export async function swapAssetToUsdc(
 }
 
 // ─── Bundled flows (ALT-compressed v0 transactions — Plan.md §6-9) ────────────
-// ≤4 assets: one v0 tx with the vault ALT. >4 assets: split setup vs swap legs
-// (see MULTI_TX_ASSET_THRESHOLD / c_vault_script/Rules.md). ALT is stored in
-// `vaults.alt_address` and used for swap-heavy transactions only when split.
+// Always pack under Solana’s 64-account lock + 1232-byte packet via
+// `packIxsForAlt` (ALT shrinks bytes, not lock count). Vault ATA setup is
+// separated from deposit/genesis + swap legs; one wallet approval lands the
+// batch sequentially. ALT address lives in `vaults.alt_address`.
 
 export type ProgressFn = (message: string) => void;
 
@@ -1831,15 +1947,14 @@ export type VaultAltResult = {
   altCreated: boolean;
 };
 
-/** True when the vault basket must be split across multiple v0 transactions. */
-function needsMultiTxBundle(ctx: Pick<VaultChainCtx, 'numAssets'>): boolean {
-  return ctx.numAssets > MULTI_TX_ASSET_THRESHOLD;
-}
-
 /**
- * Genesis for >4 assets: vault ATAs (setup, only if missing) → then pack
+ * Genesis bundle: vault ATAs (setup, only if missing) → then pack
  * signer ATAs + genesis + all inflow swaps into as few ALT v0 txs as fit
- * under the 1232-byte / ~64-account envelope.
+ * under the 1232-byte / 64-account envelope.
+ *
+ * Always packs — even ≤4-asset baskets can lock >64 accounts when vault ATA
+ * creates, signer ATAs, genesis remaining_accounts, and swap legs share one tx.
+ * ALT compresses wire size only; lock count is enforced by `packIxsForAlt`.
  *
  * All resulting transactions share **one** wallet approval (`signAllTransactions`),
  * then land sequentially over plain RPC (no Jito).
@@ -1855,10 +1970,10 @@ async function sendGenesisBundle(
   _network: Network,
   onProgress?: ProgressFn,
 ): Promise<string[]> {
-  // Pack seed + all swaps together — ALT compresses keys so 5-asset baskets
-  // often land in 1 tx; overflow greedily splits into the fewest packets.
+  // Keep vault ATA setup out of the core packet so genesis+swaps stay under
+  // the lock cap; pack both setup and seed+swaps under SAFE_TX_ACCOUNT_LOCKS.
   const coreIxs = [...signerAtaIxs, genesisIx, ...swapIxs];
-  const setupBatches = chunkIxs(vaultAtaIxs, VAULT_ATA_IXS_PER_TX);
+  const setupBatches = packIxsForAlt(wallet.publicKey, vaultAtaIxs, lut);
   const coreBatches = packIxsForAlt(wallet.publicKey, coreIxs, lut);
   const allBatches = [...setupBatches, ...coreBatches];
 
@@ -1868,47 +1983,6 @@ async function sendGenesisBundle(
   );
 
   return signAndSendV0Batches(connection, wallet, allBatches, lut, onProgress);
-}
-
-/** Split instructions into fixed-size batches (no packing / size checks). */
-function chunkIxs(
-  ixs: TransactionInstruction[],
-  perTx: number,
-): TransactionInstruction[][] {
-  if (!ixs.length) return [];
-  const batches: TransactionInstruction[][] = [];
-  for (let i = 0; i < ixs.length; i += perTx) {
-    batches.push(ixs.slice(i, i + perTx));
-  }
-  return batches;
-}
-
-/** Idempotent creates for the vault-authority ATAs the swap legs write to. */
-function ensureVaultAssetAtaIxs(payer: PublicKey, ctx: VaultChainCtx): TransactionInstruction[] {
-  const ixs = ctx.assets.map((a) =>
-    createAssociatedTokenAccountIdempotentInstruction(
-      payer,
-      a.vaultAssetAtaKey,
-      ctx.vaultAuthority,
-      a.mint,
-      tokenProgramForTag(a.tokenProgramTag),
-    ),
-  );
-  if (
-    ctx.assets.some((a) => a.route === 'ViaSol') &&
-    !ctx.assets.some((a) => a.mint.equals(WSOL_MINT))
-  ) {
-    ixs.push(
-      createAssociatedTokenAccountIdempotentInstruction(
-        payer,
-        vaultAssetAta(ctx.vaultAuthority, WSOL_MINT),
-        ctx.vaultAuthority,
-        WSOL_MINT,
-        TOKEN_PROGRAM_ID,
-      ),
-    );
-  }
-  return ixs;
 }
 
 /** ATA creates for vault-authority token accounts that are not on-chain yet. */
@@ -2099,9 +2173,10 @@ async function buildInflowSwapIxs(
 }
 
 /**
- * Deposit + all inflow swap legs in ONE v0 transaction (Plan.md §7-9):
- * `[ensure ATAs, deposit, swap_usdc_to_sol, swap_sol_to_asset ×N, swap_usdc_to_asset ×N]`.
- * No user pre-checks — the program enforces everything (Plan.md §9).
+ * Deposit + all inflow swap legs (Plan.md §7-9), packed under the 64-account
+ * lock: vault ATA setup (if missing) → deposit (+ user ATAs) + swap legs.
+ * One wallet approval; sequential land. No user pre-checks — the program
+ * enforces everything (Plan.md §9).
  */
 export async function depositAndDeploy(
   connection: Connection,
@@ -2123,56 +2198,37 @@ export async function depositAndDeploy(
 
   let signatures: string[];
   try {
-    if (needsMultiTxBundle(ctx)) {
-      const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
-      const depositIxs = await buildDepositIxs(
-        connection,
-        program,
-        ctx,
-        wallet.publicKey,
-        usdcAmount,
-        minSharesOut,
-      );
-      // Pack user ATAs + deposit + all swaps with ALT. Greedy pack keeps
-      // signatures minimal under the 1232-byte / ~64-account envelope.
-      // Setup + core share one signAllTransactions popup (plain RPC, no Jito).
-      const coreIxs = [...depositIxs, ...swapIxs];
-      const setupBatches = chunkIxs(vaultAtaIxs, VAULT_ATA_IXS_PER_TX);
-      const coreBatches = packIxsForAlt(wallet.publicKey, coreIxs, ensured.lut);
-      const allBatches = [...setupBatches, ...coreBatches];
-      onProgress?.(
-        `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — ` +
-          `${vaultAtaIxs.length} ATA ix(s) + deposit + ${swapIxs.length} swap(s) → ` +
-          `${allBatches.length} ALT tx(s), one wallet approval…`,
-      );
-      signatures = await signAndSendV0Batches(
-        connection,
-        wallet,
-        allBatches,
-        ensured.lut,
-        onProgress,
-      );
-    } else {
-      const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
-      const depositIxs = await buildDepositIxs(
-        connection,
-        program,
-        ctx,
-        wallet.publicKey,
-        usdcAmount,
-        minSharesOut,
-      );
-      const sig = await sendV0(
-        connection,
-        wallet,
-        [...vaultAtaIxs, ...depositIxs, ...swapIxs],
-        ensured.lut,
-      );
-      signatures = [sig];
-    }
+    // Always pack — small baskets still blow the 64-account lock when vault
+    // ATA creates + deposit + every swap leg share one message. ALT only
+    // shrinks bytes; packIxsForAlt enforces the lock cap.
+    const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
+    const depositIxs = await buildDepositIxs(
+      connection,
+      program,
+      ctx,
+      wallet.publicKey,
+      usdcAmount,
+      minSharesOut,
+    );
+    const coreIxs = [...depositIxs, ...swapIxs];
+    const setupBatches = packIxsForAlt(wallet.publicKey, vaultAtaIxs, ensured.lut);
+    const coreBatches = packIxsForAlt(wallet.publicKey, coreIxs, ensured.lut);
+    const allBatches = [...setupBatches, ...coreBatches];
+    onProgress?.(
+      `Deposit: ${ctx.numAssets} asset(s) — ` +
+        `${vaultAtaIxs.length} ATA ix(s) + deposit + ${swapIxs.length} swap(s) → ` +
+        `${allBatches.length} ALT tx(s), one wallet approval…`,
+    );
+    signatures = await signAndSendV0Batches(
+      connection,
+      wallet,
+      allBatches,
+      ensured.lut,
+      onProgress,
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (/encoding overruns|Transaction too large|too large|Wallet could not sign/i.test(msg)) {
+    if (/encoding overruns|Transaction too large|too large|Wallet could not sign|locks \d+ accounts/i.test(msg)) {
       throw new Error(
         `${msg}\n` +
           `Deposit+deploy packed too many accounts. Re-run with a vault ALT ` +
@@ -2255,10 +2311,11 @@ async function buildGenesisDepositIx(
 }
 
 /**
- * One-time genesis seed + inflow deploy in ONE v0 transaction (mirrors
- * `depositAndDeploy`): `[ensure vault ATAs, ensure signer ATAs, genesis_deposit,
- * swap legs]`. Admin or vault manager only (enforced on-chain); callable once
- * per vault while `total_shares == 0`.
+ * One-time genesis seed + inflow deploy (mirrors `depositAndDeploy`):
+ * vault ATA setup (if missing) → signer ATAs + `genesis_deposit` + swap legs,
+ * packed into as few ALT v0 txs as fit under the 64-account lock. One wallet
+ * approval; sequential land. Admin or vault manager only (on-chain); once per
+ * vault while `total_shares == 0`.
  */
 export async function genesisDepositAndDeploy(
   connection: Connection,
@@ -2285,31 +2342,21 @@ export async function genesisDepositAndDeploy(
   );
   const swapIxs = await buildInflowSwapIxs(connection, program, ctx, wallet.publicKey);
 
-  let signatures: string[];
-  if (needsMultiTxBundle(ctx)) {
-    const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
-    signatures = await sendGenesisBundle(
-      connection,
-      wallet,
-      vaultAtaIxs,
-      signerAtaIxs,
-      genesisIx,
-      swapIxs,
-      ensured.lut,
-      network,
-      onProgress,
-    );
-  } else {
-    const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
-    onProgress?.('Sending genesis_deposit transaction…');
-    const sig = await sendV0(
-      connection,
-      wallet,
-      [...vaultAtaIxs, ...signerAtaIxs, genesisIx, ...swapIxs],
-      ensured.lut,
-    );
-    signatures = [sig];
-  }
+  // Always pack (see sendGenesisBundle). The old ≤4-asset single-tx path
+  // locked 60+ accounts once vault ATAs + genesis remaining_accounts + swaps
+  // shared one message — Solana hard-caps at 64 regardless of ALT.
+  const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
+  const signatures = await sendGenesisBundle(
+    connection,
+    wallet,
+    vaultAtaIxs,
+    signerAtaIxs,
+    genesisIx,
+    swapIxs,
+    ensured.lut,
+    network,
+    onProgress,
+  );
 
   const tx = signatures[signatures.length - 1]!;
   return {
@@ -2353,33 +2400,27 @@ export async function deployPendingSwaps(
     includeUsdcToSol: pendingUsdc > 0n,
   });
 
-  let signatures: string[];
-  if (needsMultiTxBundle(ctx)) {
-    if (swapIxs.length === 0) {
-      throw new Error('No inflow swap instructions to deploy.');
-    }
-    const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
-    // Setup + inflow swaps: one signAllTransactions popup, sequential plain RPC.
-    const setupBatches = chunkIxs(vaultAtaIxs, VAULT_ATA_IXS_PER_TX);
-    const swapBatches = packIxsForAlt(wallet.publicKey, swapIxs, ensured.lut);
-    const allBatches = [...setupBatches, ...swapBatches];
-    onProgress?.(
-      `${ctx.numAssets} assets (> ${MULTI_TX_ASSET_THRESHOLD}) — ` +
-        `${vaultAtaIxs.length} ATA ix(s) + ${swapIxs.length} inflow swap(s) → ` +
-        `${allBatches.length} ALT tx(s), one wallet approval…`,
-    );
-    signatures = await signAndSendV0Batches(
-      connection,
-      wallet,
-      allBatches,
-      ensured.lut,
-      onProgress,
-    );
-  } else {
-    const vaultAtaIxs = ensureVaultAssetAtaIxs(wallet.publicKey, ctx);
-    const sig = await sendV0(connection, wallet, [...vaultAtaIxs, ...swapIxs], ensured.lut);
-    signatures = [sig];
+  if (swapIxs.length === 0) {
+    throw new Error('No inflow swap instructions to deploy.');
   }
+
+  // Always pack under the 64-account lock (same rationale as deposit/genesis).
+  const vaultAtaIxs = await buildMissingVaultAtaIxs(connection, wallet.publicKey, ctx);
+  const setupBatches = packIxsForAlt(wallet.publicKey, vaultAtaIxs, ensured.lut);
+  const swapBatches = packIxsForAlt(wallet.publicKey, swapIxs, ensured.lut);
+  const allBatches = [...setupBatches, ...swapBatches];
+  onProgress?.(
+    `Deploy: ${ctx.numAssets} asset(s) — ` +
+      `${vaultAtaIxs.length} ATA ix(s) + ${swapIxs.length} inflow swap(s) → ` +
+      `${allBatches.length} ALT tx(s), one wallet approval…`,
+  );
+  const signatures = await signAndSendV0Batches(
+    connection,
+    wallet,
+    allBatches,
+    ensured.lut,
+    onProgress,
+  );
 
   const tx = signatures[signatures.length - 1]!;
   return {

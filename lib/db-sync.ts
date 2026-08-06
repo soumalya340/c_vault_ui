@@ -1,14 +1,14 @@
-import type { Connection } from '@solana/web3.js';
+import type { Connection } from "@solana/web3.js";
 import {
   deriveVaultPdas,
   getAssetState,
   getGlobalState,
   getVaultState,
   type Network,
-} from './cvault';
-import { fetchDecodedVault } from './vaultAccount';
-import { ASSET_PRESETS, VAULT_PRESETS } from './presets/canonical-data';
-import { fetchAssetRegistry, fetchVaults, saveVault } from './registryClient';
+} from "./onchain/cvault";
+import { fetchDecodedVault } from "./onchain/vaultAccount";
+import { ASSET_PRESETS, VAULT_PRESETS } from "./presets/canonical-data";
+import { fetchAssetRegistry, fetchVaults, saveVault } from "./registryClient";
 
 export type SyncReport = {
   onChainTotal: number;
@@ -18,12 +18,12 @@ export type SyncReport = {
 };
 
 function pythFeedHex(bytes: number[]): string {
-  return bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function assetNameForMint(mint: string): string {
   const preset = ASSET_PRESETS.find((p) => p.mint === mint);
-  return preset?.asset_name ?? '';
+  return preset?.asset_name ?? "";
 }
 
 function vaultMetaForId(vaultId: number): { name: string; symbol: string } {
@@ -49,24 +49,24 @@ async function upsertRegistryRow(
     pool_address: string;
     pyth_feed_id: string;
     decimals: number;
-    route: 'ViaSol' | 'DirectUsdc';
+    route: "ViaSol" | "DirectUsdc";
     price_source_tag: number;
     price_dex_kind: number;
     price_pool_address: string;
-    swap_kind: 'Whirlpool' | 'DammV2';
+    swap_kind: "Whirlpool" | "DammV2";
     token_program_tag: number;
     active: boolean;
   },
 ): Promise<void> {
-  const res = await fetch('/api/admin/db/sync-registry', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await fetch("/api/admin/db/sync-registry", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ network, row }),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(
-      data && typeof data === 'object' && 'error' in data
+      data && typeof data === "object" && "error" in data
         ? String((data as { error: unknown }).error)
         : `Registry sync failed (${res.status})`,
     );
@@ -137,9 +137,11 @@ export async function syncVaultsFromChain(
     const decoded = await fetchDecodedVault(connection, pdas.vaultPda);
     const meta = vaultMetaForId(id);
     const manager = decoded?.vaultManager.toBase58() ?? state.feeRecipient;
-    const fundType = decoded?.fundType ?? 'dynamic';
+    const fundType = decoded?.fundType ?? "dynamic";
     const maxShares =
-      decoded && !decoded.maxShares.isZero() ? decoded.maxShares.toString() : null;
+      decoded && !decoded.maxShares.isZero()
+        ? decoded.maxShares.toString()
+        : null;
 
     await saveVault({
       vault_address: state.address,
@@ -150,12 +152,12 @@ export async function syncVaultsFromChain(
       usdc_vault: pdas.usdcVault.toBase58(),
       name: meta.name,
       symbol: meta.symbol,
-      uri: '',
+      uri: "",
       fee_recipient: state.feeRecipient,
       fund_type: fundType,
       max_shares: maxShares,
       creator: manager,
-      tx_signature: 'synced-from-chain',
+      tx_signature: "synced-from-chain",
       alt_address: null,
       paused: state.paused ? 1 : 0,
       admin_locked: state.adminLocked ? 1 : 0,
@@ -163,7 +165,7 @@ export async function syncVaultsFromChain(
       deposit_fee_bps: state.depositFeeBps,
       redeem_fee_bps: state.redeemFeeBps,
       // On-chain book counter removed (L-01); keep registry column at 0.
-      total_usdc_value: '0',
+      total_usdc_value: "0",
       asset_ids: state.assetIds,
       asset_allocation_bps: state.assetAllocationBps,
       num_assets: state.numAssets,
@@ -181,11 +183,14 @@ export async function syncVaultsFromChain(
   };
 }
 
-export function formatSyncStatus(kind: 'vault' | 'asset', report: SyncReport): string {
-  const label = kind === 'vault' ? 'vaults' : 'assets';
+export function formatSyncStatus(
+  kind: "vault" | "asset",
+  report: SyncReport,
+): string {
+  const label = kind === "vault" ? "vaults" : "assets";
   if (report.inSync) {
     return `In sync — ${report.onChainTotal} on-chain, ${report.dbCount} in DB`;
   }
-  const ids = report.syncedIds.map((id) => `#${id}`).join(', ');
+  const ids = report.syncedIds.map((id) => `#${id}`).join(", ");
   return `Synced ${report.syncedIds.length} ${label} from chain (${ids}) — ${report.onChainTotal} on-chain, ${report.dbCount + report.syncedIds.length} in DB`;
 }

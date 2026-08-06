@@ -10,13 +10,20 @@
  * null unless a future off-chain NAV cache is wired in.
  */
 
-import { Connection, PublicKey } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
-import type { Network } from '@/lib/constants';
-import { USDC_DECIMALS } from '@/lib/constants';
-import { deriveRedeemStatePda, deriveRedeemUsdcPda, deriveVaultPdas } from '@/lib/pda';
-import { decodeVaultAccount } from '@/lib/vaultAccount';
-import type { VaultRecord } from '@/lib/registryClient';
+import { Connection, PublicKey } from "@solana/web3.js";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID,
+} from "@solana/spl-token";
+import type { Network } from "@/lib/constants";
+import { USDC_DECIMALS } from "@/lib/constants";
+import {
+  deriveRedeemStatePda,
+  deriveRedeemUsdcPda,
+  deriveVaultPdas,
+} from "@/lib/onchain/pda";
+import { decodeVaultAccount } from "@/lib/onchain/vaultAccount";
+import type { VaultRecord } from "@/lib/registryClient";
 
 /** SPL Token / Token-2022 account: amount is u64 LE at offset 64. */
 const TOKEN_ACCOUNT_AMOUNT_OFFSET = 64;
@@ -63,9 +70,9 @@ function asBuffer(data: Buffer | Uint8Array | undefined | null): Buffer | null {
 async function getMultipleAccountsChunked(
   connection: Connection,
   keys: PublicKey[],
-): Promise<(Awaited<ReturnType<Connection['getAccountInfo']>>)[]> {
+): Promise<Awaited<ReturnType<Connection["getAccountInfo"]>>[]> {
   if (keys.length === 0) return [];
-  const out: (Awaited<ReturnType<Connection['getAccountInfo']>>)[] = [];
+  const out: Awaited<ReturnType<Connection["getAccountInfo"]>>[] = [];
   for (let i = 0; i < keys.length; i += MULTI_GET_CHUNK) {
     const chunk = keys.slice(i, i + MULTI_GET_CHUNK);
     const infos = await connection.getMultipleAccountsInfo(chunk);
@@ -94,7 +101,10 @@ function parseRedeemActive(data: Buffer | null): boolean {
   return data.readUInt8(8) !== 0;
 }
 
-function ownershipBps(shareBalance: bigint, totalShares: bigint): number | null {
+function ownershipBps(
+  shareBalance: bigint,
+  totalShares: bigint,
+): number | null {
   if (shareBalance <= 0n || totalShares <= 0n) return null;
   const bps = Number((shareBalance * 10_000n) / totalShares);
   return Number.isFinite(bps) ? Math.min(bps, 10_000) : null;
@@ -119,17 +129,24 @@ export async function fetchWalletPortfolio(
     return {
       holdings: [],
       positionCount: 0,
-      totalEstimatedUsdc: '0',
+      totalEstimatedUsdc: "0",
       pendingRedeemCount: 0,
     };
   }
 
   const shareAtas = vaults.map((v) => {
     const mint = new PublicKey(v.shares_mint);
-    return getAssociatedTokenAddressSync(mint, user, false, TOKEN_2022_PROGRAM_ID);
+    return getAssociatedTokenAddressSync(
+      mint,
+      user,
+      false,
+      TOKEN_2022_PROGRAM_ID,
+    );
   });
   const redeemPdas = vaults.map((v) => deriveRedeemStatePda(user, v.vault_id));
-  const redeemUsdcPdas = vaults.map((v) => deriveRedeemUsdcPda(user, v.vault_id));
+  const redeemUsdcPdas = vaults.map((v) =>
+    deriveRedeemUsdcPda(user, v.vault_id),
+  );
 
   const [ataInfos, redeemInfos, redeemUsdcInfos] = await Promise.all([
     getMultipleAccountsChunked(connection, shareAtas),
@@ -148,7 +165,9 @@ export async function fetchWalletPortfolio(
   for (let i = 0; i < vaults.length; i++) {
     const shareBalance = amountFromTokenAccount(asBuffer(ataInfos[i]?.data));
     const isRedeemActive = parseRedeemActive(asBuffer(redeemInfos[i]?.data));
-    const redeemPendingUsdc = amountFromTokenAccount(asBuffer(redeemUsdcInfos[i]?.data));
+    const redeemPendingUsdc = amountFromTokenAccount(
+      asBuffer(redeemUsdcInfos[i]?.data),
+    );
     if (shareBalance > 0n || isRedeemActive || redeemPendingUsdc > 0n) {
       candidates.push({
         vault: vaults[i]!,
@@ -163,13 +182,13 @@ export async function fetchWalletPortfolio(
     return {
       holdings: [],
       positionCount: 0,
-      totalEstimatedUsdc: '0',
+      totalEstimatedUsdc: "0",
       pendingRedeemCount: 0,
     };
   }
 
-  const vaultPdas = candidates.map((c) =>
-    deriveVaultPdas(c.vault.vault_id, network).vaultPda,
+  const vaultPdas = candidates.map(
+    (c) => deriveVaultPdas(c.vault.vault_id, network).vaultPda,
   );
   const vaultInfos = await getMultipleAccountsChunked(connection, vaultPdas);
 
@@ -202,7 +221,7 @@ export async function fetchWalletPortfolio(
       sharesDecimals: USDC_DECIMALS,
       estimatedUsdc: null,
       vaultTotalShares: totalShares.toString(),
-      vaultTotalUsdcValue: '0',
+      vaultTotalUsdcValue: "0",
       ownershipBps: ownershipBps(c.shareBalance, totalShares),
       isRedeemActive: c.isRedeemActive,
       redeemPendingUsdc:
@@ -222,7 +241,7 @@ export async function fetchWalletPortfolio(
   return {
     holdings,
     positionCount: holdings.length,
-    totalEstimatedUsdc: '0',
+    totalEstimatedUsdc: "0",
     pendingRedeemCount,
   };
 }

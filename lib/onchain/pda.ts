@@ -11,7 +11,7 @@ import {
   REDEEM_SEED,
   REDEEM_USDC_SEED,
   type Network,
-} from './constants';
+} from '../constants';
 
 export function vaultIdBuf(vaultId: number): Buffer {
   const arr = new Uint8Array(8);

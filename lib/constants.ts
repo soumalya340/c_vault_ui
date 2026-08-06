@@ -181,9 +181,11 @@ export const PRICE_SCALE = 1_000_000_000;
 export const PRICE_SCALE_DECIMALS = 9;
 
 /**
- * Baskets with more than this many assets cannot fit deposit / redeem / genesis
- * in one v0 transaction (trace depth + account limits). Split when `numAssets` exceeds
- * this value — mirrors `c_vault_script/Rules.md` and `MULTI_TX_ASSET_THRESHOLD`.
+ * Soft guide only — historical “try one tx under this size” threshold.
+ * Runtime deposit / redeem / genesis **always** pack via `packIxsForAlt`
+ * (64-account lock + 1232-byte probe). Small baskets still overflow the lock
+ * when vault ATAs + seed/deposit + swap legs share one message.
+ * Mirrors `c_vault_script/Rules.md` naming for docs compatibility.
  */
 export const MULTI_TX_ASSET_THRESHOLD = 4;
 
@@ -196,9 +198,8 @@ export const MULTI_TX_ASSET_THRESHOLD = 4;
 export const SWAP_LEGS_PER_TX = 2;
 
 /**
- * Max vault-authority ATA create instructions per v0 tx when a basket exceeds
- * MULTI_TX_ASSET_THRESHOLD. Each ix adds a unique mint + ATA pubkey to the
- * message — with an ALT these compress to 1-byte indices, so 8 ATAs stay well
- * under the 1232-byte tx cap.
+ * Soft guide for vault-authority ATA create density. Runtime packing uses
+ * `packIxsForAlt` rather than this fixed chunk size. Kept for docs / callers
+ * that still reference the constant.
  */
 export const VAULT_ATA_IXS_PER_TX = 8;

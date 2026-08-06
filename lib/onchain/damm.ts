@@ -1,5 +1,5 @@
 import { AccountInfo, Connection, PublicKey } from '@solana/web3.js';
-import { DAMM_V2_PROGRAM_ID } from './constants';
+import { DAMM_V2_PROGRAM_ID } from '../constants';
 
 // Offsets from c_vault `utils/dex_price.rs` (Pool layout after 8-byte disc).
 const TOKEN_A_MINT = 168;

@@ -22,20 +22,21 @@ import {
   PRICE_SCALE_DECIMALS,
   NETWORK_CONSTANTS,
   type Network,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import { MAX_METADATA_VALUE_LEN, VAULT_METADATA_DESCRIPTION_KEY } from '@/lib/constants';
-import { buildVaultAltAddresses, createVaultAlt } from '@/lib/alt';
-import { fetchPoolCtx } from '@/lib/whirlpool';
-import { fetchDammPoolCtx } from '@/lib/damm';
+import { buildVaultAltAddresses, createVaultAlt } from '@/lib/onchain/alt';
+import { fetchPoolCtx } from '@/lib/onchain/whirlpool';
+import { fetchDammPoolCtx } from '@/lib/onchain/damm';
 import {
   fetchAssetRegistry,
   saveVault,
   updateVaultAlts,
   updateVaultGenesisStatus,
   generateVaultDescription,
+  uploadVaultMetadataJson,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { SECTION_STYLE } from './function-defs';
 import { ErrorModal } from './error-modal';
 import { ImageDropzone } from './image-dropzone';
@@ -197,7 +198,18 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         return { entry, allocationBps: pctToBps(row.allocationPct) };
       });
 
-      assertCreateEtfMetadata(name, symbol, uri);
+      // `uri` state holds the raw image URL (dropzone preview). Jupiter and
+      // most indexers need Metaplex JSON at on-chain `uri` with an `image`
+      // field — publish that now and write the JSON URL on-chain instead.
+      const trimmedInfo = additionalInfo.trim();
+      setStatus('Publishing token metadata JSON…');
+      const metadataUri = await uploadVaultMetadataJson({
+        name: name.trim(),
+        symbol: symbol.trim(),
+        image: uri.trim(),
+        description: trimmedInfo,
+      });
+      assertCreateEtfMetadata(name, symbol, metadataUri);
 
       let parsedBaselinePrice: BN;
       try {
@@ -228,11 +240,10 @@ export function CreateEtfPanel({ network }: { network: Network }) {
         },
         name,
         symbol,
-        uri,
+        metadataUri,
         network,
       );
 
-      const trimmedInfo = additionalInfo.trim();
       let metadataNote = '';
       if (trimmedInfo) {
         try {
@@ -351,7 +362,7 @@ export function CreateEtfPanel({ network }: { network: Network }) {
           usdc_vault: created.usdcVault.toBase58(),
           name,
           symbol,
-          uri,
+          uri: metadataUri,
           fee_recipient: feeRcpt,
           fund_type: fundType,
           max_shares: maxShares.trim() || null,

@@ -12,14 +12,14 @@ import {
   updateVaultPoolCreated,
   type VaultRecord,
 } from '@/lib/registryClient';
-import { getVaultState, NETWORK_CONSTANTS } from '@/lib/cvault';
+import { getVaultState, NETWORK_CONSTANTS } from '@/lib/onchain/cvault';
 import { resolveVaultShareUsdcPool } from '@/lib/meteora';
 import { PublicKey } from '@solana/web3.js';
 import {
   fetchWalletPortfolio,
   type PortfolioHolding,
   type PortfolioSnapshot,
-} from '@/lib/portfolio';
+} from '@/lib/onchain/portfolio';
 import {
   displayVaultName,
   formatTokenUi,

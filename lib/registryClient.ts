@@ -230,6 +230,33 @@ export async function uploadVaultMetadataImage(file: File): Promise<string> {
 }
 
 /**
+ * Host Metaplex-compatible token metadata JSON on Vercel Blob.
+ *
+ * Jupiter / Birdeye / Dexscreener crawl on-chain `uri` and expect JSON with an
+ * `image` field — NOT a raw `.jpg`/`.png` URL. Phantom will still render a bare
+ * image URI; Jupiter will not. Always put the returned JSON URL on-chain.
+ */
+export async function uploadVaultMetadataJson(input: {
+  name: string;
+  symbol: string;
+  image: string;
+  description?: string;
+}): Promise<string> {
+  const res = await fetch('/api/vault-metadata/upload-json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: input.name,
+      symbol: input.symbol,
+      image: input.image,
+      description: input.description ?? '',
+    }),
+  });
+  const { url } = await jsonOrThrow<{ url: string }>(res);
+  return url;
+}
+
+/**
  * Persist deposit/redeem ALT addresses after create_etf or genesis auto-create.
  * Writes `deposit_alt_address`, `redeem_alt_address`, and legacy `alt_address`
  * (API aliases deposit → alt_address for older clients).

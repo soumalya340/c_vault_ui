@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { UserFacingError } from '@/lib/txError';
+import type { UserFacingError } from '@/lib/onchain/txError';
 import { btnGhostClass, btnPrimaryClass } from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
 

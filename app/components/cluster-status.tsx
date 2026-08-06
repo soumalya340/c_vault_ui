@@ -16,7 +16,7 @@ import {
   isClusterReady,
   probeClusterHealth,
   type ClusterHealth,
-} from '@/lib/clusterHealth';
+} from '@/lib/onchain/clusterHealth';
 import { C_VAULT_PROGRAM_ID } from '@/lib/constants';
 import { btnGhostClass } from './ui-classes';
 

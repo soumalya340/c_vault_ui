@@ -6,7 +6,7 @@ import type {
   Transaction,
   TransactionSignature,
 } from '@solana/web3.js';
-import { confirmBySignaturePolling } from '@/lib/confirm';
+import { confirmBySignaturePolling } from '@/lib/onchain/confirm';
 import { prepareTransaction } from './utils';
 
 export type WalletSigner = {

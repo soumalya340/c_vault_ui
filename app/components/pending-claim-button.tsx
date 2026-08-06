@@ -7,9 +7,9 @@ import {
   claim,
   formatUnits,
   type Network,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import { USDC_DECIMALS } from '@/lib/constants';
-import { parseTxError, type UserFacingError } from '@/lib/txError';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import type { VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
 import { btnGhostClass, btnPrimaryClass } from './ui-classes';

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { getGlobalState, type GlobalStateView } from '@/lib/cvault';
+import { getGlobalState, type GlobalStateView } from '@/lib/onchain/cvault';
 import { Skeleton } from '@/components/ui/skeleton';
 import { panelClass } from '../ui-classes';
 

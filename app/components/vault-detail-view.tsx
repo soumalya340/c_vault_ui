@@ -10,7 +10,7 @@ import {
   NETWORK_CONSTANTS,
   type Network,
   type VaultChainAsset,
-} from '@/lib/cvault';
+} from '@/lib/onchain/cvault';
 import { USDC_DECIMALS } from '@/lib/constants';
 import {
   fetchVaults,
