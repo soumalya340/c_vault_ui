@@ -16,7 +16,7 @@ export function VaultStatCard({
   sub?: string;
   /** Marks `sub` as a live-status line — prefixes it with the accent dot. */
   subLive?: boolean;
-  source: 'rpc' | 'mock' | 'db';
+  source?: 'rpc' | 'mock' | 'db';
   tone?: 'up' | 'dn';
   pulse?: boolean;
   trailing?: ReactNode;
@@ -33,7 +33,7 @@ export function VaultStatCard({
         </span>
         <div className="flex items-center gap-2">
           {trailing}
-          <VaultSourceTag kind={source} />
+          {source ? <VaultSourceTag kind={source} /> : null}
         </div>
       </div>
       <div

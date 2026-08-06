@@ -5,7 +5,6 @@ import type { Connection } from '@solana/web3.js';
 import type { VaultChainAsset } from '@/lib/onchain/cvault';
 import { formatTokenUi } from './pending-claim-button';
 import { VaultPanel } from './vault-panel';
-import { VaultSourceTag } from './vault-source-tag';
 
 export type HoldingRow = {
   key: string;
@@ -71,7 +70,6 @@ export function VaultHoldingsCard({
           <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
             {rows.length} asset{rows.length === 1 ? '' : 's'}
           </span>
-          <VaultSourceTag kind="rpc" />
         </>
       }
       flush

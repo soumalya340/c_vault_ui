@@ -4,7 +4,6 @@ import { useState } from 'react';
 import type { Network } from '@/lib/onchain/solscanLink';
 import { solscanAccountLink } from '@/lib/onchain/solscanLink';
 import { VaultPanel } from './vault-panel';
-import { VaultSourceTag } from './vault-source-tag';
 
 function Addr({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -44,7 +43,7 @@ export function VaultContractCard({
   const explorer = solscanAccountLink(vaultAddress, network);
 
   return (
-    <VaultPanel label="Accounts" right={<VaultSourceTag kind="rpc" />}>
+    <VaultPanel label="Accounts">
       <Addr label="Vault" value={vaultAddress} />
       <Addr label="Base mint" value={baseMint} />
       <Addr label="Shares mint" value={sharesMint} />

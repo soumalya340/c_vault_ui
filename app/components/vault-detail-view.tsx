@@ -379,26 +379,6 @@ function VaultDetailViewInner({
               onClaimed={loadPosition}
             />
           ) : null}
-          <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                navState.status === 'ready'
-                  ? 'bg-accent'
-                  : navState.status === 'loading'
-                    ? 'bg-muted-foreground animate-pulse'
-                    : 'bg-muted-foreground'
-              }`}
-            />
-            <span>
-              {navState.status === 'ready'
-                ? 'NAV loaded · on-chain view'
-                : navState.status === 'loading'
-                  ? 'reading NAV…'
-                  : navState.status === 'error'
-                    ? 'NAV unavailable'
-                    : 'NAV idle'}
-            </span>
-          </div>
         </div>
       </div>
 
@@ -478,7 +458,6 @@ function VaultDetailViewInner({
                     : undefined
               }
               subLive={navState.status === 'ready'}
-              source="rpc"
               trailing={
                 <button
                   type="button"
@@ -507,7 +486,6 @@ function VaultDetailViewInner({
                     ? `${totalSharesUi} shares outstanding`
                     : undefined
               }
-              source="rpc"
               trailing={
                 <button
                   type="button"
@@ -541,7 +519,6 @@ function VaultDetailViewInner({
                     ? `${yourSharesUi} shares`
                     : 'no shares'
               }
-              source="rpc"
             />
           </div>
 
@@ -604,14 +581,9 @@ function VaultDetailViewInner({
                   Where the numbers come from
                 </div>
                 <div className="mb-1.5 flex items-start gap-2 text-[11.5px] leading-snug text-foreground/75">
-                  <VaultSourceTag kind="rpc" />
                   <span>
                     Share price, TVL, and position are on-chain reads.
                   </span>
-                </div>
-                <div className="mb-1.5 flex items-start gap-2 text-[11.5px] leading-snug text-foreground/75">
-                  <VaultSourceTag kind="db" />
-                  <span>Fees and vault metadata come from the vaults registry.</span>
                 </div>
                 <div className="flex items-start gap-2 text-[11.5px] leading-snug text-foreground/75">
                   <VaultSourceTag kind="mock" />
