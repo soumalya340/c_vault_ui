@@ -450,9 +450,10 @@ function VaultDetailViewInner({
               </span>
             </div>
             <p className="mt-3.5 max-w-[56ch] text-base leading-relaxed text-foreground/75">
-              On-chain ETF vault. Deposit USDC to mint shares, redeem whenever you
-              want capital back. Basket weights are configured on-chain; NAV is
-              read live from the program view.
+              {vault.additional_metadata?.trim() ||
+                'On-chain ETF vault. Deposit USDC to mint shares, redeem whenever you ' +
+                  'want capital back. Basket weights are configured on-chain; NAV is ' +
+                  'read live from the program view.'}
             </p>
           </header>
 
