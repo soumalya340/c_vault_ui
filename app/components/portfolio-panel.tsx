@@ -242,12 +242,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
               'radial-gradient(42% 130% at 4% 0%, rgba(200,255,61,0.08), transparent 70%)',
           }}
         />
-        <div className="relative flex flex-wrap items-baseline justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.16em] text-text-ghost">
-          <span>Plate Nº PF · Bearer register</span>
-          <span className="hidden sm:inline">Solana · {network}</span>
-        </div>
-
-        <div className="relative mt-6 min-w-0">
+        <div className="relative min-w-0">
           <div className="flex flex-wrap items-baseline gap-4">
             <span className="font-mono text-[15px] tracking-[0.1em] text-accent">PF</span>
             <h1 className="m-0 text-[clamp(40px,6vw,62px)] font-semibold leading-[0.9] tracking-[-0.05em] text-foreground">
