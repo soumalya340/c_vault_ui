@@ -3,8 +3,6 @@
 import type { ReactNode } from 'react';
 
 export type ConsoleHeroProps = {
-  /** Plate number shown beside the chips, e.g. "02". */
-  plate: string;
   /** Leading words of the title, rendered in the foreground colour. */
   title: string;
   /** Trailing words of the title, rendered in the accent colour. */
@@ -18,11 +16,10 @@ export type ConsoleHeroProps = {
 /**
  * Shared console masthead — the lime-wash plate used across the operations
  * pages. Mirrors the new_ui Create plate: gradient wash, ruled backdrop,
- * scan line, two-tone title, plate chips, and a right-hand description
+ * scan line, two-tone title, chips, and a right-hand description
  * separated by a hairline rule.
  */
 export function ConsoleHero({
-  plate,
   title,
   titleAccent,
   chips = [],
@@ -59,7 +56,7 @@ export function ConsoleHero({
         }}
       />
 
-      <div className="relative grid min-w-0 items-end gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)] lg:gap-12">
+      <div className="relative grid min-w-0 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)] lg:gap-12">
         <div className="min-w-0">
           <h1 className="m-0 text-[clamp(48px,8vw,76px)] font-semibold leading-[0.9] tracking-[-0.05em] text-foreground">
             {title}
@@ -70,23 +67,19 @@ export function ConsoleHero({
               </>
             ) : null}
           </h1>
-          <div className="mt-[26px] flex flex-wrap items-center gap-2.5 sm:gap-[11px]">
-            <span
-              aria-hidden
-              className="font-mono text-[13px] font-medium tracking-[0.1em] text-accent"
-            >
-              Plate {plate}
-            </span>
-            {chips.map((label) => (
-              <span
-                key={label}
-                className="inline-flex items-center gap-2 rounded-full border border-white/[0.12] px-[13px] py-[7px] font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
-              >
-                <span className="h-[5px] w-[5px] shrink-0 bg-accent" />
-                {label}
-              </span>
-            ))}
-          </div>
+          {chips.length > 0 ? (
+            <div className="mt-[26px] flex flex-wrap items-center gap-2.5 sm:gap-[11px]">
+              {chips.map((label) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/[0.12] px-[13px] py-[7px] font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                >
+                  <span className="h-[5px] w-[5px] shrink-0 bg-accent" />
+                  {label}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <p className="max-w-[42ch] border-l border-white/[0.14] pl-[18px] text-[15px] leading-[1.6] text-muted-foreground lg:justify-self-end">

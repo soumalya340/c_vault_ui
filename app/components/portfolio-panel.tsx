@@ -222,7 +222,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
     <section aria-label="Portfolio" className="flex min-h-0 flex-1 flex-col">
       {/* Masthead — same console plate as the Create page */}
       <ConsoleHero
-        plate="PF"
         title="Portfolio"
         chips={connected ? PORTFOLIO_CHIPS : undefined}
       >

@@ -784,14 +784,11 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
       {/* Outer frame — the double-border plate from the original mockups */}
       <div className="flex min-h-0 flex-1 flex-col border border-border-strong bg-background p-1.5">
         <div className="flex min-h-0 flex-1 flex-col border border-border">
-          {/* Section plate — Nº 01 Create ETF vault */}
+          {/* Section plate — Create ETF vault */}
           <div className="flex flex-wrap items-center gap-3 border-b border-border bg-bg-elevated px-[22px] py-[18px]">
-            <div className="flex min-w-0 items-baseline gap-3">
-              <span className="font-mono text-[12px] tracking-[0.06em] text-accent">Nº 01</span>
-              <span className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">
-                Create ETF vault
-              </span>
-            </div>
+            <span className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">
+              Create ETF vault
+            </span>
           </div>
 
           <form onSubmit={handleSubmit} className="px-[22px] pb-8 pt-[26px]">
@@ -813,26 +810,18 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
 
         <SectionDivider title="Vault metadata" side="A · identity" />
         <div>
-          <div className="grid grid-cols-1 gap-[22px] md:grid-cols-[230px_minmax(0,1fr)]">
-            <div className="flex flex-col">
+          {/* Image dropzone bottom aligns with description textarea bottom. */}
+          <div className="grid grid-cols-1 items-stretch gap-[22px] md:grid-cols-[230px_minmax(0,1fr)]">
+            <div className="flex h-full min-h-0 flex-col">
               <FieldLabel>Vault image</FieldLabel>
               <ImageDropzone
                 value={uri}
                 onChange={setUri}
                 onUploadingChange={setImageUploading}
-                className="h-[196px] w-full"
+                className="min-h-[196px] w-full flex-1"
               />
-              {uri ? (
-                <p className="mt-2.5 max-w-full truncate font-mono text-[11px] text-text-ghost">
-                  {uri}
-                </p>
-              ) : (
-                <p className="mt-2.5 text-[12.5px] leading-[1.5] text-text-ghost">
-                  Required before you can create the vault.
-                </p>
-              )}
             </div>
-            <div className="flex min-h-0 flex-col gap-[18px]">
+            <div className="flex h-full min-h-0 flex-col gap-[18px]">
               <div className="grid grid-cols-1 gap-[18px] sm:grid-cols-2">
                 <div>
                   <FieldLabel>Share name</FieldLabel>
@@ -877,10 +866,19 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
                   placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
                   maxLength={MAX_METADATA_VALUE_LEN}
                   rows={4}
-                  className="min-h-[104px] resize-none"
+                  className="min-h-[104px] flex-1 resize-none"
                 />
               </div>
             </div>
+          </div>
+          <div className="mt-2.5 grid grid-cols-1 gap-[22px] md:grid-cols-[230px_minmax(0,1fr)]">
+            {uri ? (
+              <p className="max-w-full truncate font-mono text-[11px] text-text-ghost">{uri}</p>
+            ) : (
+              <p className="text-[12.5px] leading-[1.5] text-text-ghost">
+                Required before you can create the vault.
+              </p>
+            )}
           </div>
         </div>
         {generateInfoError && (
