@@ -28,6 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { VaultInfoPopover } from './vault-info-popover';
+import { ConsoleHero } from './console-hero';
 import {
   MetricStripSkeleton,
   PortfolioListSkeleton,
@@ -45,6 +46,12 @@ const ASSET_COLORS = [
   '#FF9E4D',
   '#FF6B4D',
   '#7DE8A8',
+] as const;
+
+const PORTFOLIO_CHIPS = [
+  'manager of record',
+  'bearer certificates',
+  'pro-rata book value',
 ] as const;
 
 function shorten(addr: string): string {
@@ -104,8 +111,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
   const [tab, setTab] = useState<'vaults' | 'positions'>('vaults');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [syncedAt, setSyncedAt] = useState<number | null>(null);
-  const [now, setNow] = useState(() => Date.now());
   const [depositTarget, setDepositTarget] = useState<
     PortfolioHolding['vault'] | null
   >(null);
@@ -119,7 +124,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
       setCreatedVaults([]);
       setError(null);
       setLoading(false);
-      setSyncedAt(null);
       return;
     }
     setLoading(true);
@@ -194,7 +198,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
       setCreatedVaults(
         vaults.filter((v) => v.creator === publicKey.toBase58()),
       );
-      setSyncedAt(Date.now());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSnapshot(null);
@@ -208,12 +211,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (syncedAt == null) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [syncedAt]);
-
   const holdings = useMemo(() => snapshot?.holdings ?? [], [snapshot]);
   const holdingsByVaultId = useMemo(() => {
     const map = new Map<number, PortfolioHolding>();
@@ -221,55 +218,32 @@ export function PortfolioPanel({ network }: { network: Network }) {
     return map;
   }, [holdings]);
 
-  const syncedLabel = useMemo(() => {
-    if (syncedAt == null) return null;
-    const sec = Math.max(0, Math.floor((now - syncedAt) / 1000));
-    if (sec < 5) return 'SYNCED JUST NOW';
-    if (sec < 60) return `SYNCED ${sec}s AGO`;
-    const min = Math.floor(sec / 60);
-    return `SYNCED ${min}m AGO`;
-  }, [syncedAt, now]);
-
   return (
     <section aria-label="Portfolio" className="flex min-h-0 flex-1 flex-col">
-      {/* Masthead — matches MyVaults mockup plate */}
-      <header className="relative overflow-hidden border-b border-border px-[22px] pb-7 pt-[34px]">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(42% 130% at 4% 0%, rgba(200,255,61,0.08), transparent 70%)',
-          }}
-        />
-        <div className="relative min-w-0">
-          <div className="flex flex-wrap items-baseline gap-4">
-            <span className="font-mono text-[15px] tracking-[0.1em] text-accent">PF</span>
-            <h1 className="m-0 text-[clamp(40px,6vw,62px)] font-semibold leading-[0.9] tracking-[-0.05em] text-foreground">
-              Portfolio
-            </h1>
-          </div>
-          <p className="mt-4 max-w-[52ch] text-[15px] leading-[1.6] text-muted-foreground">
-            Everything this wallet stands behind — vaults it charters as manager, and
-            share certificates it carries as bearer.
-          </p>
-          {connected && (
-            <div className="mt-4 flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.14em]">
-              <span className="text-text-ghost">
-                {syncedLabel ?? (loading ? 'SYNCING…' : '—')}
-              </span>
-              <button
-                type="button"
-                onClick={() => void load()}
-                disabled={loading}
-                className="text-accent transition-opacity hover:opacity-80 disabled:opacity-40"
-              >
-                {loading ? 'Reading…' : 'Refresh ↻'}
-              </button>
-            </div>
-          )}
+      {/* Masthead — same console plate as the Create page */}
+      <ConsoleHero
+        plate="PF"
+        title="Portfolio"
+        chips={connected ? PORTFOLIO_CHIPS : undefined}
+      >
+        Everything this wallet stands behind — vaults it charters as manager, and{' '}
+        <span className="text-foreground">
+          share certificates it carries as bearer.
+        </span>
+      </ConsoleHero>
+
+      {connected && (
+        <div className="flex items-center gap-4 px-[22px] pt-5 font-mono text-[10px] uppercase tracking-[0.14em]">
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="text-accent transition-opacity hover:opacity-80 disabled:opacity-40"
+          >
+            {loading ? 'Reading…' : 'Refresh ↻'}
+          </button>
         </div>
-      </header>
+      )}
 
       {/* Metric strip */}
       {connected && loading && (
@@ -279,28 +253,30 @@ export function PortfolioPanel({ network }: { network: Network }) {
       )}
 
       {connected && snapshot && !loading && (
-        <div className="grid grid-cols-2 gap-px border-b border-border bg-white/[0.07] sm:grid-cols-4">
-          <Metric
-            label="Vaults chartered"
-            value={String(createdVaults.length)}
-            hint="as manager"
-            hintAccent
-          />
-          <Metric
-            label="Positions held"
-            value={String(snapshot.positionCount)}
-            hint="as bearer"
-          />
-          <Metric
-            label="Book value"
-            value={formatUsdUi(snapshot.totalEstimatedUsdc, USDC_DECIMALS)}
-            hint="pro-rata vault book"
-          />
-          <Metric
-            label="Open redeems"
-            value={String(snapshot.pendingRedeemCount)}
-            hint="queued"
-          />
+        <div className="px-[22px] pt-6">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[3px] border border-border-strong bg-white/[0.07] sm:grid-cols-4">
+            <Metric
+              label="Vaults chartered"
+              value={String(createdVaults.length)}
+              hint="as manager"
+              hintAccent
+            />
+            <Metric
+              label="Positions held"
+              value={String(snapshot.positionCount)}
+              hint="as bearer"
+            />
+            <Metric
+              label="Book value"
+              value={formatUsdUi(snapshot.totalEstimatedUsdc, USDC_DECIMALS)}
+              hint="pro-rata vault book"
+            />
+            <Metric
+              label="Open redeems"
+              value={String(snapshot.pendingRedeemCount)}
+              hint="queued"
+            />
+          </div>
         </div>
       )}
 
@@ -339,66 +315,68 @@ export function PortfolioPanel({ network }: { network: Network }) {
       )}
 
       {connected && !loading && !error && (
-        <div className="flex min-h-0 flex-1 flex-col">
-          {/* PF-A / PF-B tabs — active plate has lime top border */}
-          <div
-            role="tablist"
-            aria-label="Portfolio view"
-            className="grid grid-cols-2 border-b border-border bg-bg-elevated"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'vaults'}
-              onClick={() => setTab('vaults')}
-              className={`flex items-center justify-between gap-3 px-[22px] py-3.5 transition-colors ${
-                tab === 'vaults'
-                  ? '-mb-px border-t-2 border-accent bg-background text-foreground'
-                  : 'text-text-ghost hover:text-muted-foreground'
-              }`}
+        <div className="flex min-h-0 flex-1 flex-col p-[22px] pt-3.5">
+          {/* Register panel — tabs and their contents share one visible frame */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[3px] border border-border-strong bg-background">
+            {/* PF-A / PF-B tabs — active plate is filled, matching the basket tabs */}
+            <div
+              role="tablist"
+              aria-label="Portfolio view"
+              className="grid grid-cols-2 divide-x divide-border-strong border-b border-border-strong bg-foreground/[0.015]"
             >
-              <span className="font-mono text-[12px] uppercase tracking-[0.12em]">
-                <span className={tab === 'vaults' ? 'text-accent' : 'text-[#4A4A50]'}>
-                  PF-A
-                </span>{' '}
-                My vaults
-              </span>
-              <span
-                className={`font-mono text-[11.5px] tabular-nums ${
-                  tab === 'vaults' ? 'text-muted-foreground' : 'text-[#4A4A50]'
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'vaults'}
+                onClick={() => setTab('vaults')}
+                className={`flex items-center justify-between gap-3 px-[22px] py-3.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+                  tab === 'vaults'
+                    ? 'bg-accent text-background'
+                    : 'text-text-ghost hover:bg-foreground/[0.04] hover:text-foreground'
                 }`}
               >
-                {createdVaults.length}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'positions'}
-              onClick={() => setTab('positions')}
-              className={`flex items-center justify-between gap-3 border-l border-border px-[22px] py-3.5 transition-colors ${
-                tab === 'positions'
-                  ? '-mb-px border-t-2 border-accent bg-background text-foreground'
-                  : 'text-text-ghost hover:text-muted-foreground'
-              }`}
-            >
-              <span className="font-mono text-[12px] uppercase tracking-[0.12em]">
+                <span className="font-mono text-[12px] uppercase tracking-[0.12em]">
+                  <span className={tab === 'vaults' ? 'text-background/60' : 'text-[#4A4A50]'}>
+                    PF-A
+                  </span>{' '}
+                  My vaults
+                </span>
                 <span
-                  className={tab === 'positions' ? 'text-accent' : 'text-[#4A4A50]'}
+                  className={`font-mono text-[11.5px] tabular-nums ${
+                    tab === 'vaults' ? 'text-background/60' : 'text-[#4A4A50]'
+                  }`}
                 >
-                  PF-B
-                </span>{' '}
-                My positions
-              </span>
-              <span
-                className={`font-mono text-[11.5px] tabular-nums ${
-                  tab === 'positions' ? 'text-muted-foreground' : 'text-[#4A4A50]'
+                  {createdVaults.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'positions'}
+                onClick={() => setTab('positions')}
+                className={`flex items-center justify-between gap-3 px-[22px] py-3.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+                  tab === 'positions'
+                    ? 'bg-accent text-background'
+                    : 'text-text-ghost hover:bg-foreground/[0.04] hover:text-foreground'
                 }`}
               >
-                {holdings.length}
-              </span>
-            </button>
-          </div>
+                <span className="font-mono text-[12px] uppercase tracking-[0.12em]">
+                  <span
+                    className={tab === 'positions' ? 'text-background/60' : 'text-[#4A4A50]'}
+                  >
+                    PF-B
+                  </span>{' '}
+                  My positions
+                </span>
+                <span
+                  className={`font-mono text-[11.5px] tabular-nums ${
+                    tab === 'positions' ? 'text-background/60' : 'text-[#4A4A50]'
+                  }`}
+                >
+                  {holdings.length}
+                </span>
+              </button>
+            </div>
 
           {tab === 'vaults' && (
             <>
@@ -748,6 +726,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
               )}
             </>
           )}
+          </div>
         </div>
       )}
 
