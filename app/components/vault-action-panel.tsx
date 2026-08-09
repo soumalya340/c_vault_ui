@@ -71,8 +71,10 @@ export function VaultActionPanel({
   /** Raw base-unit share balance for % chips on redeem. */
   shareBalanceRaw?: string | null;
   shareBalanceLabel?: string | null;
-  onDeposit: () => void;
-  onRedeem: () => void;
+  /** Opens the deposit progress modal with the entered USDC amount. */
+  onDeposit: (amount: string) => void;
+  /** Opens the redeem progress modal with the entered share amount. */
+  onRedeem: (shares: string) => void;
   onStake: () => void;
 }) {
   const { connection } = useConnection();
@@ -326,8 +328,12 @@ export function VaultActionPanel({
 
         <button
           type="button"
-          onClick={tab === 'deposit' ? onDeposit : onRedeem}
-          disabled={!walletConnected}
+          onClick={() => {
+            if (!hasAmount) return;
+            if (tab === 'deposit') onDeposit(amount.trim());
+            else onRedeem(amount.trim());
+          }}
+          disabled={!walletConnected || !hasAmount}
           className="mt-5 w-full rounded-full border border-accent/30 bg-accent/15 px-4 py-[15px] text-center text-sm font-semibold text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {ctaLabel}

@@ -12,7 +12,11 @@ import {
   updateVaultPoolCreated,
   type VaultRecord,
 } from '@/lib/registryClient';
-import { getVaultState, NETWORK_CONSTANTS } from '@/lib/onchain/cvault';
+import {
+  formatUnits,
+  getVaultState,
+  NETWORK_CONSTANTS,
+} from '@/lib/onchain/cvault';
 import { PublicKey } from '@solana/web3.js';
 import {
   fetchWalletPortfolio,
@@ -25,7 +29,6 @@ import {
   formatUsdUi,
 } from '@/app/components/view-display';
 import { Skeleton } from '@/components/ui/skeleton';
-import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
 import { VaultInfoPopover } from './vault-info-popover';
 import { ConsoleHero } from './console-hero';
@@ -37,7 +40,7 @@ import {
   btnPrimaryClass,
   btnSecondaryClass,
 } from './ui-classes';
-import { manageVaultPath, sectionPath } from './console-routes';
+import { manageVaultPath, sectionPath, vaultDetailPath } from './console-routes';
 
 const ASSET_COLORS = [
   '#C8FF3D',
@@ -111,12 +114,10 @@ export function PortfolioPanel({ network }: { network: Network }) {
   const [tab, setTab] = useState<'vaults' | 'positions'>('vaults');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [depositTarget, setDepositTarget] = useState<
-    PortfolioHolding['vault'] | null
-  >(null);
-  const [redeemTarget, setRedeemTarget] = useState<
-    PortfolioHolding['vault'] | null
-  >(null);
+  const [redeemTarget, setRedeemTarget] = useState<{
+    vault: PortfolioHolding['vault'];
+    shares: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!publicKey) {
@@ -682,16 +683,23 @@ export function PortfolioPanel({ network }: { network: Network }) {
                             </div>
 
                             <div className="flex flex-wrap gap-2 lg:justify-end">
-                              <button
-                                type="button"
-                                onClick={() => setDepositTarget(h.vault)}
+                              <Link
+                                href={vaultDetailPath(h.vault.vault_address)}
                                 className="rounded-full border border-white/14 px-[22px] py-[11px] text-[13.5px] font-medium text-foreground transition-colors hover:bg-white/[0.06]"
                               >
                                 Deposit
-                              </button>
+                              </Link>
                               <button
                                 type="button"
-                                onClick={() => setRedeemTarget(h.vault)}
+                                onClick={() =>
+                                  setRedeemTarget({
+                                    vault: h.vault,
+                                    // Full position; claim-only when pending and no shares.
+                                    shares: hasShares
+                                      ? formatUnits(h.shareBalance, h.sharesDecimals)
+                                      : '',
+                                  })
+                                }
                                 disabled={
                                   !hasShares &&
                                   !(
@@ -729,20 +737,11 @@ export function PortfolioPanel({ network }: { network: Network }) {
         </div>
       )}
 
-      {depositTarget && (
-        <DepositModal
-          vault={depositTarget}
-          network={network}
-          onClose={() => {
-            setDepositTarget(null);
-            void load();
-          }}
-        />
-      )}
       {redeemTarget && (
         <RedeemModal
-          vault={redeemTarget}
+          vault={redeemTarget.vault}
           network={network}
+          shares={redeemTarget.shares}
           onClose={() => {
             setRedeemTarget(null);
             void load();

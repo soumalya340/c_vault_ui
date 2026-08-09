@@ -155,6 +155,9 @@ function VaultDetailViewInner({
   const [depositOpen, setDepositOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [stakeOpen, setStakeOpen] = useState(false);
+  /** Amount passed into progress-only deposit/redeem modals. */
+  const [depositAmount, setDepositAmount] = useState('');
+  const [redeemShares, setRedeemShares] = useState('');
 
   type NavState =
     | { status: 'idle' }
@@ -610,8 +613,14 @@ function VaultDetailViewInner({
                 shareBalanceRaw={shareBalance}
                 shareBalanceLabel={yourSharesUi}
                 walletConnected={!!publicKey}
-                onDeposit={() => setDepositOpen(true)}
-                onRedeem={() => setRedeemOpen(true)}
+                onDeposit={(amt) => {
+                  setDepositAmount(amt);
+                  setDepositOpen(true);
+                }}
+                onRedeem={(sharesAmt) => {
+                  setRedeemShares(sharesAmt);
+                  setRedeemOpen(true);
+                }}
                 onStake={() => setStakeOpen(true)}
               />
 
@@ -630,8 +639,10 @@ function VaultDetailViewInner({
         <DepositModal
           vault={vault}
           network={network}
+          amount={depositAmount}
           onClose={() => {
             setDepositOpen(false);
+            setDepositAmount('');
             loadPosition();
             void loadNav();
           }}
@@ -641,8 +652,10 @@ function VaultDetailViewInner({
         <RedeemModal
           vault={vault}
           network={network}
+          shares={redeemShares}
           onClose={() => {
             setRedeemOpen(false);
+            setRedeemShares('');
             loadPosition();
             void loadNav();
           }}
