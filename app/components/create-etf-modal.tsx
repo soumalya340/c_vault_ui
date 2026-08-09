@@ -134,7 +134,17 @@ export function CreateEtfModal({
               </div>
             )}
 
-            <TransactionPhases flow="create" steps={steps} active={loading} />
+            <TransactionPhases
+              flow="create"
+              steps={steps}
+              status={
+                loading
+                  ? 'running'
+                  : result?.type === 'error'
+                    ? 'failed'
+                    : 'pending'
+              }
+            />
 
             {result && result.type !== 'success' && (
               <div className={outputPanelClass}>

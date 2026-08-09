@@ -80,24 +80,29 @@ function furthestPhaseIndex(
   return idx;
 }
 
+/**
+ * `pending` — nothing has been signed yet; no phase may claim completion.
+ * `running` — a transaction is in flight; phases light up as steps arrive.
+ * `settled` — the flow finished successfully; every phase is complete.
+ * `failed`  — the flow errored; phases past the failure point stay unlit.
+ */
+export type PhaseStatus = 'pending' | 'running' | 'settled' | 'failed';
+
 export function TransactionPhases({
   flow,
   steps,
-  active,
+  status,
   swapLabel,
   hint,
 }: {
   flow: 'deposit' | 'redeem' | 'claim' | 'create';
   steps: string[];
-  /** False once the flow has settled (success or error) — freezes the strip. */
-  active: boolean;
+  status: PhaseStatus;
   /** Override the mid-phase label (e.g. "Swapping 5 assets to USDC"). */
   swapLabel?: string;
   /** Optional note under the checklist (defaults to deposit/redeem copy). */
   hint?: string | null;
 }) {
-  if (steps.length === 0) return null;
-
   const phases =
     flow === 'deposit'
       ? DEPOSIT_PHASES
@@ -108,12 +113,19 @@ export function TransactionPhases({
           : REDEEM_PHASES.map((p) =>
               p.id === 'swap' && swapLabel ? { ...p, label: swapLabel } : p,
             );
-  const currentIdx = furthestPhaseIndex(steps, phases, flow);
+  // Before anything is signed there is no progress to report, so the pointer
+  // stays at the first phase and nothing is marked done.
+  const currentIdx =
+    status === 'pending' ? 0 : furthestPhaseIndex(steps, phases, flow);
 
   const defaultHint =
     flow === 'redeem' || flow === 'claim'
       ? 'If the claim fails, your proceeds stay escrowed — reopen this modal and claim without burning again.'
       : 'Keep this window open — the second transaction needs the same wallet session.';
+
+  // The gap between opening the modal and the wallet prompt is real work
+  // (token decimals, route preflight); say so rather than showing a dead strip.
+  const showPreparing = status === 'pending';
 
   return (
     <div className="space-y-3.5">
@@ -124,8 +136,11 @@ export function TransactionPhases({
       >
         <ol>
           {phases.map((phase, i) => {
-            const isDone = active ? i < currentIdx : true;
-            const isCurrent = active && i === currentIdx;
+            // Success is the only state that completes every phase; a failed
+            // or not-yet-started flow must never show a full green checklist.
+            const isDone = status === 'settled' || i < currentIdx;
+            const isCurrent =
+              (status === 'running' || showPreparing) && i === currentIdx;
             return (
               <li
                 key={phase.id}
@@ -163,7 +178,7 @@ export function TransactionPhases({
                 </span>
                 {isCurrent && (
                   <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
-                    Signing
+                    {showPreparing ? 'Preparing' : 'Signing'}
                   </span>
                 )}
               </li>
@@ -171,7 +186,7 @@ export function TransactionPhases({
           })}
         </ol>
       </div>
-      {active && hint !== null && (
+      {(status === 'running' || showPreparing) && hint !== null && (
         <p className="font-mono text-[10px] leading-[1.7] text-text-ghost">
           {hint ?? defaultHint}
         </p>

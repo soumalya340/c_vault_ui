@@ -75,6 +75,8 @@ export function DepositModal({
   const [steps, setSteps] = useState<string[]>([]);
   const [lastError, setLastError] = useState<UserFacingError | null>(null);
   const [errorOpen, setErrorOpen] = useState(false);
+  /** Sticky across error-modal dismissal, so the checklist stays truthful. */
+  const [failed, setFailed] = useState(false);
   /**
    * Settled deposit — what the user paid and the shares actually minted to
    * them. `sharesRaw` is a measured balance delta and stays null when the
@@ -197,6 +199,7 @@ export function DepositModal({
     setLoading(true);
     setSteps([]);
     setSettlement(null);
+    setFailed(false);
     try {
       const rawAmount = parseUnits(amount, baseDecimals);
       const sharesBefore = await readShareBalance();
@@ -230,6 +233,9 @@ export function DepositModal({
         }
       }
       const multiTx = r.signatures.length > 1;
+      // Drives the final "Confirming shares" phase — the on-chain calls below
+      // are silent, so without this the checklist would stall on "swapping".
+      setSteps((prev) => [...prev, 'Confirming minted shares…']);
       const sharesAfter = await readShareBalance();
       let sharesMintedRaw: string | null = null;
       if (sharesBefore !== null && sharesAfter !== null) {
@@ -253,6 +259,7 @@ export function DepositModal({
       const parsed = parseTxError(err);
       setLastError(parsed);
       setErrorOpen(true);
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -268,17 +275,28 @@ export function DepositModal({
   ]);
 
   // Auto-start once wallet + decimals are ready.
+  //
+  // Deferred to a microtask (not setTimeout) so the first state update lands
+  // outside the effect body, and deliberately left uncancelled: React
+  // StrictMode double-mounts in dev, so a cleanup that aborted the start would
+  // drop the call while `startedRef` stayed true — the remount would then bail
+  // out and no wallet prompt would ever appear. `startedRef` alone guarantees
+  // this runs exactly once.
   useEffect(() => {
     if (startedRef.current) return;
     if (!anchorWallet || baseDecimals === null || !amount || settlement) return;
     startedRef.current = true;
-    const t = window.setTimeout(() => {
-      void runDeposit();
-    }, 0);
-    return () => window.clearTimeout(t);
+    void Promise.resolve().then(runDeposit);
   }, [anchorWallet, baseDecimals, amount, settlement, runDeposit]);
 
   const showInFlight = !settlement;
+  /**
+   * The deposit auto-starts, so from the moment the modal opens until it either
+   * errors or settles the user is mid-flow — even during the brief async setup
+   * before `loading` flips. Treat that whole window as busy so the footer never
+   * offers a misleading "Close" a beat before the wallet prompt appears.
+   */
+  const busy = loading || (!failed && !settlement && Boolean(anchorWallet) && Boolean(amount));
   const vaultName = displayVaultName(vault.name);
   const addrShort = shortAddr(vault.vault_address);
   const shareSymbol = (vault.symbol || 'SHARES').toUpperCase();
@@ -300,7 +318,7 @@ export function DepositModal({
       <div
         className={`absolute inset-0 bg-black/75 backdrop-blur-sm ${backdropClassName}`}
         onClick={() => {
-          if (!isClosing && !loading) requestClose();
+          if (!isClosing && !busy) requestClose();
         }}
       />
       <div
@@ -321,7 +339,7 @@ export function DepositModal({
               <span className="font-mono text-[10.5px] text-text-ghost">{addrShort}</span>
             </div>
           </div>
-          {showInFlight && loading ? (
+          {showInFlight && busy ? (
             <span className="rounded-full bg-accent/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
               In flight
             </span>
@@ -329,7 +347,7 @@ export function DepositModal({
             <button
               type="button"
               onClick={requestClose}
-              disabled={isClosing || loading}
+              disabled={isClosing || busy}
               aria-label="Close"
               className="flex size-7 shrink-0 items-center justify-center rounded-full border border-white/12 font-mono text-[11px] text-text-dim transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-40"
             >
@@ -424,24 +442,24 @@ export function DepositModal({
 
                   <TransactionPhases
                     flow="deposit"
-                    steps={steps.length > 0 ? steps : ['Preparing route…']}
-                    active={loading}
+                    steps={steps}
+                    status={loading ? 'running' : failed ? 'failed' : 'pending'}
                   />
                 </>
               )}
             </div>
 
             <div className="shrink-0 space-y-2.5 border-t border-white/[0.07] bg-bg-elevated px-5 py-4">
-              {loading ? (
+              {busy ? (
                 <>
                   <div className="flex h-12 items-center justify-center gap-2.5 rounded-[10px] border border-accent/30 bg-accent/15 text-[15px] font-semibold text-accent">
                     <Spinner className="size-[15px]" />
-                    Processing…
+                    {loading ? 'Processing…' : 'Preparing…'}
                   </div>
                   <p className="text-center font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-ghost">
                     {steps.length > 0
                       ? `Step · ${steps[steps.length - 1]?.slice(0, 42) ?? '…'}`
-                      : 'Preparing…'}
+                      : 'Approve in your wallet'}
                   </p>
                 </>
               ) : (

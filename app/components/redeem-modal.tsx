@@ -81,6 +81,8 @@ export function RedeemModal({
   const [steps, setSteps] = useState<string[]>([]);
   const [activeFlow, setActiveFlow] = useState<'redeem' | 'claim'>('redeem');
   const [errorModal, setErrorModal] = useState<UserFacingError | null>(null);
+  /** Sticky across error-modal dismissal, so the checklist stays truthful. */
+  const [failed, setFailed] = useState(false);
   /**
    * Settled redeem — shares burned and the USDC that actually landed in the
    * wallet. `usdcRaw` is a measured wallet delta; `sharesRaw` is null when the
@@ -228,6 +230,7 @@ export function RedeemModal({
     setLoading(true);
     setSteps([]);
     setSettlement(null);
+    setFailed(false);
     try {
       let sharesBn: BN | null = null;
       if (shares && sharesDecimals !== null) {
@@ -286,6 +289,7 @@ export function RedeemModal({
       });
     } catch (err) {
       setErrorModal(parseTxError(err));
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -308,6 +312,7 @@ export function RedeemModal({
     setLoading(true);
     setSteps([]);
     setSettlement(null);
+    setFailed(false);
     try {
       setSteps(['Claiming USDC payout…']);
       const expectedUsdc = pendingUsdc > 0n ? pendingUsdc.toString() : null;
@@ -323,6 +328,7 @@ export function RedeemModal({
       });
     } catch (err) {
       setErrorModal(parseTxError(err));
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -336,21 +342,23 @@ export function RedeemModal({
   ]);
 
   // Auto-start once position + wallet are ready.
+  //
+  // Deferred to a microtask (not setTimeout) so the first state update lands
+  // outside the effect body, and deliberately left uncancelled: React
+  // StrictMode double-mounts in dev, so a cleanup that aborted the start would
+  // drop the call while `startedRef` stayed true — the remount would then bail
+  // out and no wallet prompt would ever appear. `startedRef` alone guarantees
+  // this runs exactly once.
   useEffect(() => {
     if (startedRef.current || !positionReady || !anchorWallet || settlement) return;
     if (readyToClaim) {
       startedRef.current = true;
-      const t = window.setTimeout(() => {
-        void runClaim();
-      }, 0);
-      return () => window.clearTimeout(t);
+      void Promise.resolve().then(runClaim);
+      return;
     }
     if (shares && sharesDecimals !== null) {
       startedRef.current = true;
-      const t = window.setTimeout(() => {
-        void runRedeem();
-      }, 0);
-      return () => window.clearTimeout(t);
+      void Promise.resolve().then(runRedeem);
     }
   }, [
     positionReady,
@@ -369,6 +377,13 @@ export function RedeemModal({
   const shareSymbol = (vault.symbol || 'SHARES').toUpperCase();
   const burnLabel = shares || '…';
   const canStart = Boolean(anchorWallet && (readyToClaim || (shares && sharesDecimals !== null)));
+  /**
+   * The redeem auto-starts, so from the moment the modal opens until it either
+   * errors or settles the user is mid-flow — even during the brief async setup
+   * before `loading` flips. Treat that whole window as busy so the footer never
+   * offers a misleading "Close" a beat before the wallet prompt appears.
+   */
+  const busy = loading || (!failed && !settlement && canStart);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -386,7 +401,7 @@ export function RedeemModal({
       <div
         className={`absolute inset-0 bg-black/75 backdrop-blur-sm ${backdropClassName}`}
         onClick={() => {
-          if (!isClosing && !loading) requestClose();
+          if (!isClosing && !busy) requestClose();
         }}
       />
       <div
@@ -407,7 +422,7 @@ export function RedeemModal({
               <span className="font-mono text-[10.5px] text-text-ghost">{addrShort}</span>
             </div>
           </div>
-          {showInFlight && loading ? (
+          {showInFlight && busy ? (
             <span className="rounded-full bg-accent/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
               In flight
             </span>
@@ -415,7 +430,7 @@ export function RedeemModal({
             <button
               type="button"
               onClick={requestClose}
-              disabled={isClosing || loading}
+              disabled={isClosing || busy}
               aria-label="Close"
               className="flex size-7 shrink-0 items-center justify-center rounded-full border border-white/12 font-mono text-[11px] text-text-dim transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-40"
             >
@@ -524,14 +539,8 @@ export function RedeemModal({
 
                   <TransactionPhases
                     flow={activeFlow === 'claim' || readyToClaim ? 'claim' : 'redeem'}
-                    steps={
-                      steps.length > 0
-                        ? steps
-                        : readyToClaim
-                          ? ['Claiming USDC payout…']
-                          : ['Preparing route…']
-                    }
-                    active={loading}
+                    steps={steps}
+                    status={loading ? 'running' : failed ? 'failed' : 'pending'}
                     swapLabel={
                       quote && quote.numAssets > 0
                         ? `Swapping ${quote.numAssets} assets to USDC`
@@ -543,16 +552,16 @@ export function RedeemModal({
             </div>
 
             <div className="shrink-0 space-y-2.5 border-t border-white/[0.07] bg-bg-elevated px-5 py-4">
-              {loading ? (
+              {busy ? (
                 <>
                   <div className="flex h-12 items-center justify-center gap-2.5 rounded-[10px] border border-accent/30 bg-accent/15 text-[15px] font-semibold text-accent">
                     <Spinner className="size-[15px]" />
-                    Processing…
+                    {loading ? 'Processing…' : 'Preparing…'}
                   </div>
                   <p className="text-center font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-ghost">
                     {steps.length > 0
                       ? `Step · ${steps[steps.length - 1]?.slice(0, 42) ?? '…'}`
-                      : 'Preparing…'}
+                      : 'Approve in your wallet'}
                   </p>
                 </>
               ) : (

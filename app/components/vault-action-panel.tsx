@@ -340,7 +340,7 @@ export function VaultActionPanel({
         </button>
         <p className="mt-3 text-center text-[12.5px] leading-[1.55] text-text-ghost">
           Shares mint at live NAV. Redemption returns the underlying tokens pro
-          rata. Confirm the full flow in the next step.
+          rata. Your wallet will ask you to approve the transaction.
         </p>
       </div>
 
