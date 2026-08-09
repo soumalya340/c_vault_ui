@@ -37,7 +37,10 @@ export const REDEEM_USDC_SEED = Buffer.from('redeem_usdc');
  * Always read these via `NETWORK_CONSTANTS[network].usdcMint` — never import
  * a bare mint constant into instruction-building code.
  */
-/** Mainnet (and local validator when mirroring mainnet): Circle USDC. */
+/**
+ * Circle USDC — the deposit mint for vaults on every network (mainnet, and
+ * localhost when mirroring mainnet).
+ */
 export const USDC_MINT_MAINNET = new PublicKey(
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
 );

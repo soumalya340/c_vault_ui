@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cVault — Portfolio · My Positions</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  background:#0A0A0B;
+  color:#FAFAFA;
+  font-family:'Inter', 'Geist', system-ui, -apple-system, sans-serif;
+  min-height:100%;
+  -webkit-font-smoothing:antialiased;
+}
+a { color:inherit; text-decoration:none; }
+.page {
+  min-height:100vh;
+  background:#0A0A0B;
+  color:#FAFAFA;
+  font-family:'Inter', 'Geist', system-ui, sans-serif;
+  overflow-x:auto;
+}
+@keyframes blink { 0%,100% { opacity:1; } 50% { opacity:.25; } }
+@keyframes spin { to { transform:rotate(360deg); } }
+button { font:inherit; cursor:pointer; border:none; background:none; color:inherit; }
+
+
+  </style>
+</head>
+<body>
+<div class="page" style=" background:#0A0A0B; color:#FAFAFA;">
+
+      <div style="display:flex; align-items:center; justify-content:space-between; height:60px; padding:0 22px; border-bottom:1px solid rgba(255,255,255,0.07);">
+        <div style="display:flex; align-items:center; gap:26px;">
+          <div style="display:flex; align-items:flex-start; gap:8px;">
+            <div style="display:flex; align-items:flex-start; gap:2px;"><span style="font-size:19px; font-weight:600; letter-spacing:-0.03em;">cVault</span><span style="font-size:10px; color:#C8FF3D; font-weight:600;">+</span></div>
+            <span style="font-family:'IBM Plex Mono', monospace; font-size:9.5px; letter-spacing:0.16em; color:#6E6E74; padding-top:6px;">PORTFOLIO</span>
+          </div>
+          <span style="font-family:'IBM Plex Mono', monospace; font-size:11.5px; letter-spacing:0.1em; color:#7A7A80;">← BACK TO APP</span>
+          <span style="font-family:'IBM Plex Mono', monospace; font-size:11.5px; letter-spacing:0.1em; color:#FAFAFA;">POSITIONS</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:9px;">
+          <span style="font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:#7A7A80; letter-spacing:0.08em;">SLOT 298,441,902</span>
+          <div style="display:flex; align-items:center; gap:8px; border:1px solid rgba(255,255,255,0.12); padding:6px 11px; border-radius:99px;">
+            <span style="width:6px; height:6px; border-radius:50%; background:#C8FF3D; animation:blink 2.2s ease-in-out infinite;"></span>
+            <span style="font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:#DADADE;">cyai…FkrF</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; border-bottom:1px solid rgba(255,255,255,0.07); background:#0D0D0F;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 22px; border-right:1px solid rgba(255,255,255,0.07);">
+          <span style="font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.12em; color:#6E6E74;"><span style="color:#4A4A50;">PF-A</span> MY VAULTS</span>
+          <span style="font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:#4A4A50;">3</span>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 22px; background:#0A0A0B; border-top:2px solid #C8FF3D; margin-top:-1px;">
+          <span style="font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.12em; color:#FAFAFA;"><span style="color:#C8FF3D;">PF-B</span> MY POSITIONS</span>
+          <span style="font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:#A6A6AC;">3</span>
+        </div>
+      </div>
+
+      <div style="display:flex; align-items:flex-end; justify-content:space-between; padding:24px 22px 20px;">
+        <div>
+          <h2 style="margin:0; font-size:30px; font-weight:600; letter-spacing:-0.035em;">Holdings ledger</h2>
+          <p style="margin:7px 0 0; font-size:14px; color:#8A8A90;">Three instruments · share certificates carried by this wallet</p>
+        </div>
+        <span style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.14em; color:#FF9E4D; border:1px solid rgba(255,158,77,0.3); background:rgba(255,158,77,0.08); border-radius:99px; padding:8px 14px;">BOOK ≠ LIVE NAV</span>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1.5fr 1fr 1.3fr 0.9fr 250px; gap:18px; padding:11px 22px; border-top:1px solid rgba(255,255,255,0.07); border-bottom:1px solid rgba(255,255,255,0.07); background:#0D0D0F; font-family:'IBM Plex Mono', monospace; font-size:9.5px; letter-spacing:0.13em; color:#6E6E74;">
+        <span>INSTRUMENT</span><span style="text-align:right;">SHARES</span><span>SUPPLY SHARE</span><span style="text-align:right;">BOOK</span><span style="text-align:right;">ACTIONS</span>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1.5fr 1fr 1.3fr 0.9fr 250px; gap:18px; align-items:center; padding:20px 22px; border-bottom:1px solid rgba(255,255,255,0.06); background:rgba(200,255,61,0.03);">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="display:flex;"><span style="width:20px; height:20px; border-radius:50%; background:#C8FF3D; box-shadow:0 0 0 2px #0A0A0B;"></span><span style="width:20px; height:20px; border-radius:50%; background:#5AC8E8; box-shadow:0 0 0 2px #0A0A0B; margin-left:-7px;"></span><span style="width:20px; height:20px; border-radius:50%; background:#B78CFF; box-shadow:0 0 0 2px #0A0A0B; margin-left:-7px;"></span></span>
+          <span>
+            <span style="font-family:'IBM Plex Mono', monospace; font-size:11px; color:#C8FF3D; letter-spacing:0.08em;">CVLT-0</span>
+            <span style="font-size:16px; font-weight:600; letter-spacing:-0.02em; margin-left:9px;">Penta</span>
+            <div style="font-family:'IBM Plex Mono', monospace; font-size:11px; color:#6E6E74; margin-top:5px;">HD47…MsdG · dynamic · 5 assets</div>
+          </span>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:17px; color:#FAFAFA;">0.139131</div>
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.1em; color:#6E6E74; margin-top:5px;">PENTA SHARES</div>
+        </div>
+        <div>
+          <div style="display:flex; align-items:baseline; justify-content:space-between; font-family:'IBM Plex Mono', monospace; font-size:11px; color:#8A8A90;"><span>OF SUPPLY</span><span style="color:#FAFAFA; font-size:13px;">6.51%</span></div>
+          <div style="margin-top:8px; height:4px; border-radius:99px; background:rgba(255,255,255,0.08); overflow:hidden;"><span style="display:block; width:65%; height:100%; background:#C8FF3D;"></span></div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:15px; color:#5E5E64;">—</div>
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.1em; color:#6E6E74; margin-top:5px;">BOOK VALUE</div>
+        </div>
+        <div style="display:flex; gap:9px; justify-content:flex-end;">
+          <span style="padding:11px 22px; border-radius:99px; border:1px solid rgba(255,255,255,0.14); color:#FAFAFA; font-size:13.5px; font-weight:500;">Deposit</span>
+          <span style="padding:11px 22px; border-radius:99px; background:#C8FF3D; color:#0A0A0B; font-size:13.5px; font-weight:600;">Redeem</span>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1.5fr 1fr 1.3fr 0.9fr 250px; gap:18px; align-items:center; padding:20px 22px; border-bottom:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="display:flex;"><span style="width:20px; height:20px; border-radius:50%; background:#B78CFF; box-shadow:0 0 0 2px #0A0A0B;"></span><span style="width:20px; height:20px; border-radius:50%; background:#FF9E4D; box-shadow:0 0 0 2px #0A0A0B; margin-left:-7px;"></span></span>
+          <span>
+            <span style="font-family:'IBM Plex Mono', monospace; font-size:11px; color:#C8FF3D; letter-spacing:0.08em;">CVLT-2</span>
+            <span style="font-size:16px; font-weight:600; letter-spacing:-0.02em; margin-left:9px;">Dex Quad</span>
+            <div style="font-family:'IBM Plex Mono', monospace; font-size:11px; color:#6E6E74; margin-top:5px;">4jWv…d4HF · dynamic · 2 assets</div>
+          </span>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:17px; color:#FAFAFA;">0.100551</div>
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.1em; color:#6E6E74; margin-top:5px;">DEX4 SHARES</div>
+        </div>
+        <div>
+          <div style="display:flex; align-items:baseline; justify-content:space-between; font-family:'IBM Plex Mono', monospace; font-size:11px; color:#8A8A90;"><span>OF SUPPLY</span><span style="color:#FAFAFA; font-size:13px;">9.13%</span></div>
+          <div style="margin-top:8px; height:4px; border-radius:99px; background:rgba(255,255,255,0.08); overflow:hidden;"><span style="display:block; width:91%; height:100%; background:#C8FF3D;"></span></div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:15px; color:#5E5E64;">—</div>
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.1em; color:#6E6E74; margin-top:5px;">BOOK VALUE</div>
+        </div>
+        <div style="display:flex; gap:9px; justify-content:flex-end;">
+          <span style="padding:11px 22px; border-radius:99px; border:1px solid rgba(255,255,255,0.14); color:#FAFAFA; font-size:13.5px; font-weight:500;">Deposit</span>
+          <span style="padding:11px 22px; border-radius:99px; background:#C8FF3D; color:#0A0A0B; font-size:13.5px; font-weight:600;">Redeem</span>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1.5fr 1fr 1.3fr 0.9fr 250px; gap:18px; align-items:center; padding:20px 22px; ">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="display:flex;"><span style="width:20px; height:20px; border-radius:50%; background:#5AC8E8; box-shadow:0 0 0 2px #0A0A0B;"></span><span style="width:20px; height:20px; border-radius:50%; background:#C8FF3D; box-shadow:0 0 0 2px #0A0A0B; margin-left:-7px;"></span><span style="width:20px; height:20px; border-radius:50%; background:#7DE8A8; box-shadow:0 0 0 2px #0A0A0B; margin-left:-7px;"></span></span>
+          <span>
+            <span style="font-family:'IBM Plex Mono', monospace; font-size:11px; color:#C8FF3D; letter-spacing:0.08em;">CVLT-1</span>
+            <span style="font-size:16px; font-weight:600; letter-spacing:-0.02em; margin-left:9px;">Quad</span>
+            <div style="font-family:'IBM Plex Mono', monospace; font-size:11px; color:#6E6E74; margin-top:5px;">dRap…PEwa · dynamic · 4 assets</div>
+          </span>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:17px; color:#FAFAFA;">0.018999</div>
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.1em; color:#6E6E74; margin-top:5px;">QUAD SHARES</div>
+        </div>
+        <div>
+          <div style="display:flex; align-items:baseline; justify-content:space-between; font-family:'IBM Plex Mono', monospace; font-size:11px; color:#8A8A90;"><span>OF SUPPLY</span><span style="color:#FAFAFA; font-size:13px;">1.72%</span></div>
+          <div style="margin-top:8px; height:4px; border-radius:99px; background:rgba(255,255,255,0.08); overflow:hidden;"><span style="display:block; width:17%; height:100%; background:#C8FF3D;"></span></div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:15px; color:#5E5E64;">—</div>
+          <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.1em; color:#6E6E74; margin-top:5px;">BOOK VALUE</div>
+        </div>
+        <div style="display:flex; gap:9px; justify-content:flex-end;">
+          <span style="padding:11px 22px; border-radius:99px; border:1px solid rgba(255,255,255,0.14); color:#FAFAFA; font-size:13.5px; font-weight:500;">Deposit</span>
+          <span style="padding:11px 22px; border-radius:99px; background:#C8FF3D; color:#0A0A0B; font-size:13.5px; font-weight:600;">Redeem</span>
+        </div>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:15px 22px; border-top:1px solid rgba(255,255,255,0.07); font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:#6E6E74; letter-spacing:0.1em;">
+        <span>CVAULT SERIES 2026</span>
+        <span>REDEEM BURNS SHARES PRO RATA</span>
+        <span style="color:#C8FF3D;">MAINNET</span>
+      </div>
+    </div>
+
+</body>
+</html>

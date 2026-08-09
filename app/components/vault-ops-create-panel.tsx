@@ -86,12 +86,12 @@ function SectionDivider({
   side: string;
 }) {
   return (
-    <div className="mb-5 mt-7 flex min-w-0 items-center gap-3.5">
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.26em] text-foreground">
+    <div className="mb-5 mt-[34px] flex min-w-0 items-center gap-3.5">
+      <span className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-foreground">
         {title}
       </span>
-      <span className="h-px min-w-4 flex-1 bg-border" />
-      <span className="min-w-0 truncate font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+      <span className="h-px min-w-4 flex-1 bg-white/10" />
+      <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-text-ghost">
         {side}
       </span>
     </div>
@@ -100,7 +100,7 @@ function SectionDivider({
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <label className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+    <label className="mb-[11px] block font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
       {children}
     </label>
   );
@@ -125,7 +125,7 @@ function TextInput({
 }) {
   return (
     <input
-      className="h-11 w-full border border-border-strong bg-background px-3.5 font-mono text-sm text-foreground transition-[color,background-color,border-color,box-shadow] duration-[250ms] placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)] disabled:cursor-default disabled:opacity-70"
+      className="h-[46px] w-full rounded-[8px] border border-white/[0.12] bg-bg-elevated px-3.5 font-sans text-[14.5px] text-foreground transition-colors duration-150 placeholder:text-text-placeholder hover:border-white/15 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-default disabled:opacity-70"
       value={value}
       onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       placeholder={placeholder}
@@ -154,7 +154,7 @@ function TextArea({
 }) {
   return (
     <textarea
-      className={`w-full resize-y border border-border-strong bg-background px-3.5 py-2.5 font-mono text-sm text-foreground transition-[color,background-color,border-color,box-shadow] duration-[250ms] placeholder:text-muted-foreground/60 hover:border-foreground/40 focus:border-foreground focus:bg-background focus:outline-none focus:shadow-[3px_3px_0_rgba(23,37,28,0.1)] ${className}`}
+      className={`w-full resize-y rounded-[8px] border border-white/[0.12] bg-bg-elevated px-3.5 py-[13px] font-sans text-[14.5px] leading-[1.5] text-foreground transition-colors duration-150 placeholder:text-text-placeholder hover:border-white/15 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent ${className}`}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -179,6 +179,8 @@ function FeeControl({
   const pct = bps / 100;
   const minPct = minBps / 100;
   const maxPct = maxBps / 100;
+  const fillPct =
+    maxBps > minBps ? Math.max(0, Math.min(100, ((bps - minBps) / (maxBps - minBps)) * 100)) : 0;
 
   const setFromPct = (pctStr: string) => {
     const n = Number(pctStr);
@@ -191,7 +193,7 @@ function FeeControl({
   };
 
   return (
-    <div className="flex h-11 items-center gap-3 border border-border-strong bg-foreground/[0.03] px-3 transition-colors focus-within:border-foreground">
+    <div className="flex h-[52px] items-center gap-3.5 rounded-[8px] border border-white/[0.12] bg-bg-elevated px-3.5 transition-colors focus-within:border-accent">
       <input
         type="number"
         min={minPct}
@@ -199,17 +201,36 @@ function FeeControl({
         step={0.01}
         value={pct}
         onChange={(e) => setFromPct(e.target.value)}
-        className="w-14 border-0 bg-transparent text-right font-mono text-sm text-foreground focus:outline-none"
+        className="w-12 border-0 bg-transparent font-mono text-[15px] text-foreground focus:outline-none"
       />
-      <input
-        type="range"
-        min={minBps}
-        max={maxBps}
-        value={bps}
-        onChange={(e) => onChange(e.target.value)}
-        className="flex-1 accent-seal h-0.5 cursor-pointer"
-      />
-      <span className="min-w-[52px] text-right font-mono text-[10px] font-medium text-seal">
+      <div className="relative flex h-0.5 flex-1 items-center">
+        <div className="absolute inset-0 rounded-full bg-white/[0.14]" />
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-accent"
+          style={{ width: `${fillPct}%` }}
+        />
+        <input
+          type="range"
+          min={minBps}
+          max={maxBps}
+          value={bps}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+          aria-valuemin={minBps}
+          aria-valuemax={maxBps}
+          aria-valuenow={bps}
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-accent"
+          style={{ left: `calc(${fillPct}% - 6px)` }}
+        />
+      </div>
+      <span
+        className={`min-w-[52px] text-right font-mono text-[12.5px] ${
+          bps > 0 ? 'text-accent' : 'text-text-faint'
+        }`}
+      >
         {pct.toFixed(2)}%
       </span>
     </div>
@@ -226,7 +247,7 @@ function Segmented({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="flex h-11 border border-border-strong bg-foreground/[0.03]">
+    <div className="grid h-[52px] grid-cols-2 overflow-hidden rounded-[8px] border border-white/[0.12] bg-bg-elevated">
       {options.map((opt) => {
         const active = value === opt.value;
         return (
@@ -234,10 +255,10 @@ function Segmented({
             key={opt.value}
             type="button"
             onClick={() => onChange(opt.value)}
-            className={`flex-1 font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] transition-colors ${
+            className={`font-mono text-[12px] font-medium uppercase tracking-[0.12em] transition-colors ${
               active
-                ? 'bg-foreground text-background'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'bg-accent text-background'
+                : 'text-text-faint hover:text-foreground'
             }`}
           >
             {opt.label}
@@ -249,20 +270,22 @@ function Segmented({
 }
 
 const TOKEN_COLORS: Record<string, string> = {
-  SOL: '#356049',
-  JUP: '#A23E2A',
-  JTO: '#7E5CC9',
-  PYTH: '#B98A2F',
-  RAY: '#3E6FA2',
-  MSOL: '#2F8F83',
-  BONK: '#C96A2F',
-  WIF: '#8A6D3B',
-  ORCA: '#5B8C5A',
-  USDT: '#4B5D50',
+  SOL: '#C8FF3D',
+  JUP: '#5AC8E8',
+  JTO: '#B78CFF',
+  PYTH: '#FF9E4D',
+  RAY: '#FF6B4D',
+  MSOL: '#7DE8A8',
+  BONK: '#FF9E4D',
+  WIF: '#B78CFF',
+  ORCA: '#5AC8E8',
+  USDT: '#7DE8A8',
 };
 
-function tokenColor(symbol: string): string {
-  return TOKEN_COLORS[symbol] ?? '#C9C8B6';
+const FALLBACK_COLORS = ['#C8FF3D', '#5AC8E8', '#B78CFF', '#FF9E4D', '#FF6B4D', '#7DE8A8'];
+
+function tokenColor(symbol: string, index = 0): string {
+  return TOKEN_COLORS[symbol] ?? FALLBACK_COLORS[index % FALLBACK_COLORS.length];
 }
 
 export function VaultOpsCreatePanel({ network }: { network: Network }) {
@@ -736,20 +759,8 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
     }
   };
 
-  const copyButton = (
-    <button
-      type="button"
-      onClick={handleCopyMint}
-      className="absolute right-1.5 top-1.5 bottom-1.5 border border-border-strong bg-background px-3 font-mono text-[8.5px] font-medium uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"
-    >
-      Copy
-    </button>
-  );
-
   return (
-    <section className="border border-border-strong bg-background p-1.5 opacity-0 translate-y-6 transition-all duration-700 ease-[cubic-bezier(.22,1,.36,1)] data-[in=true]:opacity-100 data-[in=true]:translate-y-0"
-      data-in="true"
-    >
+    <section className="flex min-h-0 flex-1 flex-col px-[22px] pb-8 pt-6">
       {modalOpen && (
         <CreateEtfModal
           network={network}
@@ -770,367 +781,383 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
         />
       )}
 
-      <div className="border border-border">
-        <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border px-6 py-4">
-          <div className="flex min-w-0 items-baseline gap-3 font-display text-lg font-semibold uppercase tracking-[0.14em] text-seal">
-            <span className="font-mono text-[11px] font-semibold tracking-[0.1em]">№ 01</span>
-            Create ETF Vault
-          </div>
-          <span className="min-w-0 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-            Vault + share metadata + lookup table + genesis deposit
-          </span>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-5 px-6 py-6">
-          <p className="border-l-2 border-seal/30 py-0.5 pl-4 text-sm leading-relaxed text-foreground/80">
-            Quote mint is mainnet USDC. Assets are picked from the admin-approved
-            registry — pool, route, price source, and swap venue are already set
-            per asset; only the weighting is chosen here.
-          </p>
-
-          {connected && (
-            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-              wallet USDC balance:{' '}
-              <span className={hasEnoughUsdcForGenesis ? 'text-foreground' : 'text-destructive'}>
-                {checkingBalance
-                  ? '…'
-                  : usdcBalance !== null
-                    ? `${formatUnits(usdcBalance, USDC_DECIMALS)} USDC`
-                    : '—'}
+      {/* Outer frame — the double-border plate from the original mockups */}
+      <div className="flex min-h-0 flex-1 flex-col border border-border-strong bg-background p-1.5">
+        <div className="flex min-h-0 flex-1 flex-col border border-border">
+          {/* Section plate — Nº 01 Create ETF vault */}
+          <div className="flex flex-wrap items-center gap-3 border-b border-border bg-bg-elevated px-[22px] py-[18px]">
+            <div className="flex min-w-0 items-baseline gap-3">
+              <span className="font-mono text-[12px] tracking-[0.06em] text-accent">Nº 01</span>
+              <span className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">
+                Create ETF vault
               </span>
-              {!checkingBalance && !hasEnoughUsdcForGenesis && (
-                <span className="text-destructive"> — need at least 1 USDC for genesis deposit</span>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="px-[22px] pb-8 pt-[26px]">
+        {connected && (
+          <p className="font-mono text-[11.5px] tabular-nums text-text-faint">
+            wallet USDC balance:{' '}
+            <span className={hasEnoughUsdcForGenesis ? 'text-foreground' : 'text-destructive'}>
+              {checkingBalance
+                ? '…'
+                : usdcBalance !== null
+                  ? `${formatUnits(usdcBalance, USDC_DECIMALS)} USDC`
+                  : '—'}
+            </span>
+            {!checkingBalance && !hasEnoughUsdcForGenesis && (
+              <span className="text-destructive"> — need at least 1 USDC for genesis deposit</span>
+            )}
+          </p>
+        )}
+
+        <SectionDivider title="Vault metadata" side="A · identity" />
+        <div>
+          <div className="grid grid-cols-1 gap-[22px] md:grid-cols-[230px_minmax(0,1fr)]">
+            <div className="flex flex-col">
+              <FieldLabel>Vault image</FieldLabel>
+              <ImageDropzone
+                value={uri}
+                onChange={setUri}
+                onUploadingChange={setImageUploading}
+                className="h-[196px] w-full"
+              />
+              {uri ? (
+                <p className="mt-2.5 max-w-full truncate font-mono text-[11px] text-text-ghost">
+                  {uri}
+                </p>
+              ) : (
+                <p className="mt-2.5 text-[12.5px] leading-[1.5] text-text-ghost">
+                  Required before you can create the vault.
+                </p>
               )}
-            </p>
-          )}
-
-          <SectionDivider title="Vault metadata" side="A · identity" />
-          <div>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
-              <div className="flex w-40 shrink-0 flex-col">
-                <FieldLabel>Vault image</FieldLabel>
-                <ImageDropzone
-                  value={uri}
-                  onChange={setUri}
-                  onUploadingChange={setImageUploading}
-                  className="min-h-40 flex-1"
-                />
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col gap-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel>Share name</FieldLabel>
-                    <TextInput
-                      value={name}
-                      onChange={setName}
-                      placeholder="cVault Shares"
-                      maxLength={32}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Share symbol</FieldLabel>
-                    <TextInput
-                      value={symbol}
-                      onChange={setSymbol}
-                      placeholder="CVS"
-                      maxLength={10}
-                      style={{ textTransform: 'uppercase' }}
-                      required
-                    />
-                  </div>
+            </div>
+            <div className="flex min-h-0 flex-col gap-[18px]">
+              <div className="grid grid-cols-1 gap-[18px] sm:grid-cols-2">
+                <div>
+                  <FieldLabel>Share name</FieldLabel>
+                  <TextInput
+                    value={name}
+                    onChange={setName}
+                    placeholder="cVault Shares"
+                    maxLength={32}
+                    required
+                  />
                 </div>
-
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                      Description (Optional)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleGenerateInfo}
-                      disabled={generatingInfo || !name.trim()}
-                      className="border border-border-strong bg-background px-3 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {generatingInfo ? 'Generating…' : 'Auto-generate'}
-                    </button>
-                  </div>
-                  <TextArea
-                    value={additionalInfo}
-                    onChange={setAdditionalInfo}
-                    placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
-                    maxLength={MAX_METADATA_VALUE_LEN}
-                    className="h-full min-h-0 flex-1 resize-none"
+                <div>
+                  <FieldLabel>Share symbol</FieldLabel>
+                  <TextInput
+                    value={symbol}
+                    onChange={setSymbol}
+                    placeholder="CVS"
+                    maxLength={10}
+                    style={{ textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}
+                    required
                   />
                 </div>
               </div>
-            </div>
-            {uri ? (
-              <p className="mt-1.5 max-w-[10rem] truncate font-mono text-[10px] text-muted-foreground">
-                {uri}
-              </p>
-            ) : (
-              <p className="mt-1.5 max-w-[10rem] font-mono text-[10px] text-muted-foreground/70">
-                Required before you can create the vault.
-              </p>
-            )}
-          </div>
-          {generateInfoError && (
-            <p className="text-xs leading-relaxed text-destructive">{generateInfoError}</p>
-          )}
-          <p className="text-xs leading-relaxed text-muted-foreground/80">
-            Optional. Draft from the share name via Auto-generate, then edit freely. Written
-            on-chain as share-mint metadata (key{' '}
-            <span className="font-mono">{VAULT_METADATA_DESCRIPTION_KEY}</span>) in a follow-up
-            transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN} bytes.
-          </p>
 
-          <SectionDivider title="Economics" side="B · fees in %" />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <FieldLabel>Deposit fee (%)</FieldLabel>
-              <FeeControl value={depositFeeBps} onChange={setDepositFeeBps} maxBps={600} />
-            </div>
-            <div>
-              <FieldLabel>Redeem fee (%)</FieldLabel>
-              <FeeControl value={redeemFeeBps} onChange={setRedeemFeeBps} minBps={50} maxBps={1000} />
-            </div>
-            <div>
-              <FieldLabel>
-                Fee recipient <span className="font-normal text-muted-foreground">(blank = you)</span>
-              </FieldLabel>
-              <TextInput
-                value={feeRecipient}
-                onChange={setFeeRecipient}
-                placeholder="Connected wallet"
-              />
-            </div>
-          </div>
-
-          <SectionDivider title="Fund configuration" side="C · constants" />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <FieldLabel>Base / quote mint</FieldLabel>
-              <div className="relative">
-                <TextInput value={`USDC · ${usdcBase58}`} readOnly />
-                {copyButton}
-              </div>
-              <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
-                Program constant — Circle USDC (EPjF…) on every network
-              </p>
-            </div>
-            <div>
-              <FieldLabel>Fund type</FieldLabel>
-              <Segmented
-                options={[
-                  { label: 'Dynamic', value: 'dynamic' },
-                  { label: 'Static', value: 'fixed' },
-                ]}
-                value={fundType}
-                onChange={(v) => setFundType(v as 'dynamic' | 'fixed')}
-              />
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
-                Dynamic funds rebalance; static funds lock the genesis weights
-              </p>
-              {fundType === 'fixed' && (
-                <div className="mt-3">
-                  <FieldLabel>Max shares (raw)</FieldLabel>
-                  <TextInput value={maxShares} onChange={setMaxShares} placeholder="1000000000" />
-                </div>
-              )}
-            </div>
-            <div>
-              <FieldLabel>Opening share price (USD)</FieldLabel>
-              <TextInput
-                value={baselineSharePrice}
-                onChange={setBaselineSharePrice}
-                placeholder="1.00"
-                required
-              />
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground/80">
-                Genesis deposit runs automatically right after the vault is created, seeding
-                it with 1 USDC priced at this opening share price.
-              </p>
-            </div>
-          </div>
-
-          <div className="border border-border-strong">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-foreground/[0.03] px-5 py-3.5">
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground">
-                Asset basket
-              </span>
-              <span
-                className={`font-mono text-[11px] tabular-nums transition-colors ${
-                  basketDone ? 'text-moss' : 'text-seal'
-                }`}
-              >
-                {allocationTotalPct}% / 100%
-              </span>
-            </div>
-
-            <div className="h-[3px] bg-border overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  basketDone ? 'bg-moss' : 'bg-seal'
-                }`}
-                style={{ width: `${Math.min(allocationTotalBps / 100, 100)}%` }}
-              />
-            </div>
-
-            {registryError && (
-              <p className="px-5 py-3 font-mono text-xs text-destructive">
-                Asset registry unavailable — {registryError}
-              </p>
-            )}
-            {!registryError && activeAssets.length === 0 && (
-              <p className="px-5 py-3 font-mono text-xs text-muted-foreground">
-                No active assets on {network} — list some under Admin → Create asset.
-              </p>
-            )}
-
-            <div className="divide-y divide-border">
-              {rows.map((row, i) => {
-                const entry = assetById.get(row.assetId);
-                const symbol = entry ? assetLabel(entry) : '';
-                return (
-                  <div
-                    key={i}
-                    className="grid grid-cols-[44px_minmax(0,1fr)_40px] grid-rows-[auto_auto] items-center gap-x-3 gap-y-2.5 px-4 py-3.5 animate-[slidein_0.45s_ease] sm:grid-cols-[52px_minmax(200px,1.2fr)_minmax(180px,1fr)_120px_40px] sm:grid-rows-1 sm:gap-4 sm:px-5 sm:py-4"
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="mb-[11px] flex items-center justify-between gap-3">
+                  <span className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
+                    Description (Optional)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleGenerateInfo}
+                    disabled={generatingInfo || !name.trim()}
+                    className="rounded-full border border-white/[0.12] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-text-faint transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {/* Mockup grid: idx | token select | range | % number | remove */}
-                    <span className="flex h-[30px] items-center justify-center bg-seal font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-background">
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-
-                    <div className="relative min-w-0">
-                      <span
-                        className="pointer-events-none absolute left-3.5 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full"
-                        style={{ background: row.assetId ? tokenColor(symbol) : '#C9C8B6' }}
-                      />
-                      <select
-                        value={row.assetId}
-                        onChange={(e) => updateRow(i, { assetId: e.target.value })}
-                        disabled={!!registryError || activeAssets.length === 0}
-                        className="h-[42px] w-full appearance-none border border-border-strong bg-foreground/[0.03] pl-9 pr-9 font-mono text-[12.5px] text-foreground transition-colors hover:border-border-strong focus:border-foreground focus:outline-none disabled:opacity-50"
-                      >
-                        <option value="">— pick token —</option>
-                        {activeAssets.map((a) => (
-                          <option key={a.asset_id} value={a.asset_id}>
-                            {formatAssetOption(a)}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                        ▾
-                      </span>
-                    </div>
-
-                    {/*
-                      Mobile: keep range + % on row 2 under the select.
-                      Desktop: sm:contents so range and number become their own grid cells
-                      (columns 3 and 4), matching docs/designs/index.html .asset layout.
-                    */}
-                    <div className="col-start-2 row-start-2 flex min-w-0 items-center gap-3 sm:contents">
-                      <div className="flex min-w-0 flex-1 items-center sm:min-w-0 sm:w-full sm:flex-none">
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={0.5}
-                          value={row.allocationPct || 0}
-                          onChange={(e) => updateRow(i, { allocationPct: e.target.value })}
-                          aria-label={`Allocation for asset ${i + 1}`}
-                          className="h-0.5 w-full min-w-0 cursor-pointer accent-seal"
-                        />
-                      </div>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={0.5}
-                        value={row.allocationPct}
-                        onChange={(e) => updateRow(i, { allocationPct: e.target.value })}
-                        aria-label={`Allocation percent for asset ${i + 1}`}
-                        className="h-[42px] w-16 shrink-0 border border-border-strong bg-foreground/[0.03] px-2 text-right font-mono text-xs text-foreground focus:border-foreground focus:outline-none sm:w-full"
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRows((prev) => {
-                          const next = prev.filter((_, j) => j !== i);
-                          return next.length ? next : [{ ...EMPTY_ROW }];
-                        })
-                      }
-                      className="col-start-3 row-start-1 flex h-8 w-8 items-center justify-center justify-self-end border border-border-strong text-[15px] text-muted-foreground transition-all hover:border-seal hover:text-seal sm:col-auto sm:row-auto sm:h-8 sm:w-8"
-                      title="Remove asset"
-                    >
-                      −
-                    </button>
-                  </div>
-                );
-              })}
+                    {generatingInfo ? 'Generating…' : 'Auto-generate'}
+                  </button>
+                </div>
+                <TextArea
+                  value={additionalInfo}
+                  onChange={setAdditionalInfo}
+                  placeholder="Optional — strategy notes, mandate, or other context shown alongside this vault."
+                  maxLength={MAX_METADATA_VALUE_LEN}
+                  rows={4}
+                  className="min-h-[104px] resize-none"
+                />
+              </div>
             </div>
-
-            <button
-              type="button"
-              onClick={handleAddAsset}
-              className="flex w-full items-center gap-2.5 border-t border-border bg-transparent px-5 py-3.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.22em] text-muted-foreground transition-colors hover:bg-foreground/[0.03] hover:text-seal"
-            >
-              <span className="text-sm">+</span> Add asset
-            </button>
           </div>
+        </div>
+        {generateInfoError && (
+          <p className="mt-3 text-xs leading-relaxed text-destructive">{generateInfoError}</p>
+        )}
+        <p className="mt-4 text-[13px] leading-[1.6] text-text-ghost">
+          Optional. Draft from the share name via Auto-generate, then edit freely. Written
+          on-chain as share-mint metadata (key{' '}
+          <span className="font-mono text-[12px] text-text-dim">
+            {VAULT_METADATA_DESCRIPTION_KEY}
+          </span>
+          ) in a follow-up transaction after the vault is created. Max {MAX_METADATA_VALUE_LEN}{' '}
+          bytes.
+        </p>
 
-          <div className="flex flex-wrap items-center gap-5 pt-2">
-            <button
-              type="submit"
-              disabled={loading || !canCreate}
-              className="relative overflow-hidden border border-moss bg-moss px-8 py-3.5 font-mono text-[11px] font-semibold uppercase tracking-[0.26em] text-background transition-all hover:-translate-x-px hover:-translate-y-px hover:shadow-[4px_4px_0_rgba(23,37,28,0.18)] active:translate-x-0 active:translate-y-0 active:shadow-none disabled:cursor-not-allowed disabled:border-border-strong disabled:bg-foreground/[0.06] disabled:text-muted-foreground disabled:shadow-none"
+        <SectionDivider title="Economics" side="B · fees in %" />
+        <div className="grid grid-cols-1 gap-[18px] sm:grid-cols-3">
+          <div>
+            <FieldLabel>Deposit fee (%)</FieldLabel>
+            <FeeControl value={depositFeeBps} onChange={setDepositFeeBps} maxBps={600} />
+          </div>
+          <div>
+            <FieldLabel>Redeem fee (%)</FieldLabel>
+            <FeeControl value={redeemFeeBps} onChange={setRedeemFeeBps} minBps={50} maxBps={1000} />
+          </div>
+          <div>
+            <FieldLabel>
+              Fee recipient <span className="font-normal text-[#5E5E64]">(blank = you)</span>
+            </FieldLabel>
+            <TextInput
+              value={feeRecipient}
+              onChange={setFeeRecipient}
+              placeholder="Connected wallet"
+            />
+          </div>
+        </div>
+
+        <SectionDivider title="Fund configuration" side="C · constants" />
+        <div className="grid grid-cols-1 gap-[22px] sm:grid-cols-2">
+          <div>
+            <FieldLabel>Deposit mint</FieldLabel>
+            <div className="relative">
+              <div className="flex h-[52px] items-center justify-between gap-2.5 rounded-[8px] border border-white/[0.12] bg-bg-elevated py-0 pl-3.5 pr-1.5">
+                <span className="min-w-0 truncate font-mono text-[13px] text-[#DADADE]">
+                  <span className="text-accent">USDC</span>
+                  <span className="text-text-ghost"> · </span>
+                  {usdcBase58}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyMint}
+                  className="shrink-0 rounded-md border border-white/[0.12] px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:border-accent/40 hover:text-accent"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-[12.5px] text-text-ghost">
+              All vaults use USDC for deposits and withdrawals — fixed by the protocol
+            </p>
+          </div>
+          <div>
+            <FieldLabel>Fund type</FieldLabel>
+            <Segmented
+              options={[
+                { label: 'Dynamic', value: 'dynamic' },
+                { label: 'Static', value: 'fixed' },
+              ]}
+              value={fundType}
+              onChange={(v) => setFundType(v as 'dynamic' | 'fixed')}
+            />
+            <p className="mt-2 text-[12.5px] leading-relaxed text-text-ghost">
+              Dynamic funds rebalance; static funds lock the genesis weights
+            </p>
+            {fundType === 'fixed' && (
+              <div className="mt-3">
+                <FieldLabel>Max shares (raw)</FieldLabel>
+                <TextInput value={maxShares} onChange={setMaxShares} placeholder="1000000000" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-[22px] grid grid-cols-1 items-start gap-[22px] sm:grid-cols-2">
+          <div>
+            <FieldLabel>Opening share price (USD)</FieldLabel>
+            <TextInput
+              value={baselineSharePrice}
+              onChange={setBaselineSharePrice}
+              placeholder="1.00"
+              required
+            />
+          </div>
+          <p className="m-0 text-[12.5px] leading-[1.6] text-text-ghost sm:mt-[26px]">
+            Genesis deposit runs automatically right after the vault is created, seeding it
+            with 1 USDC priced at this opening share price.
+          </p>
+        </div>
+
+        <div className="mt-[26px] overflow-hidden rounded-[10px] border border-white/10 bg-bg-elevated">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-4 py-3.5">
+            <span className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-foreground">
+              Asset basket
+            </span>
+            <span
+              className={`font-mono text-[12px] tabular-nums transition-colors ${
+                basketDone ? 'text-accent' : 'text-destructive'
+              }`}
             >
-              <span className="relative z-10">
-                {loading ? status ?? 'Processing…' : imageUploading ? 'Uploading image…' : 'Create ETF'}
-              </span>
-            </button>
-            <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground">
-              {!canCreate ? (
-                imageUploading ? (
-                  <>
-                    Waiting for the <strong className="text-seal">vault image</strong> to finish uploading
-                  </>
-                ) : !basketDone ? (
-                  <>
-                    Basket must total <strong className="text-seal">100%</strong> and every asset needs a token
-                  </>
-                ) : !name.trim() || !symbol.trim() ? (
-                  <>
-                    Set a <strong className="text-seal">share name</strong> and{' '}
-                    <strong className="text-seal">symbol</strong>
-                  </>
-                ) : !uri.trim() ? (
-                  <>
-                    Upload a <strong className="text-seal">vault image</strong> first
-                  </>
-                ) : Number(baselineSharePrice) <= 0 ? (
-                  <>
-                    Set an <strong className="text-seal">opening share price</strong> above $0
-                  </>
-                ) : (
-                  <>
-                    Need at least <strong className="text-seal">1 USDC</strong> in your wallet for
-                    genesis deposit
-                  </>
-                )
-              ) : (
-                <>
-                  Ready — <strong className="text-seal">3 wallet approvals</strong>: create vault ·
-                  lookup table · genesis deposit
-                </>
-              )}
+              {allocationTotalPct}%
+              <span className="text-[#5E5E64]"> / 100%</span>
             </span>
           </div>
 
-        </form>
+          {registryError && (
+            <p className="px-4 py-3 font-mono text-xs text-destructive">
+              Asset registry unavailable — {registryError}
+            </p>
+          )}
+          {!registryError && activeAssets.length === 0 && (
+            <p className="px-4 py-3 font-mono text-xs text-muted-foreground">
+              No active assets on {network} — list some under Admin → Create asset.
+            </p>
+          )}
+
+          <div className="divide-y divide-white/[0.06]">
+            {rows.map((row, i) => {
+              const entry = assetById.get(row.assetId);
+              const label = entry ? assetLabel(entry) : '';
+              return (
+                <div
+                  key={i}
+                  className="grid grid-cols-[44px_minmax(0,1fr)_40px] grid-rows-[auto_auto] items-center gap-x-3 gap-y-2.5 px-4 py-4 sm:grid-cols-[44px_minmax(180px,1fr)_minmax(140px,1fr)_96px_44px] sm:grid-rows-1 sm:gap-3"
+                >
+                  <span className="flex h-[34px] items-center justify-center rounded-md border border-accent/30 bg-accent/[0.12] font-mono text-[11.5px] font-medium tracking-[0.06em] text-accent">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+
+                  <div className="relative min-w-0">
+                    <span
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full"
+                      style={{
+                        background: row.assetId
+                          ? tokenColor(label, i)
+                          : 'rgba(255,255,255,0.12)',
+                      }}
+                    />
+                    <select
+                      value={row.assetId}
+                      onChange={(e) => updateRow(i, { assetId: e.target.value })}
+                      disabled={!!registryError || activeAssets.length === 0}
+                      className="h-[42px] w-full appearance-none rounded-[8px] border border-white/[0.12] bg-background pl-10 pr-9 font-sans text-[14px] text-foreground transition-colors hover:border-white/15 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                    >
+                      <option value="">— pick token —</option>
+                      {activeAssets.map((a) => (
+                        <option key={a.asset_id} value={a.asset_id}>
+                          {formatAssetOption(a)}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-ghost">
+                      ▾
+                    </span>
+                  </div>
+
+                  <div className="col-start-2 row-start-2 flex min-w-0 items-center gap-3 sm:contents">
+                    <div className="flex min-w-0 flex-1 items-center sm:min-w-0 sm:w-full sm:flex-none">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={0.5}
+                        value={row.allocationPct || 0}
+                        onChange={(e) => updateRow(i, { allocationPct: e.target.value })}
+                        aria-label={`Allocation for asset ${i + 1}`}
+                        className="h-1 w-full min-w-0 cursor-pointer accent-accent"
+                      />
+                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      value={row.allocationPct}
+                      onChange={(e) => updateRow(i, { allocationPct: e.target.value })}
+                      aria-label={`Allocation percent for asset ${i + 1}`}
+                      className="h-[42px] w-16 shrink-0 rounded-[8px] border border-white/[0.12] bg-background px-3 text-right font-mono text-[13px] text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent sm:w-full"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRows((prev) => {
+                        const next = prev.filter((_, j) => j !== i);
+                        return next.length ? next : [{ ...EMPTY_ROW }];
+                      })
+                    }
+                    className="col-start-3 row-start-1 flex h-[42px] w-[42px] items-center justify-center justify-self-end rounded-[8px] border border-white/[0.12] text-[15px] text-text-faint transition-colors hover:border-destructive/50 hover:text-destructive sm:col-auto sm:row-auto sm:w-full"
+                    title="Remove asset"
+                  >
+                    −
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleAddAsset}
+            className="flex w-full items-center gap-2.5 border-t border-white/[0.07] bg-transparent px-4 py-[15px] font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-accent transition-colors hover:bg-accent/[0.06]"
+          >
+            + Add asset
+          </button>
+        </div>
+
+        <div className="mt-[26px] flex flex-wrap items-center gap-[18px]">
+          <button
+            type="submit"
+            disabled={loading || !canCreate}
+            className={`inline-flex items-center justify-center rounded-full px-[30px] py-3.5 text-[14.5px] font-semibold transition-[transform,background,color,border-color] duration-150 ${
+              canCreate && !loading
+                ? 'bg-accent text-background hover:-translate-y-px hover:bg-[#d4ff5c]'
+                : 'cursor-not-allowed border border-white/[0.12] bg-white/[0.06] text-text-ghost'
+            }`}
+          >
+            {loading ? status ?? 'Processing…' : imageUploading ? 'Uploading image…' : 'Create ETF'}
+          </button>
+          <span className="max-w-lg font-mono text-[10.5px] uppercase tracking-[0.12em] text-text-ghost">
+            {!canCreate ? (
+              imageUploading ? (
+                <>
+                  Waiting for the <strong className="font-medium text-accent">vault image</strong> to
+                  finish uploading
+                </>
+              ) : !basketDone ? (
+                <>
+                  Basket must total{' '}
+                  <strong className="font-medium text-destructive">100%</strong> and every asset
+                  needs a token
+                </>
+              ) : !name.trim() || !symbol.trim() ? (
+                <>
+                  Set a <strong className="font-medium text-accent">share name</strong> and{' '}
+                  <strong className="font-medium text-accent">symbol</strong>
+                </>
+              ) : !uri.trim() ? (
+                <>
+                  Upload a <strong className="font-medium text-accent">vault image</strong> first
+                </>
+              ) : Number(baselineSharePrice) <= 0 ? (
+                <>
+                  Set an <strong className="font-medium text-accent">opening share price</strong>{' '}
+                  above $0
+                </>
+              ) : (
+                <>
+                  Need at least <strong className="font-medium text-accent">1 USDC</strong> in your
+                  wallet for genesis deposit
+                </>
+              )
+            ) : (
+              <>
+                Ready — <strong className="font-medium text-accent">3 wallet approvals</strong>:
+                create vault · lookup table · genesis deposit
+              </>
+            )}
+          </span>
+        </div>
+          </form>
+
+          <footer className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-border px-[22px] py-[15px] font-mono text-[10.5px] uppercase tracking-[0.1em] text-text-ghost">
+            <span>cVault series 2026</span>
+            <span className="text-accent">{network}</span>
+          </footer>
+        </div>
       </div>
     </section>
   );

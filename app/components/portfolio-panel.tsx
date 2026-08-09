@@ -34,15 +34,19 @@ import {
   PortfolioListSkeleton,
 } from './loading-skeletons';
 import {
-  btnGhostClass,
   btnPrimaryClass,
   btnSecondaryClass,
-  panelClass,
-  sectionLabelClass,
 } from './ui-classes';
-import { SECTION_STYLE } from './function-defs';
 import { sectionPath } from './console-routes';
-import { Badge } from '@/components/ui/badge';
+
+const ASSET_COLORS = [
+  '#C8FF3D',
+  '#5AC8E8',
+  '#B78CFF',
+  '#FF9E4D',
+  '#FF6B4D',
+  '#7DE8A8',
+] as const;
 
 function shorten(addr: string): string {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
@@ -51,6 +55,11 @@ function shorten(addr: string): string {
 function formatOwnership(bps: number | null): string {
   if (bps == null) return '—';
   return `${(bps / 100).toFixed(2)}%`;
+}
+
+function ownershipPct(bps: number | null): number {
+  if (bps == null) return 0;
+  return Math.min(100, Math.max(0, bps / 100));
 }
 
 function redeemStatusLabel(h: PortfolioHolding): string | null {
@@ -64,6 +73,28 @@ function redeemStatusLabel(h: PortfolioHolding): string | null {
   return `Claim ready · ${formatTokenUi(pending, USDC_DECIMALS)} USDC`;
 }
 
+function dotsForVault(vaultId: number, numAssets: number) {
+  const count = Math.max(1, Math.min(numAssets || 3, 5));
+  return Array.from({ length: count }, (_, i) => {
+    const idx = (vaultId + i * 2) % ASSET_COLORS.length;
+    return ASSET_COLORS[idx];
+  });
+}
+
+function allocationSegments(v: VaultRecord) {
+  const bps = v.asset_allocation_bps ?? [];
+  const colors = dotsForVault(v.vault_id, v.num_assets);
+  if (bps.length === 0) {
+    // Equal fallback slices so the bar still reads as multi-asset.
+    const n = Math.max(1, Math.min(v.num_assets || 1, colors.length));
+    return colors.slice(0, n).map((c) => ({ color: c, pct: 100 / n }));
+  }
+  return bps.map((b, i) => ({
+    color: colors[i % colors.length],
+    pct: Math.max(0, b / 100),
+  }));
+}
+
 export function PortfolioPanel({ network }: { network: Network }) {
   const { connection } = useConnection();
   const { publicKey, connected } = useWallet();
@@ -75,6 +106,8 @@ export function PortfolioPanel({ network }: { network: Network }) {
   const [expandedVaultId, setExpandedVaultId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncedAt, setSyncedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [depositTarget, setDepositTarget] = useState<
     PortfolioHolding['vault'] | null
   >(null);
@@ -88,6 +121,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
       setCreatedVaults([]);
       setError(null);
       setLoading(false);
+      setSyncedAt(null);
       return;
     }
     setLoading(true);
@@ -162,6 +196,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
       setCreatedVaults(
         vaults.filter((v) => v.creator === publicKey.toBase58()),
       );
+      setSyncedAt(Date.now());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSnapshot(null);
@@ -175,208 +210,221 @@ export function PortfolioPanel({ network }: { network: Network }) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (syncedAt == null) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [syncedAt]);
+
   const holdings = useMemo(() => snapshot?.holdings ?? [], [snapshot]);
   const walletLabel = publicKey
     ? `${publicKey.toBase58().slice(0, 4)}…${publicKey.toBase58().slice(-4)}`
     : null;
-  const heldVaultIds = useMemo(
-    () =>
-      new Set(
-        holdings
-          .filter((h) => BigInt(h.shareBalance) > 0n)
-          .map((h) => h.vault.vault_id),
-      ),
-    [holdings],
-  );
+  const holdingsByVaultId = useMemo(() => {
+    const map = new Map<number, PortfolioHolding>();
+    for (const h of holdings) map.set(h.vault.vault_id, h);
+    return map;
+  }, [holdings]);
+
+  const syncedLabel = useMemo(() => {
+    if (syncedAt == null) return null;
+    const sec = Math.max(0, Math.floor((now - syncedAt) / 1000));
+    if (sec < 5) return 'SYNCED JUST NOW';
+    if (sec < 60) return `SYNCED ${sec}s AGO`;
+    const min = Math.floor(sec / 60);
+    return `SYNCED ${min}m AGO`;
+  }, [syncedAt, now]);
 
   return (
-    <section aria-label='Portfolio' className='flex flex-col gap-6'>
-      {/* Masthead — bearer register, not a SaaS hero */}
-      <header className='relative border-b-[1.5px] border-border-strong pb-6 motion-safe:animate-[cert-fadeup_0.6s_ease_both]'>
-        <div className='flex items-baseline justify-between gap-3 font-mono text-[9px] uppercase tracking-[0.28em] text-muted-foreground'>
-          <span>
-            Plate <span className='text-accent'>&#8470; PF</span> · Bearer
-            register
-          </span>
-          <span className='hidden sm:inline'>Solana · {network}</span>
-        </div>
-
-        <div className='mt-4 flex flex-wrap items-end gap-x-8 gap-y-3'>
-          <h1 className='m-0 flex items-baseline gap-4 font-display text-[clamp(30px,4.5vw,54px)] font-bold uppercase leading-none tracking-[0.04em] text-foreground'>
-            <span
-              aria-hidden
-              className='font-mono text-[clamp(14px,1.6vw,20px)] font-bold tracking-[0.1em] text-accent'
-            >
-              PF
-            </span>
-            Portfolio
-          </h1>
-          <p className='m-0 max-w-[52ch] pb-1 text-sm leading-[1.6] text-muted-foreground'>
-            Everything this wallet stands behind — vaults it charters as
-            manager, and share certificates it carries as bearer.
-          </p>
-        </div>
-
-        <span
+    <section aria-label="Portfolio" className="flex flex-col gap-0">
+      {/* Masthead */}
+      <header className="relative overflow-hidden pb-8 pt-2">
+        <div
           aria-hidden
-          className='absolute -bottom-[1.5px] left-0 h-[3px] w-20 bg-accent'
+          className="pointer-events-none absolute -left-12 -top-20 h-56 w-72 rounded-full bg-accent/[0.06] blur-3xl"
         />
+        <div className="relative flex flex-wrap items-baseline justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.16em] text-text-ghost">
+          <span>
+            Plate <span className="text-accent">№ PF</span> · Bearer register
+          </span>
+          <span className="hidden sm:inline">Solana · {network}</span>
+        </div>
+
+        <div className="relative mt-7 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] lg:items-end">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              <span className="pb-2 font-mono text-[15px] tracking-[0.1em] text-accent">
+                PF
+              </span>
+              <h1 className="m-0 text-[clamp(40px,6vw,62px)] font-semibold leading-none tracking-[-0.05em] text-foreground">
+                Portfolio
+              </h1>
+            </div>
+            <p className="mt-4 max-w-[52ch] text-[15px] leading-relaxed text-muted-foreground">
+              Everything this wallet stands behind — vaults it charters as
+              manager, and share certificates it carries as bearer.
+            </p>
+          </div>
+
+          <div className="rounded-[10px] border border-white/[0.07] bg-bg-elevated p-4">
+            <div className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-text-ghost">
+              Bearer
+            </div>
+            {connected && publicKey ? (
+              <div
+                className="mt-1.5 font-mono text-[15px] tabular-nums text-foreground"
+                title={publicKey.toBase58()}
+              >
+                <span className="text-accent">№</span> {walletLabel}
+              </div>
+            ) : (
+              <div className="mt-1.5 font-mono text-[15px] text-text-dim">
+                Not connected
+              </div>
+            )}
+            <div className="mt-3 flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.14em]">
+              <span className="text-text-ghost">
+                {connected ? (syncedLabel ?? (loading ? 'SYNCING…' : '—')) : '—'}
+              </span>
+              {connected && (
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  disabled={loading}
+                  className="text-accent transition-opacity hover:opacity-80 disabled:opacity-40"
+                >
+                  {loading ? 'Reading…' : 'Refresh ↻'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </header>
 
-      {/* Identity strip */}
-      <div className={`${panelClass} overflow-hidden`}>
-        <div className='flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6'>
-          <div className='flex flex-col gap-1'>
-            <span className='font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground'>
-              Bearer
-            </span>
-            {connected && publicKey ? (
-              <span className='font-mono text-sm tabular-nums tracking-[0.04em] text-foreground'>
-                <span className='text-seal'>&#8470;</span>{' '}
-                <span title={publicKey.toBase58()}>{walletLabel}</span>
-              </span>
-            ) : (
-              <span className='font-mono text-sm text-muted-foreground'>
-                Not connected
-              </span>
-            )}
-          </div>
-          <div className='flex items-center gap-2'>
-            {connected && (
-              <button
-                type='button'
-                onClick={load}
-                disabled={loading}
-                className={btnSecondaryClass}
-              >
-                {loading ? 'Reading…' : 'Refresh'}
-              </button>
-            )}
-          </div>
+      {/* Metric strip */}
+      {connected && loading && (
+        <div className="overflow-hidden rounded-[10px] border border-white/[0.07]">
+          <MetricStripSkeleton />
         </div>
+      )}
 
-        {connected && loading && <MetricStripSkeleton />}
+      {connected && snapshot && !loading && (
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[10px] border border-white/[0.07] bg-white/[0.07] sm:grid-cols-4">
+          <Metric
+            label="Vaults chartered"
+            value={String(createdVaults.length)}
+            hint="as manager"
+            hintAccent
+          />
+          <Metric
+            label="Positions held"
+            value={String(snapshot.positionCount)}
+            hint="as bearer"
+          />
+          <Metric
+            label="Book value"
+            value={formatUsdUi(snapshot.totalEstimatedUsdc, USDC_DECIMALS)}
+            hint="pro-rata vault book"
+          />
+          <Metric
+            label="Open redeems"
+            value={String(snapshot.pendingRedeemCount)}
+            hint="queued"
+          />
+        </div>
+      )}
 
-        {connected && snapshot && !loading && (
-          <div className='grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-4'>
-            <Metric
-              label='Vaults chartered'
-              value={String(createdVaults.length)}
-            />
-            <Metric
-              label='Positions held'
-              value={String(snapshot.positionCount)}
-            />
-            <Metric
-              label='Book value'
-              value={formatUsdUi(snapshot.totalEstimatedUsdc, USDC_DECIMALS)}
-              hint='Pro-rata vault book'
-            />
-            <Metric
-              label='Open redeems'
-              value={String(snapshot.pendingRedeemCount)}
-              className='col-span-2 sm:col-span-1'
-            />
-          </div>
-        )}
+      {!connected && (
+        <div className="mt-2 flex flex-col items-start gap-4 rounded-[13px] border border-white/[0.07] bg-bg-elevated px-6 py-10">
+          <p className="max-w-[48ch] text-sm leading-relaxed text-muted-foreground">
+            Connect a wallet to open its register. We&apos;ll show the vaults it
+            charters as manager, and the share certificates it carries as
+            bearer.
+          </p>
+          <button
+            type="button"
+            onClick={() => setVisible(true)}
+            className={btnPrimaryClass}
+          >
+            Connect wallet
+          </button>
+        </div>
+      )}
 
-        {!connected && (
-          <div className='flex flex-col items-start gap-4 px-5 py-10 md:px-6'>
-            <p className='max-w-[48ch] text-sm leading-relaxed text-muted-foreground'>
-              Connect a wallet to open its register. We&apos;ll show the vaults
-              it charters as manager, and the share certificates it carries as
-              bearer.
-            </p>
-            <button
-              type='button'
-              onClick={() => setVisible(true)}
-              className={btnPrimaryClass}
-            >
-              Connect wallet
-            </button>
-          </div>
-        )}
-
-        {connected && !loading && error && (
-          <div className='flex flex-col gap-3 px-5 py-8 md:px-6'>
-            <p className='font-mono text-xs text-destructive'>
-              <span className='mr-2 text-muted-foreground/50'>&gt;</span>
-              {error}
-            </p>
-            <button type='button' onClick={load} className={btnGhostClass}>
-              Try again
-            </button>
-          </div>
-        )}
-      </div>
+      {connected && !loading && error && (
+        <div className="mt-2 flex flex-col gap-3 rounded-[13px] border border-destructive/30 bg-destructive/5 px-6 py-8">
+          <p className="font-mono text-xs text-destructive">{error}</p>
+          <button type="button" onClick={() => void load()} className={btnSecondaryClass}>
+            Try again
+          </button>
+        </div>
+      )}
 
       {connected && loading && (
-        <div className={`${panelClass} overflow-hidden`}>
-          <div className='border-b border-border-strong px-5 py-3.5 md:px-6'>
-            <Skeleton className='h-3 w-28 rounded-[2px]' />
+        <div className="mt-6 overflow-hidden rounded-[13px] border border-white/[0.07]">
+          <div className="border-b border-white/[0.07] px-5 py-3.5">
+            <Skeleton className="h-3 w-28 rounded-[2px]" />
           </div>
           <PortfolioListSkeleton rows={3} />
         </div>
       )}
 
       {connected && !loading && !error && (
-        <div className={`${panelClass} overflow-hidden`}>
-          {/* PF-A / PF-B toggle — one register, two views of the same wallet */}
+        <div className="mt-6 overflow-hidden rounded-[13px] border border-white/[0.07]">
+          {/* PF-A / PF-B tabs */}
           <div
-            role='tablist'
-            aria-label='Portfolio view'
-            className='flex divide-x divide-border-strong border-b border-border-strong'
+            role="tablist"
+            aria-label="Portfolio view"
+            className="grid grid-cols-2 bg-bg-elevated"
           >
             <button
-              type='button'
-              role='tab'
+              type="button"
+              role="tab"
               aria-selected={tab === 'vaults'}
               onClick={() => setTab('vaults')}
-              className={`flex flex-1 items-center justify-between gap-3 px-5 py-3.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset md:px-6 ${
+              className={`flex items-center justify-between gap-3 px-[22px] py-3.5 transition-colors ${
                 tab === 'vaults'
-                  ? 'bg-accent text-background'
-                  : 'text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground'
+                  ? 'bg-background text-foreground'
+                  : 'text-text-ghost hover:text-muted-foreground'
               }`}
             >
-              <span className='flex items-baseline gap-2.5'>
-                <span
-                  className={`font-mono text-[10px] font-bold tracking-[0.14em] ${tab === 'vaults' ? 'text-background/70' : 'text-seal'}`}
-                >
+              <span className="font-mono text-[12px] uppercase tracking-[0.12em]">
+                <span className={tab === 'vaults' ? 'text-accent' : 'text-[#4A4A50]'}>
                   PF-A
-                </span>
-                <span className='font-mono text-[11px] font-bold uppercase tracking-[0.16em]'>
-                  My vaults
-                </span>
+                </span>{' '}
+                My vaults
               </span>
               <span
-                className={`font-mono text-[10px] tabular-nums ${tab === 'vaults' ? 'text-background/70' : 'text-muted-foreground/70'}`}
+                className={`font-mono text-[11.5px] tabular-nums ${
+                  tab === 'vaults' ? 'text-muted-foreground' : 'text-[#4A4A50]'
+                }`}
               >
                 {createdVaults.length}
               </span>
             </button>
             <button
-              type='button'
-              role='tab'
+              type="button"
+              role="tab"
               aria-selected={tab === 'positions'}
               onClick={() => setTab('positions')}
-              className={`flex flex-1 items-center justify-between gap-3 px-5 py-3.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset md:px-6 ${
+              className={`flex items-center justify-between gap-3 px-[22px] py-3.5 transition-colors ${
                 tab === 'positions'
-                  ? 'bg-accent text-background'
-                  : 'text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground'
+                  ? 'bg-background text-foreground'
+                  : 'text-text-ghost hover:text-muted-foreground'
               }`}
             >
-              <span className='flex items-baseline gap-2.5'>
+              <span className="font-mono text-[12px] uppercase tracking-[0.12em]">
                 <span
-                  className={`font-mono text-[10px] font-bold tracking-[0.14em] ${tab === 'positions' ? 'text-background/70' : 'text-seal'}`}
+                  className={tab === 'positions' ? 'text-accent' : 'text-[#4A4A50]'}
                 >
                   PF-B
-                </span>
-                <span className='font-mono text-[11px] font-bold uppercase tracking-[0.16em]'>
-                  My positions
-                </span>
+                </span>{' '}
+                My positions
               </span>
               <span
-                className={`font-mono text-[10px] tabular-nums ${tab === 'positions' ? 'text-background/70' : 'text-muted-foreground/70'}`}
+                className={`font-mono text-[11.5px] tabular-nums ${
+                  tab === 'positions' ? 'text-muted-foreground' : 'text-[#4A4A50]'
+                }`}
               >
                 {holdings.length}
               </span>
@@ -385,111 +433,158 @@ export function PortfolioPanel({ network }: { network: Network }) {
 
           {tab === 'vaults' && (
             <>
-              <div className='flex items-center justify-end border-b border-border px-5 py-2.5 md:px-6'>
-                <span className='font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground'>
-                  Chartered as manager
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] px-[22px] py-3 font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                <span>
+                  Chartered as manager · {createdVaults.length} vault
+                  {createdVaults.length === 1 ? '' : 's'}
+                </span>
+                <span className="hidden sm:inline">
+                  Weights shown at last rebalance
                 </span>
               </div>
 
               {createdVaults.length === 0 ? (
-                <div className='flex flex-col items-start gap-4 px-5 py-10 md:px-6'>
-                  <p className='font-mono text-xs text-muted-foreground'>
-                    <span className='mr-2 text-muted-foreground/50'>&gt;</span>
+                <div className="flex flex-col items-start gap-4 px-[22px] py-10">
+                  <p className="text-sm text-muted-foreground">
                     This wallet hasn&apos;t chartered a vault on {network}.
                   </p>
-                  <p className='max-w-[48ch] text-sm leading-relaxed text-muted-foreground'>
+                  <p className="max-w-[48ch] text-sm leading-relaxed text-text-dim">
                     Creating a vault makes this wallet its manager of record —
                     fee recipient and operational authority until reassigned.
                   </p>
-                  <Link
-                    href={sectionPath('vault-ops')}
-                    className={btnSecondaryClass}
-                  >
-                    Create a vault
+                  <Link href={sectionPath('vault-ops')} className={btnSecondaryClass}>
+                    Charter a new vault
                   </Link>
                 </div>
               ) : (
-                <ul className='divide-y divide-border'>
+                <ul className="divide-y divide-white/[0.07]">
                   {createdVaults.map((v) => {
                     const isExpanded = expandedVaultId === v.vault_id;
+                    const holding = holdingsByVaultId.get(v.vault_id);
+                    const colors = dotsForVault(v.vault_id, v.num_assets);
+                    const segments = allocationSegments(v);
+                    const isBearer = holding != null && BigInt(holding.shareBalance) > 0n;
+                    const sharesUi =
+                      holding != null
+                        ? formatTokenUi(holding.shareBalance, holding.sharesDecimals)
+                        : null;
+
                     return (
                       <li key={v.vault_address}>
-                        <div className='flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-foreground/[0.02] sm:flex-row sm:items-center sm:justify-between md:px-6'>
-                          <div className='min-w-0'>
-                            <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1.5'>
-                              <span className='font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal'>
-                                &#8470;&nbsp;CVLT-{v.vault_id}
-                              </span>
-                              <span className='truncate text-sm font-medium tracking-[-0.01em] text-foreground'>
-                                {displayVaultName(v.name)}
-                              </span>
-                              <span
-                                className='rounded-[2px] border border-border-strong px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase leading-none tracking-[0.1em] text-muted-foreground'
-                                title={`${v.fund_type === 'fixed' ? 'Fixed' : 'Dynamic'} basket · ${v.num_assets} asset${v.num_assets === 1 ? '' : 's'}`}
-                              >
-                                {v.fund_type === 'fixed' ? 'Fixed' : 'Dynamic'} ·{' '}
-                                {v.num_assets}
-                              </span>
-                              {v.genesis_deposit_status ? (
-                                <Badge
-                                  variant="secondary"
-                                  title="On-chain genesis_deposit has seeded this vault"
-                                  className="font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
-                                >
-                                  Genesis-Deposit-Done
-                                </Badge>
-                              ) : null}
-                              {v.is_pool_created ? (
-                                <Badge
-                                  variant="secondary"
-                                  title="DAMM v2 shares×USDC pool is live — Stake & Earn on the vault page"
-                                  className="font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
-                                >
-                                  Stake &amp; Earn
-                                </Badge>
-                              ) : null}
+                        <div className="px-[22px] py-5 transition-colors hover:bg-white/[0.015]">
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-mono text-[10.5px] tracking-[0.14em] text-accent">
+                                № CVLT-{v.vault_id}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                                <span className="text-[26px] font-semibold tracking-[-0.035em] text-foreground">
+                                  {displayVaultName(v.name)}
+                                </span>
+                                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-faint">
+                                  {v.num_assets} assets ·{' '}
+                                  {v.fund_type === 'fixed' ? 'static' : 'dynamic'}
+                                </span>
+                              </div>
                             </div>
-                            <div className='mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground'>
-                              <span>vault {shorten(v.vault_address)}</span>
-                              {v.paused ? (
-                                <span className='text-destructive'>paused</span>
-                              ) : null}
-                              {heldVaultIds.has(v.vault_id) && (
-                                <span>you also hold shares</span>
+                            <span className="flex shrink-0">
+                              {colors.map((c, i) => (
+                                <span
+                                  key={i}
+                                  className="inline-block h-5 w-5 rounded-full shadow-[0_0_0_2px_#0A0A0B]"
+                                  style={{
+                                    background: c,
+                                    marginLeft: i === 0 ? 0 : -7,
+                                  }}
+                                />
+                              ))}
+                            </span>
+                          </div>
+
+                          {/* Allocation bar */}
+                          <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                            {segments.map((seg, i) => (
+                              <span
+                                key={i}
+                                className="h-full"
+                                style={{
+                                  width: `${seg.pct}%`,
+                                  background: seg.color,
+                                }}
+                              />
+                            ))}
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-4">
+                            <div>
+                              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                                Vault
+                              </div>
+                              <div className="mt-0.5 font-mono text-[12.5px] text-[#DADADE]">
+                                {shorten(v.vault_address)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                                Your shares
+                              </div>
+                              <div className="mt-0.5 font-mono text-[12.5px] text-[#DADADE]">
+                                {sharesUi ?? '—'}
+                                {holding?.ownershipBps != null && (
+                                  <span className="text-text-ghost">
+                                    {' '}
+                                    · {formatOwnership(holding.ownershipBps)} of supply
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-2 sm:justify-end">
+                              {v.genesis_deposit_status && (
+                                <span className="rounded-[5px] bg-accent/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
+                                  Genesis-deposit-done
+                                </span>
                               )}
+                              {v.is_pool_created && (
+                                <span className="rounded-[5px] border border-white/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-faint">
+                                  Stake &amp; earn
+                                </span>
+                              )}
+                              {isBearer && (
+                                <span className="rounded-[5px] border border-white/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-faint">
+                                  Bearer + manager
+                                </span>
+                              )}
+                              {v.paused ? (
+                                <span className="rounded-[5px] bg-destructive/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-destructive">
+                                  Paused
+                                </span>
+                              ) : null}
                             </div>
                           </div>
-                          <div className='flex flex-wrap items-center gap-3 sm:justify-end sm:gap-4'>
-                            {/* Same circular "i" pattern as Discover · View assets;
-                                reads View · Vault State (getVaultState). */}
+
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3.5">
                             <VaultInfoPopover
                               vaultId={v.vault_id}
                               name={v.name}
                               network={network}
                             />
                             <button
-                              type='button'
+                              type="button"
                               onClick={() =>
                                 setExpandedVaultId((cur) =>
                                   cur === v.vault_id ? null : v.vault_id,
                                 )
                               }
                               aria-expanded={isExpanded}
-                              className={`${btnGhostClass} inline-flex items-center gap-1.5`}
+                              className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-accent transition-opacity hover:opacity-80"
                             >
-                              {isExpanded ? 'Close' : 'Manage'}
-                              <span
-                                className={`text-[10px] transition-transform duration-300 ${isExpanded ? '-rotate-90' : ''}`}
-                                aria-hidden
-                              >
-                                {isExpanded ? '✕' : '→'}
-                              </span>
+                              {isExpanded ? 'Close ✕' : 'Manage →'}
                             </button>
                           </div>
                         </div>
 
                         {isExpanded && (
-                          <div className='border-t border-border-strong bg-foreground/[0.015] px-5 py-5 md:px-6'>
+                          <div className="border-t border-white/[0.07] bg-white/[0.015] px-[22px] py-5">
                             <VaultOpsPanel
                               network={network}
                               vault={v}
@@ -510,53 +605,61 @@ export function PortfolioPanel({ network }: { network: Network }) {
                   })}
                 </ul>
               )}
+
+              {createdVaults.length > 0 && (
+                <div className="border-t border-white/[0.07] px-[22px] py-5">
+                  <Link
+                    href={sectionPath('vault-ops')}
+                    className="inline-flex flex-col gap-1 rounded-[10px] border border-dashed border-white/15 px-5 py-4 transition-colors hover:border-accent/40 hover:bg-accent/[0.04]"
+                  >
+                    <span className="text-sm font-medium text-foreground">
+                      Charter a new vault
+                    </span>
+                    <span className="text-[13px] text-text-dim">
+                      Pick a basket from the admin-approved registry and mint
+                      shares at your opening price.
+                    </span>
+                  </Link>
+                </div>
+              )}
             </>
           )}
 
           {tab === 'positions' && (
             <>
-              <div className='flex items-center justify-end border-b border-border px-5 py-2.5 md:px-6'>
-                <span className='font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground'>
-                  Book &ne; live NAV
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] px-[22px] py-3 font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                <span>
+                  Holdings ledger · {holdings.length} instrument
+                  {holdings.length === 1 ? '' : 's'}
                 </span>
+                <span>Book ≠ live NAV</span>
               </div>
 
               {holdings.length === 0 ? (
-                <div className='flex flex-col items-start gap-4 px-5 py-10 md:px-6'>
-                  <p className='font-mono text-xs text-muted-foreground'>
-                    <span className='mr-2 text-muted-foreground/50'>&gt;</span>
+                <div className="flex flex-col items-start gap-4 px-[22px] py-10">
+                  <p className="text-sm text-muted-foreground">
                     No share certificates for this wallet on {network}.
                   </p>
-                  <p className='max-w-[48ch] text-sm leading-relaxed text-muted-foreground'>
+                  <p className="max-w-[48ch] text-sm leading-relaxed text-text-dim">
                     Deposit USDC into a vault to mint shares. Your position will
                     appear here after the transaction confirms.
                   </p>
-                  <Link
-                    href={sectionPath('vaults')}
-                    className={btnPrimaryClass}
-                  >
+                  <Link href={sectionPath('vaults')} className={btnPrimaryClass}>
                     Browse vaults
                   </Link>
                 </div>
               ) : (
-                <div className='flex flex-col'>
-                  <div className='flex items-center justify-between gap-3 border-b border-border px-5 py-2.5 md:px-6'>
-                    <span className={`${sectionLabelClass} uppercase`}>
-                      Holdings ledger · {holdings.length} instrument
-                      {holdings.length === 1 ? '' : 's'}
-                    </span>
-                  </div>
-
-                  {/* Column legend — wide layouts only (this panel runs at half width from xl up) */}
-                  <div className='hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-4 border-b border-border px-5 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground 2xl:grid md:px-6'>
+                <div className="flex flex-col">
+                  <div className="hidden grid-cols-[1.5fr_1fr_1.3fr_0.9fr_250px] gap-[18px] border-b border-white/[0.07] bg-bg-elevated px-[22px] py-3 font-mono text-[9.5px] uppercase tracking-[0.13em] text-text-ghost lg:grid">
                     <span>Instrument</span>
-                    <span className='text-right'>Shares</span>
-                    <span className='text-right'>Book value</span>
-                    <span className='min-w-[17rem] text-right'>Actions</span>
+                    <span className="text-right">Shares</span>
+                    <span>Supply share</span>
+                    <span className="text-right">Book</span>
+                    <span className="text-right">Actions</span>
                   </div>
 
-                  <ul className='divide-y divide-border'>
-                    {holdings.map((h) => {
+                  <ul>
+                    {holdings.map((h, idx) => {
                       const redeemLabel = redeemStatusLabel(h);
                       const sharesUi = formatTokenUi(
                         h.shareBalance,
@@ -567,72 +670,95 @@ export function PortfolioPanel({ network }: { network: Network }) {
                           ? formatUsdUi(h.estimatedUsdc, USDC_DECIMALS)
                           : '—';
                       const hasShares = BigInt(h.shareBalance) > 0n;
+                      const pct = ownershipPct(h.ownershipBps);
+                      const colors = dotsForVault(
+                        h.vault.vault_id,
+                        h.vault.num_assets,
+                      );
+                      const symbol = (h.vault.symbol || `V${h.vault.vault_id}`).toUpperCase();
 
                       return (
                         <li
                           key={h.vault.vault_address}
-                          className='flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-foreground/[0.02] md:px-6'
+                          className={`border-b border-white/[0.06] px-[22px] py-5 transition-colors hover:bg-white/[0.015] ${
+                            idx === 0 ? 'bg-accent/[0.03]' : ''
+                          }`}
                         >
-                          <div className='grid grid-cols-1 items-start gap-3 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto] 2xl:gap-4'>
-                            <div className='min-w-0'>
-                              <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
-                                <span className='font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal'>
-                                  &#8470;&nbsp;CVLT-{h.vault.vault_id}
+                          <div className="grid grid-cols-1 items-center gap-4 lg:grid-cols-[1.5fr_1fr_1.3fr_0.9fr_250px] lg:gap-[18px]">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="flex shrink-0">
+                                {colors.map((c, i) => (
+                                  <span
+                                    key={i}
+                                    className="inline-block h-5 w-5 rounded-full shadow-[0_0_0_2px_#0A0A0B]"
+                                    style={{
+                                      background: c,
+                                      marginLeft: i === 0 ? 0 : -7,
+                                    }}
+                                  />
+                                ))}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="font-mono text-[11px] tracking-[0.08em] text-accent">
+                                  CVLT-{h.vault.vault_id}
                                 </span>
-                                <span className='truncate text-sm font-medium tracking-[-0.01em] text-foreground'>
+                                <span className="ml-2 text-base font-semibold tracking-[-0.02em] text-foreground">
                                   {displayVaultName(h.vault.name)}
                                 </span>
-                              </div>
-                              <div className='mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground'>
-                                <span>
-                                  vault {shorten(h.vault.vault_address)}
-                                </span>
-                                <span>
-                                  {h.vault.fund_type} · {h.vault.num_assets}{' '}
-                                  asset
+                                <div className="mt-1 font-mono text-[11px] text-text-ghost">
+                                  {shorten(h.vault.vault_address)} ·{' '}
+                                  {h.vault.fund_type === 'fixed' ? 'static' : 'dynamic'} ·{' '}
+                                  {h.vault.num_assets} asset
                                   {h.vault.num_assets === 1 ? '' : 's'}
-                                </span>
-                                {h.ownershipBps != null && (
-                                  <span>
-                                    {formatOwnership(h.ownershipBps)} of supply
-                                  </span>
-                                )}
+                                </div>
+                              </span>
+                            </div>
+
+                            <div className="text-left lg:text-right">
+                              <div className="font-mono text-[17px] tabular-nums text-foreground">
+                                {sharesUi}
+                              </div>
+                              <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.1em] text-text-ghost">
+                                {symbol} shares
                               </div>
                             </div>
 
-                            <div className='flex items-baseline justify-between gap-2 2xl:block 2xl:text-right'>
-                              <span className='font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground 2xl:hidden'>
-                                Shares
-                              </span>
-                              <div>
-                                <span className='font-mono text-sm font-semibold tabular-nums text-foreground'>
-                                  {sharesUi}
+                            <div>
+                              <div className="flex items-baseline justify-between font-mono text-[11px] text-text-dim">
+                                <span className="uppercase tracking-[0.08em]">
+                                  Of supply
                                 </span>
-                                <span className='ml-1.5 font-mono text-[11px] text-muted-foreground'>
-                                  {h.vault.symbol}
+                                <span className="text-[13px] text-foreground">
+                                  {formatOwnership(h.ownershipBps)}
                                 </span>
+                              </div>
+                              <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/[0.08]">
+                                <span
+                                  className="block h-full rounded-full bg-accent"
+                                  style={{ width: `${Math.max(pct, pct > 0 ? 2 : 0)}%` }}
+                                />
                               </div>
                             </div>
 
-                            <div className='flex items-baseline justify-between gap-2 2xl:block 2xl:text-right'>
-                              <span className='font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground 2xl:hidden'>
-                                Book value
-                              </span>
-                              <span className='font-mono text-sm font-semibold tabular-nums text-foreground'>
+                            <div className="text-left lg:text-right">
+                              <div className="font-mono text-[15px] tabular-nums text-[#5E5E64]">
                                 {bookUi}
-                              </span>
+                              </div>
+                              <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.1em] text-text-ghost">
+                                Book value
+                              </div>
                             </div>
 
-                            <div className='flex flex-wrap items-center gap-2 2xl:min-w-[17rem] 2xl:justify-end'>
+                            <div className="flex flex-wrap gap-2 lg:justify-end">
                               <button
-                                type='button'
+                                type="button"
                                 onClick={() => setDepositTarget(h.vault)}
-                                className={btnSecondaryClass}
+                                className="rounded-full border border-white/14 px-[22px] py-[11px] text-[13.5px] font-medium text-foreground transition-colors hover:bg-white/[0.06]"
                               >
                                 Deposit
                               </button>
                               <button
-                                type='button'
+                                type="button"
                                 onClick={() => setRedeemTarget(h.vault)}
                                 disabled={
                                   !hasShares &&
@@ -641,12 +767,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
                                     BigInt(h.redeemPendingUsdc) > 0n
                                   )
                                 }
-                                className={btnPrimaryClass}
-                                style={{
-                                  borderColor:
-                                    SECTION_STYLE['vault-ops'].accent,
-                                  background: SECTION_STYLE['vault-ops'].accent,
-                                }}
+                                className="rounded-full bg-accent px-[22px] py-[11px] text-[13.5px] font-semibold text-background transition-[transform,background] hover:-translate-y-px hover:bg-[#d4ff5c] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
                               >
                                 Redeem
                               </button>
@@ -654,25 +775,26 @@ export function PortfolioPanel({ network }: { network: Network }) {
                           </div>
 
                           {redeemLabel && (
-                            <div className='flex flex-wrap gap-x-4 gap-y-1 border-t border-border/60 pt-2.5 font-mono text-[11px] text-muted-foreground'>
-                              <span className='text-seal'>{redeemLabel}</span>
+                            <div className="mt-3 border-t border-white/[0.06] pt-2.5 font-mono text-[11px] text-accent">
+                              {redeemLabel}
                             </div>
                           )}
                         </li>
                       );
                     })}
                   </ul>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-[22px] py-4 font-mono text-[10.5px] uppercase tracking-[0.1em] text-text-ghost">
+                    <span>cVault series 2026</span>
+                    <span>Redeem burns shares pro rata</span>
+                    <span className="text-accent">{network}</span>
+                  </div>
                 </div>
               )}
             </>
           )}
         </div>
       )}
-
-      <p className='font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/80'>
-        Estimated USD is not shown on this light path (on-chain book counter removed). Live oracle NAV
-        is available under View · Read NAV.
-      </p>
 
       {depositTarget && (
         <DepositModal
@@ -702,26 +824,32 @@ function Metric({
   label,
   value,
   hint,
-  className = '',
+  hintAccent,
 }: {
   label: string;
   value: string;
   hint?: string;
-  className?: string;
+  hintAccent?: boolean;
 }) {
   return (
-    <div className={`flex flex-col gap-1 px-5 py-4 md:px-6 ${className}`}>
-      <span className='font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground'>
+    <div className="bg-background px-[22px] py-5">
+      <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-faint">
         {label}
-      </span>
-      <span className='font-mono text-lg font-semibold tabular-nums tracking-tight text-foreground'>
-        {value}
-      </span>
-      {hint && (
-        <span className='font-mono text-[10px] text-muted-foreground/70'>
-          {hint}
+      </div>
+      <div className="mt-2 flex flex-wrap items-baseline gap-2">
+        <span className="text-[34px] font-semibold leading-none tracking-[-0.04em] text-foreground">
+          {value}
         </span>
-      )}
+        {hint && (
+          <span
+            className={`font-mono text-[11px] ${
+              hintAccent ? 'text-accent' : 'text-text-ghost'
+            }`}
+          >
+            {hint}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

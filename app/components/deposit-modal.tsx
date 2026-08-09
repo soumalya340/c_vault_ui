@@ -24,11 +24,8 @@ import { fetchTokens, updateVaultAlts, type VaultRecord } from '@/lib/registryCl
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
 import {
-  btnGhostClass,
   btnPrimaryClass,
-  btnSecondaryClass,
   fieldLabelClass,
-  inputClass,
   outputPanelClass,
 } from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
@@ -328,6 +325,18 @@ export function DepositModal({
     }
   };
 
+  const setAmountPct = (pct: number) => {
+    if (baseDecimals === null || usdcBalance === null) return;
+    try {
+      const raw = (BigInt(usdcBalance) * BigInt(pct)) / 100n;
+      setAmount(formatUnits(raw.toString(), baseDecimals));
+    } catch {
+      // ignore bad balance strings
+    }
+  };
+
+  const showInFlight = loading && !settlement;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {errorOpen && lastError && (
@@ -339,39 +348,42 @@ export function DepositModal({
         />
       )}
       <div
-        className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
+        className={`absolute inset-0 bg-black/75 backdrop-blur-sm ${backdropClassName}`}
         onClick={() => {
-          if (!isClosing) requestClose();
+          if (!isClosing && !loading) requestClose();
         }}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Deposit into ${displayVaultName(vault.name)}`}
-        className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
+        className={`relative z-10 flex w-full max-w-[420px] max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-white/[0.09] bg-background shadow-2xl ${modalClassName}`}
       >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[0.07] px-5 py-4">
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-accent">
-              № {String(vault.vault_id).padStart(2, '0')} · deposit
+            <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-accent">
+              Deposit · № {String(vault.vault_id).padStart(2, '0')}
             </div>
-            <h2 className="mt-1 font-display text-lg font-semibold tracking-[0.02em]">
+            <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em]">
               {displayVaultName(vault.name)}
             </h2>
+            <p className="mt-0.5 font-mono text-[11px] text-text-ghost">
+              {vault.vault_address.slice(0, 4)}…{vault.vault_address.slice(-4)}
+            </p>
           </div>
           <button
             type="button"
             onClick={requestClose}
-            disabled={isClosing}
+            disabled={isClosing || loading}
             aria-label="Close"
-            className={btnGhostClass}
+            className="rounded-full px-3 py-1.5 font-mono text-xs text-text-dim transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-40"
           >
-            Close
+            ✕
           </button>
         </div>
 
         {settlement ? (
-          <div className="overflow-y-auto px-6 py-5">
+          <div className="overflow-y-auto px-5 py-5">
             <SettlementReceipt
               kind="deposit"
               vaultId={vault.vault_id}
@@ -412,49 +424,66 @@ export function DepositModal({
                 setSteps([]);
                 setPreview(null);
               }}
-              className="mt-4 w-full rounded-[2px] border border-border-strong bg-background px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="mt-3 w-full rounded-full border border-white/14 px-5 py-2.5 text-[13.5px] font-medium text-foreground transition-colors hover:bg-white/[0.06]"
             >
               Deposit again
             </button>
           </div>
+        ) : showInFlight ? (
+          <div className="space-y-4 overflow-y-auto px-5 py-5">
+            <div className="rounded-[12px] border border-white/[0.07] bg-bg-elevated px-4 py-4">
+              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                In flight
+              </div>
+              <div className="mt-2 text-[15px] text-foreground">
+                Depositing{' '}
+                <span className="font-mono font-semibold tabular-nums text-accent">
+                  {amount || '—'} {baseSymbol}
+                </span>
+              </div>
+            </div>
+            <TransactionPhases flow="deposit" steps={steps} active />
+            <div className="flex items-center justify-center gap-2 rounded-[10px] bg-accent/10 px-4 py-3.5 text-[15px] font-semibold text-accent">
+              <Spinner className="size-4" />
+              Processing…
+            </div>
+          </div>
         ) : (
-        <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto px-6 py-5">
-          {publicKey && (
-            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-              wallet balance:{' '}
-              <span className="text-foreground">
-                {checkingBalance ? '…' : usdcBalanceUi !== null ? `${usdcBalanceUi} ${baseSymbol}` : '—'}
-              </span>
-            </p>
-          )}
+        <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto px-5 py-5">
           <div>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <label className={fieldLabelClass}>
-                Amount ({baseSymbol})
-              </label>
-              {publicKey && usdcBalanceUi !== null && usdcBalance !== '0' && (
-                <button
-                  type="button"
-                  onClick={() => baseDecimals !== null && setAmount(formatUnits(usdcBalance!, baseDecimals))}
-                  className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent transition-colors hover:text-foreground"
-                >
-                  Max {usdcBalanceUi}
-                </button>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <label className={fieldLabelClass}>Amount</label>
+              {publicKey && (
+                <span className="font-mono text-[11px] tabular-nums text-text-faint">
+                  Wallet{' '}
+                  <span className="text-foreground">
+                    {checkingBalance
+                      ? '…'
+                      : usdcBalanceUi !== null
+                        ? `${usdcBalanceUi} ${baseSymbol}`
+                        : '—'}
+                  </span>
+                </span>
               )}
             </div>
-            <input
-              className={`${inputClass} tabular-nums`}
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder={baseDecimals === null ? 'loading…' : '100'}
-              disabled={baseDecimals === null}
-              required
-            />
+            <div className="flex items-center gap-2 rounded-[10px] border border-white/[0.09] bg-bg-elevated px-3.5 py-1 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
+              <input
+                className="min-w-0 flex-1 border-0 bg-transparent py-3 font-mono text-[22px] font-medium tabular-nums text-foreground placeholder:text-text-placeholder focus:outline-none disabled:opacity-50"
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder={baseDecimals === null ? '…' : '0.0'}
+                disabled={baseDecimals === null}
+                required
+              />
+              <span className="shrink-0 rounded-full bg-white/[0.06] px-3 py-1.5 font-mono text-[12px] font-medium text-foreground">
+                {baseSymbol}
+              </span>
+            </div>
             <p
               className={`mt-1.5 font-mono text-[11px] tabular-nums ${
-                insufficientBalance ? 'text-destructive' : 'text-muted-foreground/70'
+                insufficientBalance ? 'text-destructive' : 'text-text-ghost'
               }`}
             >
               {baseDecimals === null
@@ -462,21 +491,48 @@ export function DepositModal({
                 : insufficientBalance
                   ? `Exceeds wallet balance (${usdcBalanceUi} ${baseSymbol} available)`
                   : rawUnits
-                    ? `${rawUnits} raw units (${baseDecimals} decimals)`
-                    : `Enter a ${baseSymbol} amount (e.g. 100)`}
+                    ? `= ${rawUnits} raw · ${baseDecimals} dec`
+                    : `Enter a ${baseSymbol} amount`}
             </p>
+            {publicKey && usdcBalanceUi !== null && usdcBalance !== '0' && baseDecimals !== null && (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {[25, 50, 75].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => setAmountPct(pct)}
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-[11px] text-text-dim transition-colors hover:border-accent/40 hover:text-accent"
+                  >
+                    {pct}%
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setAmount(formatUnits(usdcBalance!, baseDecimals))}
+                  className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 font-mono text-[11px] text-accent transition-colors hover:bg-accent/15"
+                >
+                  Max
+                </button>
+              </div>
+            )}
           </div>
-          <div>
-            <label className={fieldLabelClass}>
-              Min shares out ({vault.symbol}) — leave blank to skip the slippage check
-            </label>
+
+          <div className="rounded-[10px] border border-white/[0.09] bg-bg-elevated px-3.5 py-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <label className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
+                Slippage guard <span className="text-text-ghost">· min shares out</span>
+              </label>
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-ghost">
+                {minSharesOut.trim() ? 'On' : 'Off'}
+              </span>
+            </div>
             <input
-              className={`${inputClass} tabular-nums`}
+              className="w-full rounded-[8px] border border-white/[0.09] bg-background px-3 py-2.5 font-mono text-sm tabular-nums text-foreground placeholder:text-text-placeholder focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               type="text"
               inputMode="decimal"
               value={minSharesOut}
               onChange={(e) => setMinSharesOut(e.target.value)}
-              placeholder="0.0"
+              placeholder={`0.0 ${vault.symbol}`}
             />
           </div>
 
@@ -485,7 +541,7 @@ export function DepositModal({
               type="button"
               onClick={handlePreview}
               disabled={previewing || !amount.trim() || baseDecimals === null}
-              className={btnSecondaryClass}
+              className="rounded-full border border-white/14 px-4 py-2 text-[13px] font-medium text-foreground transition-colors hover:bg-white/[0.06] disabled:opacity-40"
             >
               {previewing ? 'Previewing…' : 'Preview'}
             </button>
@@ -499,7 +555,7 @@ export function DepositModal({
           <button
             type="submit"
             disabled={loading || !anchorWallet || insufficientBalance}
-            className={btnPrimaryClass}
+            className={btnPrimaryClass + ' w-full'}
           >
             {loading ? (
               <span className="inline-flex items-center gap-2">
@@ -507,23 +563,26 @@ export function DepositModal({
                 Processing…
               </span>
             ) : anchorWallet ? (
-              'Deposit'
+              amount.trim()
+                ? `Deposit ${amount} ${baseSymbol}`
+                : 'Deposit'
             ) : (
               'Connect wallet'
             )}
           </button>
-
-          <TransactionPhases flow="deposit" steps={steps} active={loading} />
+          <p className="text-center font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-ghost">
+            2 transactions · one approval
+          </p>
 
           {result && (
             <div className={outputPanelClass}>
-              <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
-                OUTPUT
+              <div className="border-b border-white/[0.07] px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-text-ghost">
+                Output
               </div>
               <div className="px-4 py-3">
                 <LedgerOutput text={result.text} tone={result.type} />
                 {result.type === 'error' && lastError && (
-                  <div className="mt-2 border-t border-border pt-2">
+                  <div className="mt-2 border-t border-white/[0.07] pt-2">
                     <button
                       type="button"
                       onClick={() => setErrorOpen(true)}
@@ -534,7 +593,7 @@ export function DepositModal({
                   </div>
                 )}
                 {result.solscan && (
-                  <div className="mt-2 border-t border-border pt-2">
+                  <div className="mt-2 border-t border-white/[0.07] pt-2">
                     <a
                       href={result.solscan}
                       target="_blank"

@@ -561,10 +561,10 @@ export function CreateEtfPanel({ network }: { network: Network }) {
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label className={fieldLabelClass}>Base / quote mint</label>
+            <label className={fieldLabelClass}>Deposit mint</label>
             <input className={inputClass} value={`USDC · ${usdcBase58}`} readOnly />
             <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-              Program constant — Circle USDC (EPjF…) on every network
+              All vaults use USDC for deposits and withdrawals — fixed by the protocol
             </p>
           </div>
           <div>

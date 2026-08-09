@@ -22,11 +22,9 @@ import { updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
 import { LedgerOutput } from './ledger-output';
 import {
-  btnGhostClass,
   btnPrimaryClass,
   btnSecondaryClass,
   fieldLabelClass,
-  inputClass,
   outputPanelClass,
 } from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
@@ -367,6 +365,18 @@ export function RedeemModal({
     }
   };
 
+  const setSharesPct = (pct: number) => {
+    if (sharesDecimals === null) return;
+    try {
+      const raw = (BigInt(shareBalance) * BigInt(pct)) / 100n;
+      setShares(formatUnits(raw.toString(), sharesDecimals));
+    } catch {
+      // ignore
+    }
+  };
+
+  const showInFlight = loading && !settlement;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {errorModal && (
@@ -378,39 +388,42 @@ export function RedeemModal({
         />
       )}
       <div
-        className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
+        className={`absolute inset-0 bg-black/75 backdrop-blur-sm ${backdropClassName}`}
         onClick={() => {
-          if (!isClosing) requestClose();
+          if (!isClosing && !loading) requestClose();
         }}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Redeem from ${displayVaultName(vault.name)}`}
-        className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
+        className={`relative z-10 flex w-full max-w-[420px] max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-white/[0.09] bg-background shadow-2xl ${modalClassName}`}
       >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[0.07] px-5 py-4">
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-seal">
-              № {String(vault.vault_id).padStart(2, '0')} · redeem &amp; claim
+            <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-accent">
+              Redeem &amp; claim · № {String(vault.vault_id).padStart(2, '0')}
             </div>
-            <h2 className="mt-1 font-display text-lg font-semibold tracking-[0.02em]">
+            <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em]">
               {displayVaultName(vault.name)}
             </h2>
+            <p className="mt-0.5 font-mono text-[11px] text-text-ghost">
+              {vault.vault_address.slice(0, 4)}…{vault.vault_address.slice(-4)}
+            </p>
           </div>
           <button
             type="button"
             onClick={requestClose}
-            disabled={isClosing}
+            disabled={isClosing || loading}
             aria-label="Close"
-            className={btnGhostClass}
+            className="rounded-full px-3 py-1.5 font-mono text-xs text-text-dim transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-40"
           >
-            Close
+            ✕
           </button>
         </div>
 
         {settlement ? (
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
             <SettlementReceipt
               kind="redeem"
               vaultId={vault.vault_id}
@@ -454,43 +467,48 @@ export function RedeemModal({
                 setSteps([]);
                 setPreview(null);
               }}
-              className="mt-4 w-full rounded-[2px] border border-border-strong bg-background px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="mt-3 w-full rounded-full border border-white/14 px-5 py-2.5 text-[13.5px] font-medium text-foreground transition-colors hover:bg-white/[0.06]"
             >
               Redeem more
             </button>
           </div>
-        ) : (
-        <div ref={bodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-5">
-          {checkingPosition && (
-            <p className="font-mono text-xs text-muted-foreground">
-              <span className="t-shimmer" data-text="Checking on-chain position…">
-                Checking on-chain position…
-              </span>
-            </p>
-          )}
-
-          {!checkingPosition && (
-            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-              share balance:{' '}
-              <span className="text-foreground">
-                {shareBalanceUi !== null ? (
+        ) : showInFlight ? (
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-5">
+            <div className="rounded-[12px] border border-white/[0.07] bg-bg-elevated px-4 py-4">
+              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                In flight
+              </div>
+              <div className="mt-2 text-[15px] text-foreground">
+                {activeFlow === 'claim' ? (
+                  'Claiming pending payout'
+                ) : (
                   <>
-                    {shareBalanceUi} {vault.symbol}
-                    <span className="text-muted-foreground/70">
-                      {' '}
-                      ({shareBalance} raw)
+                    Burning{' '}
+                    <span className="font-mono font-semibold tabular-nums text-accent">
+                      {shares || '…'} {vault.symbol}
                     </span>
                   </>
-                ) : (
-                  '…'
                 )}
-              </span>
+              </div>
+            </div>
+            <TransactionPhases flow={activeFlow} steps={steps} active />
+            <div className="flex items-center justify-center gap-2 rounded-[10px] bg-accent/10 px-4 py-3.5 text-[15px] font-semibold text-accent">
+              <Spinner className="size-4" />
+              Processing…
+            </div>
+            <div ref={stepsEndRef} aria-hidden />
+          </div>
+        ) : (
+        <div ref={bodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-5">
+          {checkingPosition && (
+            <p className="font-mono text-xs text-muted-foreground">
+              Checking on-chain position…
             </p>
           )}
 
           {pending && (
-            <div className="rounded-[2px] border border-border bg-foreground/[0.03] px-3.5 py-3">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-seal">
+            <div className="rounded-[10px] border border-accent/25 bg-accent/[0.06] px-3.5 py-3">
+              <p className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
                 Pending redeem
               </p>
               <p className="mt-1.5 font-mono text-xs tabular-nums leading-relaxed text-foreground">
@@ -499,22 +517,21 @@ export function RedeemModal({
                   ? ` · ${formatTokenUi(pending.pendingUsdc, USDC_DECIMALS)} USDC pending`
                   : ''}{' '}
                 {readyToClaim
-                  ? '— all legs swapped: press Claim (or Redeem to auto-claim)'
-                  : '— press Redeem (swap) to convert assets → USDC (then auto-claim)'}
+                  ? '— all legs swapped: press Claim'
+                  : '— press Redeem to convert assets → USDC'}
               </p>
             </div>
           )}
 
-          {/* OUTPUT first when present — multi-leg logs used to bury success below the fold. */}
           {result && (
             <div ref={resultRef} className={outputPanelClass}>
-              <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
-                OUTPUT
+              <div className="border-b border-white/[0.07] px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-text-ghost">
+                Output
               </div>
               <div className="px-4 py-3">
                 <LedgerOutput text={result.text} tone={result.type} />
                 {result.solscan && (
-                  <div className="mt-2 border-t border-border pt-2">
+                  <div className="mt-2 border-t border-white/[0.07] pt-2">
                     <a
                       href={result.solscan}
                       target="_blank"
@@ -533,44 +550,68 @@ export function RedeemModal({
             {!pending && (
               <>
                 <div>
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <div className="mb-2 flex items-center justify-between gap-2">
                     <label className={fieldLabelClass}>Shares to burn</label>
-                    {shareBalanceUi !== null && shareBalance !== '0' && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          sharesDecimals !== null &&
-                          setShares(formatUnits(shareBalance, sharesDecimals))
-                        }
-                        className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent transition-colors hover:text-foreground"
-                      >
-                        Max {shareBalanceUi}
-                      </button>
-                    )}
+                    <span className="font-mono text-[11px] tabular-nums text-text-faint">
+                      Held{' '}
+                      <span className="text-foreground">
+                        {shareBalanceUi !== null
+                          ? `${shareBalanceUi} ${vault.symbol}`
+                          : '…'}
+                      </span>
+                    </span>
                   </div>
-                  <input
-                    className={`${inputClass} tabular-nums`}
-                    type="text"
-                    inputMode="decimal"
-                    value={shares}
-                    onChange={(e) => setShares(e.target.value)}
-                    placeholder={
-                      sharesDecimals === null
-                        ? 'loading…'
-                        : shareBalanceUi && shareBalance !== '0'
-                          ? shareBalanceUi
-                          : '1.0'
-                    }
-                    disabled={sharesDecimals === null}
-                    required={!pending}
-                  />
-                  <p className="mt-1.5 font-mono text-[11px] tabular-nums text-muted-foreground/70">
+                  <div className="flex items-center gap-2 rounded-[10px] border border-white/[0.09] bg-bg-elevated px-3.5 py-1 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
+                    <input
+                      className="min-w-0 flex-1 border-0 bg-transparent py-3 font-mono text-[22px] font-medium tabular-nums text-foreground placeholder:text-text-placeholder focus:outline-none disabled:opacity-50"
+                      type="text"
+                      inputMode="decimal"
+                      value={shares}
+                      onChange={(e) => setShares(e.target.value)}
+                      placeholder={
+                        sharesDecimals === null
+                          ? '…'
+                          : shareBalanceUi && shareBalance !== '0'
+                            ? shareBalanceUi
+                            : '0.0'
+                      }
+                      disabled={sharesDecimals === null}
+                      required={!pending}
+                    />
+                    <span className="shrink-0 rounded-full bg-white/[0.06] px-3 py-1.5 font-mono text-[12px] font-medium text-foreground">
+                      {vault.symbol}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 font-mono text-[11px] tabular-nums text-text-ghost">
                     {sharesDecimals === null
                       ? 'Resolving share token decimals…'
                       : rawShares
-                        ? `= ${rawShares} raw units (${sharesDecimals} decimals)`
-                        : `Enter a ${vault.symbol} amount (e.g. 1.5)`}
+                        ? `= ${rawShares} raw · ${sharesDecimals} dec`
+                        : `Enter a ${vault.symbol} amount`}
                   </p>
+                  {shareBalanceUi !== null && shareBalance !== '0' && sharesDecimals !== null && (
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      {[25, 50, 75].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => setSharesPct(pct)}
+                          className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 font-mono text-[11px] text-text-dim transition-colors hover:border-accent/40 hover:text-accent"
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShares(formatUnits(shareBalance, sharesDecimals))
+                        }
+                        className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 font-mono text-[11px] text-accent transition-colors hover:bg-accent/15"
+                      >
+                        Max
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -578,7 +619,7 @@ export function RedeemModal({
                     type="button"
                     onClick={handlePreview}
                     disabled={previewing || !shares.trim() || sharesDecimals === null}
-                    className={btnSecondaryClass}
+                    className="rounded-full border border-white/14 px-4 py-2 text-[13px] font-medium text-foreground transition-colors hover:bg-white/[0.06] disabled:opacity-40"
                   >
                     {previewing ? 'Previewing…' : 'Preview'}
                   </button>
@@ -591,19 +632,19 @@ export function RedeemModal({
               </>
             )}
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-2.5 sm:flex-row">
               <button
                 type="submit"
                 disabled={loading || !anchorWallet || readyToClaim || sharesDecimals === null}
-                className={btnPrimaryClass}
+                className={`${btnPrimaryClass} w-full flex-1`}
               >
-                {loading ? (
+                {loading && activeFlow === 'redeem' ? (
                   <span className="inline-flex items-center gap-2">
                     <Spinner className="size-3.5" />
                     Processing…
                   </span>
                 ) : anchorWallet ? (
-                  'Redeem (swap)'
+                  'Redeem & claim'
                 ) : (
                   'Connect wallet'
                 )}
@@ -612,21 +653,23 @@ export function RedeemModal({
                 type="button"
                 onClick={handleClaim}
                 disabled={loading || !anchorWallet || !readyToClaim}
-                className={btnPrimaryClass}
+                className={`${btnSecondaryClass} w-full flex-1`}
               >
-                {loading ? (
+                {loading && activeFlow === 'claim' ? (
                   <span className="inline-flex items-center gap-2">
                     <Spinner className="size-3.5" />
                     Processing…
                   </span>
                 ) : (
-                  'Claim'
+                  'Claim payout'
                 )}
               </button>
             </div>
+            <p className="text-center font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-ghost">
+              2 transactions · one approval
+            </p>
           </form>
 
-          <TransactionPhases flow={activeFlow} steps={steps} active={loading} />
           <div ref={stepsEndRef} aria-hidden />
         </div>
         )}

@@ -10,9 +10,9 @@ export default function CreatePage() {
   const { network } = useConsoleNetwork();
 
   return (
-    <div className="mx-auto w-full max-w-[1360px] space-y-6 px-4 py-6 md:px-8 md:py-8">
+    <div className="flex min-h-0 flex-1 flex-col">
       <VaultOpsTicker />
-      <VaultOpsHero network={network} />
+      <VaultOpsHero />
       <VaultOpsCreatePanel key={`create-${network}`} network={network} />
       <VaultOpsToast />
     </div>

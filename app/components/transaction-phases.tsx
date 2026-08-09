@@ -1,32 +1,35 @@
 'use client';
 
 /**
- * Translates the raw `onProgress` operator log (SDK strings like "Checking
- * DEX TWAP freshness for 2/4 vault asset(s)…" or "Estimating ViaSol asset
- * 1/4 → wSOL (simulation)…") into the small, fixed set of phases a holder
- * actually cares about. The SDK narrates its internals; this renders what's
- * *happening to the user's money* — one phase active at a time, not a
- * scrolling console.
- *
- * Phase order is fixed per flow (confirmed against cvault.tsx call order —
- * preflight always precedes building/sending, claim always comes last), so
- * this never needs to reorder — only to advance a pointer as messages match.
+ * Translates the raw `onProgress` operator log into the small, fixed set of
+ * phases a holder actually cares about. Phase order is fixed per flow
+ * (confirmed against cvault.tsx call order), so this only advances a pointer
+ * as messages match.
  */
 
 import { Spinner } from '@/components/ui/spinner';
 
-export type PhaseId = 'preflight' | 'swap' | 'claim' | 'vault' | 'metadata' | 'genesis' | 'record';
+export type PhaseId =
+  | 'preflight'
+  | 'swap'
+  | 'confirm'
+  | 'claim'
+  | 'vault'
+  | 'metadata'
+  | 'genesis'
+  | 'record';
 
 type Phase = { id: PhaseId; label: string };
 
 const DEPOSIT_PHASES: Phase[] = [
   { id: 'preflight', label: 'Preparing route' },
   { id: 'swap', label: 'Depositing & swapping' },
+  { id: 'confirm', label: 'Confirming shares' },
 ];
 
 const REDEEM_PHASES: Phase[] = [
   { id: 'preflight', label: 'Preparing route' },
-  { id: 'swap', label: 'Swapping to USDC' },
+  { id: 'swap', label: 'Swapping assets to USDC' },
   { id: 'claim', label: 'Claiming payout' },
 ];
 
@@ -40,12 +43,10 @@ const CREATE_PHASES: Phase[] = [
   { id: 'genesis', label: 'Seeding genesis deposit' },
 ];
 
-/**
- * Keyword → phase. Order matters: first match wins, and claim-ish language
- * is checked before swap-ish language since a redeem's final step can say
- * both ("Redeem: burn + swap + claim → …").
- */
-function classify(message: string, flow: 'deposit' | 'redeem' | 'claim' | 'create'): PhaseId {
+function classify(
+  message: string,
+  flow: 'deposit' | 'redeem' | 'claim' | 'create',
+): PhaseId {
   const m = message.toLowerCase();
   if (flow === 'create') {
     if (/genesis/.test(m)) return 'genesis';
@@ -55,11 +56,13 @@ function classify(message: string, flow: 'deposit' | 'redeem' | 'claim' | 'creat
     return 'vault';
   }
   if (/claim/.test(m)) return 'claim';
-  if (/twap|alt|lookup table|preflight|activation/.test(m)) return 'preflight';
+  if (/confirm|mint|share balance|reading share/.test(m)) return 'confirm';
+  if (/twap|alt|lookup table|preflight|activation|preparing/.test(m)) {
+    return 'preflight';
+  }
   return 'swap';
 }
 
-/** Highest phase index reached by any message seen so far (monotonic — never regresses). */
 function furthestPhaseIndex(
   steps: string[],
   phases: Phase[],
@@ -100,44 +103,62 @@ export function TransactionPhases({
     <div
       role="status"
       aria-live="polite"
-      className="rounded-[2px] border border-border bg-foreground/[0.02] px-4 py-3"
+      className="overflow-hidden rounded-[10px] border border-white/[0.07] bg-bg-elevated"
     >
-      <ol className="space-y-2.5">
+      <ol>
         {phases.map((phase, i) => {
           const isDone = active ? i < currentIdx : true;
           const isCurrent = active && i === currentIdx;
           return (
-            <li key={phase.id} className="flex items-center gap-2.5">
+            <li
+              key={phase.id}
+              className={`flex items-center gap-3 px-4 py-3.5 ${
+                isCurrent ? 'bg-background' : ''
+              } ${i > 0 ? 'border-t border-white/[0.06]' : ''}`}
+            >
               <span className="flex size-4 shrink-0 items-center justify-center">
                 {isCurrent ? (
                   <Spinner className="size-3.5 text-accent" />
                 ) : isDone ? (
-                  <span aria-hidden className="text-[13px] leading-none text-accent">
+                  <span
+                    aria-hidden
+                    className="flex size-4 items-center justify-center rounded-full bg-accent/15 text-[11px] leading-none text-accent"
+                  >
                     ✓
                   </span>
                 ) : (
                   <span
                     aria-hidden
-                    className="size-1.5 rounded-full bg-muted-foreground/30"
+                    className="size-4 rounded-full border border-white/10"
                   />
                 )}
               </span>
               <span
-                className={`font-mono text-[11px] uppercase tracking-[0.12em] ${
+                className={`flex-1 font-mono text-[10.5px] uppercase tracking-[0.12em] ${
                   isCurrent
-                    ? 'font-bold text-foreground'
+                    ? 'font-medium text-foreground'
                     : isDone
-                      ? 'text-muted-foreground'
-                      : 'text-muted-foreground/50'
+                      ? 'text-text-faint'
+                      : 'text-[#4A4A50]'
                 }`}
               >
                 {phase.label}
-                {isCurrent && '…'}
               </span>
+              {isCurrent && (
+                <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
+                  Signing
+                </span>
+              )}
             </li>
           );
         })}
       </ol>
+      {active && (
+        <p className="border-t border-white/[0.06] px-4 py-2.5 font-mono text-[10px] leading-relaxed text-text-ghost">
+          Keep this window open — multi-leg transactions need the same wallet
+          session.
+        </p>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { compressImage } from '@/lib/imageCompress';
 import { uploadVaultMetadataImage } from '@/lib/registryClient';
 
@@ -82,14 +82,14 @@ export function ImageDropzone({ value, onChange, onUploadingChange, className }:
       />
 
       {value ? (
-        <div className="relative flex h-full w-full min-h-0 flex-1 items-center justify-center overflow-hidden border border-border-strong bg-background">
+        <div className="relative flex h-full w-full min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[10px] border border-white/[0.09] bg-bg-elevated">
           {/* eslint-disable-next-line @next/next/no-img-element -- external Blob URL, no next/image domain config needed for a preview thumbnail */}
           <img src={value} alt="Vault metadata preview" className="h-full w-full object-cover" />
           <button
             type="button"
             onClick={() => onChange('')}
             aria-label="Remove image"
-            className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center border border-border-strong bg-background/90 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-background/90 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -111,10 +111,10 @@ export function ImageDropzone({ value, onChange, onUploadingChange, className }:
           disabled={uploading}
           aria-label="Upload vault image"
           aria-busy={uploading}
-          className={`flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center gap-2 border-2 border-dashed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-60 ${
+          className={`flex h-full w-full min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-[10px] border border-dashed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-60 ${
             dragOver
-              ? 'border-accent bg-accent/5'
-              : 'border-border-strong hover:border-foreground/50 hover:bg-foreground/[0.02]'
+              ? 'border-accent bg-accent/10'
+              : 'border-white/[0.18] bg-bg-elevated hover:border-accent/40 hover:bg-accent/[0.04]'
           }`}
         >
           {uploading ? (
@@ -123,14 +123,19 @@ export function ImageDropzone({ value, onChange, onUploadingChange, className }:
                 className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent"
                 aria-hidden="true"
               />
-              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-text-dim">
                 Uploading…
               </span>
             </>
           ) : (
             <>
-              <Plus className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
-              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+              <span
+                className="text-[26px] font-light leading-none text-accent"
+                aria-hidden="true"
+              >
+                +
+              </span>
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-text-dim">
                 Add image
               </span>
             </>
