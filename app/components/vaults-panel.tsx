@@ -6,6 +6,7 @@ import type { Network } from '@/lib/onchain/cvault';
 import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
 import { vaultDetailPath } from './console-routes';
 import { VaultListSkeleton } from './loading-skeletons';
+import { inputClass } from './ui-classes';
 
 const ASSET_COLORS = [
   '#C8FF3D',
@@ -57,6 +58,7 @@ export function VaultsPanel({ network }: { network: Network }) {
   const [vaults, setVaults] = useState<VaultRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
   const [feeFilter, setFeeFilter] = useState<FeeFilter>('all');
   const [sizeFilter, setSizeFilter] = useState<SizeFilter>('all');
   const [sort, setSort] = useState<SortKey>('tvl');
@@ -79,8 +81,28 @@ export function VaultsPanel({ network }: { network: Network }) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    setQuery('');
+  }, [network]);
+
   const filtered = useMemo(() => {
     let rows = [...vaults];
+
+    const q = query.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((vault) => {
+        const haystack = [
+          displayName(vault.name),
+          vault.symbol,
+          `cvlt-${vault.vault_id}`,
+          String(vault.vault_id),
+          vault.vault_address,
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(q);
+      });
+    }
 
     if (feeFilter === 'under50') {
       rows = rows.filter((v) => v.deposit_fee_bps < 50);
@@ -116,7 +138,7 @@ export function VaultsPanel({ network }: { network: Network }) {
     }
 
     return rows;
-  }, [vaults, feeFilter, sizeFilter, sort]);
+  }, [vaults, query, feeFilter, sizeFilter, sort]);
 
   const feeCounts = useMemo(() => {
     return {
@@ -215,6 +237,32 @@ export function VaultsPanel({ network }: { network: Network }) {
             </div>
           </div>
 
+          {!loading && !error && vaults.length > 0 && (
+            <div className="px-[22px] pb-5">
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search by name, ticker, ID or address…"
+                  aria-label="Search vaults"
+                  className={inputClass}
+                />
+                {query ? (
+                  <button
+                    type="button"
+                    onClick={() => setQuery('')}
+                    aria-label="Clear search"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[2px] px-2 py-1 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )}
+
           {/* Table header */}
           <div className="hidden grid-cols-[1.7fr_0.9fr_0.9fr_0.7fr] gap-3 border-y border-border bg-bg-elevated px-[22px] py-[11px] font-mono text-[9.5px] tracking-[0.13em] text-text-ghost sm:grid">
             <span>VAULT</span>
@@ -243,7 +291,9 @@ export function VaultsPanel({ network }: { network: Network }) {
 
           {!loading && !error && vaults.length > 0 && filtered.length === 0 && (
             <p className="px-[22px] py-6 text-sm text-text-dim">
-              No vaults match these filters.
+              {query.trim()
+                ? `No vaults match “${query.trim()}”.`
+                : 'No vaults match these filters.'}
             </p>
           )}
 
