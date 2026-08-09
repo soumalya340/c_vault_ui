@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cVault — Own the basket, not the bag</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0A0A0B;
+      --bg-elevated: #0D0D0F;
+      --text: #FAFAFA;
+      --text-muted: #A6A6AC;
+      --text-dim: #8A8A90;
+      --text-faint: #7A7A80;
+      --text-ghost: #6E6E74;
+      --lime: #C8FF3D;
+      --red: #FF6B4D;
+      --border: rgba(255, 255, 255, 0.07);
+      --border-strong: rgba(255, 255, 255, 0.12);
+      --font: 'Inter', 'Geist', system-ui, -apple-system, sans-serif;
+      --mono: 'IBM Plex Mono', 'Geist Mono', ui-monospace, monospace;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100%;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    @keyframes tape {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+
+    @keyframes scan {
+      from { transform: translateY(-40px); opacity: 0; }
+      15% { opacity: 1; }
+      85% { opacity: 1; }
+      to { transform: translateY(520px); opacity: 0; }
+    }
+
+    /* ——— Nav ——— */
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      padding: 0 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-left {
+      display: flex;
+      align-items: center;
+      gap: 26px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: flex-start;
+      gap: 2px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .logo-name {
+      font-size: 19px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+    }
+
+    .logo-plus {
+      font-size: 10px;
+      color: var(--lime);
+      font-weight: 600;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 18px;
+      font-size: 13.5px;
+      font-weight: 500;
+    }
+
+    .nav-links a {
+      color: var(--text-faint);
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+
+    .nav-links a:hover,
+    .nav-links a.active {
+      color: var(--text);
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .slot {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--text-faint);
+      letter-spacing: 0.08em;
+    }
+
+    .wallet {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--border-strong);
+      padding: 6px 11px;
+      border-radius: 99px;
+    }
+
+    .wallet-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--lime);
+      animation: blink 2.2s ease-in-out infinite;
+    }
+
+    .wallet-addr {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: #DADADE;
+    }
+
+    /* ——— Ticker ——— */
+    .ticker {
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+      padding: 9px 0;
+      background: var(--bg-elevated);
+    }
+
+    .ticker-track {
+      display: flex;
+      gap: 28px;
+      width: max-content;
+      animation: tape 36s linear infinite;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    .ticker-track .up { color: var(--lime); }
+    .ticker-track .down { color: var(--red); }
+    .ticker-track .sep { color: #3A3A3F; }
+
+    /* ——— Hero ——— */
+    .hero {
+      position: relative;
+      padding: 96px 22px 84px;
+      text-align: center;
+      overflow: hidden;
+    }
+
+    .hero-glow {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(60% 50% at 50% 0%, rgba(200, 255, 61, 0.10), transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-grid {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 100%;
+      background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+      background-size: 44px 100%;
+      mask-image: linear-gradient(#000, transparent 85%);
+      -webkit-mask-image: linear-gradient(#000, transparent 85%);
+      pointer-events: none;
+    }
+
+    .hero-scan {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(200, 255, 61, 0.55), transparent);
+      animation: scan 9s linear infinite;
+      pointer-events: none;
+    }
+
+    .hero-inner {
+      position: relative;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      border: 1px solid var(--border-strong);
+      border-radius: 99px;
+      padding: 6px 13px;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.14em;
+      color: var(--text-muted);
+    }
+
+    .badge-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--lime);
+    }
+
+    .hero h1 {
+      margin: 26px auto 0;
+      font-size: clamp(48px, 8vw, 94px);
+      line-height: 0.9;
+      letter-spacing: -0.05em;
+      font-weight: 600;
+      max-width: 900px;
+    }
+
+    .hero-sub {
+      margin: 24px auto 0;
+      font-size: 19px;
+      line-height: 1.5;
+      color: var(--text-muted);
+      max-width: 560px;
+    }
+
+    .hero-ctas {
+      display: flex;
+      gap: 11px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 34px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 26px;
+      border-radius: 99px;
+      font-size: 14.5px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+
+    .btn-primary {
+      background: var(--lime);
+      color: var(--bg);
+    }
+
+    .btn-primary:hover {
+      background: #d4ff5c;
+    }
+
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-strong);
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .btn-ghost:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .hero-quote {
+      margin: 44px auto 0;
+      font-size: 14px;
+      color: var(--text-faint);
+      max-width: 420px;
+      line-height: 1.6;
+    }
+
+    /* ——— How it works ——— */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: rgba(255, 255, 255, 0.07);
+      border-top: 1px solid var(--border);
+    }
+
+    .step {
+      background: var(--bg);
+      padding: 30px 24px;
+    }
+
+    .step-num {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--lime);
+      letter-spacing: 0.1em;
+    }
+
+    .step h3 {
+      font-size: 19px;
+      font-weight: 600;
+      margin-top: 12px;
+      letter-spacing: -0.01em;
+    }
+
+    .step p {
+      margin: 9px 0 0;
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--text-dim);
+    }
+
+    /* ——— Stats ——— */
+    .stats {
+      display: flex;
+      align-items: stretch;
+      border-top: 1px solid var(--border);
+    }
+
+    .stat {
+      flex: 1;
+      padding: 26px 24px;
+      border-right: 1px solid var(--border);
+    }
+
+    .stat:last-child { border-right: none; }
+
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      color: var(--text-faint);
+    }
+
+    .stat-value {
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      margin-top: 7px;
+    }
+
+    /* ——— Footer bar ——— */
+    .footer-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 15px 22px;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--text-ghost);
+      letter-spacing: 0.08em;
+    }
+
+    .footer-bar .live { color: var(--lime); }
+
+    @media (max-width: 800px) {
+      .nav-links,
+      .slot { display: none; }
+
+      .steps {
+        grid-template-columns: 1fr;
+      }
+
+      .stats {
+        flex-wrap: wrap;
+      }
+
+      .stat {
+        flex: 1 1 45%;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .stat:nth-child(2n) { border-right: none; }
+
+      .footer-bar {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <div class="nav-left">
+      <a class="logo" href="#">
+        <span class="logo-name">cVault</span>
+        <span class="logo-plus">+</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#" class="active">Discover</a>
+        <a href="#">Create</a>
+        <a href="#">Portfolio</a>
+        <a href="#">Docs</a>
+      </nav>
+    </div>
+    <div class="nav-right">
+      <span class="slot">SLOT 298,441,902</span>
+      <div class="wallet">
+        <span class="wallet-dot"></span>
+        <span class="wallet-addr">cyai…FkrF</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker-track">
+      <span>SOL5 1.0847 <span class="up">▲2.31</span></span><span class="sep">|</span>
+      <span>DEFI7 0.9612 <span class="down">▼0.84</span></span><span class="sep">|</span>
+      <span>LSTX 1.2410 <span class="up">▲1.07</span></span><span class="sep">|</span>
+      <span>STBL 1.0192 <span class="up">▲0.02</span></span><span class="sep">|</span>
+      <span>AI3 0.8104 <span class="up">▲5.62</span></span><span class="sep">|</span>
+      <span>MEME4 0.4471 <span class="down">▼7.18</span></span><span class="sep">|</span>
+      <span>SOL5 1.0847 <span class="up">▲2.31</span></span><span class="sep">|</span>
+      <span>DEFI7 0.9612 <span class="down">▼0.84</span></span><span class="sep">|</span>
+      <span>LSTX 1.2410 <span class="up">▲1.07</span></span><span class="sep">|</span>
+      <span>STBL 1.0192 <span class="up">▲0.02</span></span><span class="sep">|</span>
+      <span>AI3 0.8104 <span class="up">▲5.62</span></span><span class="sep">|</span>
+      <span>MEME4 0.4471 <span class="down">▼7.18</span></span><span class="sep">|</span>
+    </div>
+  </div>
+
+  <section class="hero">
+    <div class="hero-glow"></div>
+    <div class="hero-grid"></div>
+    <div class="hero-scan"></div>
+    <div class="hero-inner">
+      <div class="badge">
+        <span class="badge-dot"></span>
+        DECENTRALIZED TOKEN FUND · SOLANA
+      </div>
+      <h1>Own the basket,<br>not the bag</h1>
+      <p class="hero-sub">Deposit once. Own the fund. Exit on your terms.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="#">Browse vaults</a>
+        <a class="btn btn-ghost" href="#">Create an ETF</a>
+      </div>
+      <p class="hero-quote">
+        A share is not a promise to pay you later — it is a claim you already own.
+      </p>
+    </div>
+  </section>
+
+  <section class="steps">
+    <div class="step">
+      <div class="step-num">01</div>
+      <h3>Pick a vault</h3>
+      <p>Every vault publishes its basket, weights, fees and program address before you deposit.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <h3>Deposit USDC</h3>
+      <p>One transaction routes the basket swap and mints shares at live NAV.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <h3>Redeem anytime</h3>
+      <p>Burn shares to take the underlying tokens pro rata, or exit straight to USDC.</p>
+    </div>
+  </section>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="stat-label">TVL</div>
+      <div class="stat-value">$18.4M</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">VAULTS</div>
+      <div class="stat-value">27</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">24H MINT VOLUME</div>
+      <div class="stat-value">$812K</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">CREATORS</div>
+      <div class="stat-value">41</div>
+    </div>
+  </section>
+
+  <footer class="footer-bar">
+    <span>PROGRAM 7zXNwt3N…pTKVTg9P</span>
+    <span>VAULT HD47s2rY…mvcMMsdG</span>
+    <span class="live">MAINNET</span>
+  </footer>
+</body>
+</html>

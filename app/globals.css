@@ -5,19 +5,23 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  color-scheme: light;
-  /* Specimen-note palette: engraved certificate on sage banknote paper.
-     Brand tokens win over shadcn defaults — do not replace with stock white/neutral light theme. */
-  --background: #E5E8DB;
-  --foreground: #17251C;
-  --accent: #2E5C44;
-  --moss: #356049;
-  --position: #5E4B8A;
-  --seal: #A63A2B;
-  --destructive: #96301F;
-  --muted-foreground: rgba(23, 37, 28, 0.62);
-  --border: rgba(23, 37, 28, 0.22);
-  --border-strong: rgba(23, 37, 28, 0.55);
+  color-scheme: dark;
+  /* cVault dark terminal — matches new_ui HTML mockups */
+  --background: #0A0A0B;
+  --bg-elevated: #0D0D0F;
+  --foreground: #FAFAFA;
+  --accent: #C8FF3D;
+  --moss: #C8FF3D;
+  --position: #B78CFF;
+  --seal: #C8FF3D;
+  --destructive: #FF6B4D;
+  --muted-foreground: #A6A6AC;
+  --text-dim: #8A8A90;
+  --text-faint: #7A7A80;
+  --text-ghost: #6E6E74;
+  --text-placeholder: #4E4E54;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
 
   /* ── transitions-dev motion tokens ───────────────────────────── */
   --duration-stagger: 40ms;
@@ -57,13 +61,13 @@
   --acc-collapse: 250ms;
   --acc-chevron: 250ms;
   --acc-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  /* Tabs sliding — certificate theme */
+  /* Tabs sliding — dark theme lime pill */
   --tabs-dur: 250ms;
   --tabs-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --tabs-text-muted: rgba(23, 37, 28, 0.62);
-  --tabs-text-active: #e5e8db;
-  --tabs-bar-bg: transparent;
-  --tabs-pill-bg: #2e5c44;
+  --tabs-text-muted: #8A8A90;
+  --tabs-text-active: #0A0A0B;
+  --tabs-bar-bg: rgba(255, 255, 255, 0.04);
+  --tabs-pill-bg: #C8FF3D;
   /* Error state shake */
   --shake-distance: 6px;
   --shake-overshoot: 4px;
@@ -72,10 +76,10 @@
   --shake-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --revert-hold: 3000ms;
   --revert-dur: 280ms;
-  /* Shimmer text — sage paper */
+  /* Shimmer text */
   --shimmer-dur: 2000ms;
-  --shimmer-base: rgba(23, 37, 28, 0.45);
-  --shimmer-highlight: #17251c;
+  --shimmer-base: rgba(250, 250, 250, 0.35);
+  --shimmer-highlight: #FAFAFA;
   --shimmer-band: 400%;
   --shimmer-ease: linear;
   /* Texts reveal */
@@ -85,37 +89,38 @@
   --stagger-blur: 3px;
   --stagger-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* shadcn structural tokens mapped onto specimen-note (not stock white) */
-  --card: #E5E8DB;
-  --card-foreground: #17251C;
-  --popover: #E5E8DB;
-  --popover-foreground: #17251C;
-  --primary: #2E5C44;
-  --primary-foreground: #E5E8DB;
-  --secondary: color-mix(in srgb, #17251C 8%, #E5E8DB);
-  --secondary-foreground: #17251C;
-  --muted: color-mix(in srgb, #17251C 6%, #E5E8DB);
-  --accent-foreground: #E5E8DB;
-  --input: rgba(23, 37, 28, 0.22);
-  --ring: #2E5C44;
-  --chart-1: #2E5C44;
-  --chart-2: #5E4B8A;
-  --chart-3: #A63A2B;
-  --chart-4: rgba(23, 37, 28, 0.55);
-  --chart-5: #17251C;
+  /* shadcn structural tokens — dark terminal */
+  --card: #0D0D0F;
+  --card-foreground: #FAFAFA;
+  --popover: #0D0D0F;
+  --popover-foreground: #FAFAFA;
+  --primary: #C8FF3D;
+  --primary-foreground: #0A0A0B;
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #FAFAFA;
+  --muted: rgba(255, 255, 255, 0.04);
+  --accent-foreground: #0A0A0B;
+  --input: rgba(255, 255, 255, 0.11);
+  --ring: #C8FF3D;
+  --chart-1: #C8FF3D;
+  --chart-2: #5AC8E8;
+  --chart-3: #B78CFF;
+  --chart-4: #FF9E4D;
+  --chart-5: #FF6B4D;
   --radius: 0.625rem;
-  --sidebar: #E5E8DB;
-  --sidebar-foreground: #17251C;
-  --sidebar-primary: #2E5C44;
-  --sidebar-primary-foreground: #E5E8DB;
-  --sidebar-accent: color-mix(in srgb, #17251C 8%, #E5E8DB);
-  --sidebar-accent-foreground: #17251C;
-  --sidebar-border: rgba(23, 37, 28, 0.22);
-  --sidebar-ring: #2E5C44;
+  --sidebar: #0A0A0B;
+  --sidebar-foreground: #FAFAFA;
+  --sidebar-primary: #C8FF3D;
+  --sidebar-primary-foreground: #0A0A0B;
+  --sidebar-accent: rgba(255, 255, 255, 0.06);
+  --sidebar-accent-foreground: #FAFAFA;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
+  --sidebar-ring: #C8FF3D;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-bg-elevated: var(--bg-elevated);
   --color-foreground: var(--foreground);
   --color-accent: var(--accent);
   --color-moss: var(--moss);
@@ -123,12 +128,16 @@
   --color-seal: var(--seal);
   --color-destructive: var(--destructive);
   --color-muted-foreground: var(--muted-foreground);
+  --color-text-dim: var(--text-dim);
+  --color-text-faint: var(--text-faint);
+  --color-text-ghost: var(--text-ghost);
+  --color-text-placeholder: var(--text-placeholder);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-plex-mono);
-  --font-display: var(--font-bodoni);
-  --font-heading: var(--font-sans);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-display: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -166,30 +175,16 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), sans-serif;
-  /* Laid-paper texture: fine horizontal chain lines, like security paper */
-  background-image: repeating-linear-gradient(
-      0deg,
-      rgba(23, 37, 28, 0.025) 0px,
-      rgba(23, 37, 28, 0.025) 1px,
-      transparent 1px,
-      transparent 4px
-    ),
-    radial-gradient(
-      ellipse 120% 90% at 50% 0%,
-      rgba(46, 92, 68, 0.07),
-      transparent 60%
-    );
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Double-rule certificate frame: thick outer rule, hairline inner rule */
+/* Legacy frame class — now a simple elevated surface border */
 .cert-frame {
-  border: 1.5px solid var(--border-strong);
-  box-shadow: inset 0 0 0 3px var(--background),
-    inset 0 0 0 4px var(--border);
+  border: 1px solid var(--border-strong);
+  background: var(--background);
 }
 
-/* Microprint security rule: tiny repeating text, unreadable at a glance */
 .microprint {
   overflow: hidden;
   white-space: nowrap;
@@ -197,48 +192,34 @@ body {
   font-size: 5px;
   letter-spacing: 0.35em;
   line-height: 1;
-  color: var(--muted-foreground);
+  color: var(--text-ghost);
   opacity: 0.75;
   user-select: none;
 }
 
-/* Rubber-stamp treatment for the SPECIMEN / DEVNET overprint */
 .stamp {
   display: inline-flex;
   align-items: center;
   gap: 0.5em;
-  border: 1.5px solid var(--seal);
-  box-shadow: inset 0 0 0 3px var(--background), inset 0 0 0 4px var(--seal);
-  color: var(--seal);
+  border: 1px solid var(--accent);
+  color: var(--accent);
   padding: 0.45em 0.9em;
-  transform: rotate(-2deg);
   font-family: var(--font-mono), monospace;
-  font-weight: 700;
-  letter-spacing: 0.22em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.9 0.25'/%3E%3C/filter%3E%3Crect width='120' height='120' fill='white'/%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.9 0.25'/%3E%3C/filter%3E%3Crect width='120' height='120' fill='white'/%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  border-radius: 99px;
 }
 
-/* Engraved-outline display type: intaglio line work, no fill */
 .type-engraved {
-  color: transparent;
-  -webkit-text-stroke: 1.5px var(--foreground);
+  color: var(--foreground);
 }
 
-@supports not (-webkit-text-stroke: 1px black) {
-  .type-engraved {
-    color: var(--foreground);
-  }
-}
-
-/* Motto band: the engraved aphorism cut into a certificate's counter —
-   small-caps italic, notarized in the violet ink reserved for ownership. */
 .motto-band {
   display: inline-flex;
   align-items: center;
   gap: 0.85em;
-  color: var(--position);
+  color: var(--text-faint);
 }
 
 .motto-band::before,
@@ -249,7 +230,7 @@ body {
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in srgb, var(--position) 55%, transparent)
+    color-mix(in srgb, var(--text-ghost) 55%, transparent)
   );
 }
 
@@ -263,7 +244,7 @@ body {
   opacity: 0.8;
 }
 
-/* Instrument ticker: banknote serial band scrolling across the plate */
+/* Ticker tape */
 @keyframes ticker-scroll {
   from {
     transform: translateX(0);
@@ -274,16 +255,49 @@ body {
 }
 
 .ticker-track {
-  animation: ticker-scroll 32s linear infinite;
+  animation: ticker-scroll 36s linear infinite;
 }
 
-/* Vertical serial rails on the hero plate edges */
+@keyframes blink-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.wallet-dot-live {
+  animation: blink-dot 2.2s ease-in-out infinite;
+}
+
+@keyframes hero-scan {
+  from {
+    transform: translateY(-40px);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(520px);
+    opacity: 0;
+  }
+}
+
+.hero-scan-line {
+  animation: hero-scan 9s linear infinite;
+}
+
 .serial-rail {
   writing-mode: vertical-rl;
   text-orientation: mixed;
 }
 
-/* Engine-turned guilloche watermark: slow rotation, like a lathe at rest */
 @keyframes guilloche-turn {
   from {
     transform: rotate(0deg);
@@ -413,7 +427,7 @@ body {
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border-radius: 2px;
+  border-radius: 99px;
   background: var(--tabs-bar-bg);
 }
 .t-tab {
@@ -425,7 +439,7 @@ body {
   padding: 0.25rem 0.625rem;
   color: var(--tabs-text-muted);
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 99px;
   z-index: 1;
   transition: color var(--tabs-dur) var(--tabs-ease);
 }
@@ -444,7 +458,7 @@ body {
   height: calc(100% - 4px);
   width: 0;
   background: var(--tabs-pill-bg);
-  border-radius: 2px;
+  border-radius: 99px;
   transform: translateX(0);
   transition:
     transform var(--tabs-dur) var(--tabs-ease),
@@ -594,7 +608,10 @@ body {
     animation: none !important;
   }
 
-  .guilloche {
+  .guilloche,
+  .ticker-track,
+  .wallet-dot-live,
+  .hero-scan-line {
     animation: none;
   }
 
@@ -605,40 +622,6 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {

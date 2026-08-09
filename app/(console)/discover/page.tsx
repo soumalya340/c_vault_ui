@@ -1,9 +1,9 @@
 'use client';
 
-import { SectionView } from '@/app/components/section-view';
+import { VaultsPanel } from '@/app/components/vaults-panel';
 import { useConsoleNetwork } from '@/app/components/console-shell';
 
 export default function DiscoverPage() {
   const { network } = useConsoleNetwork();
-  return <SectionView section="vaults" network={network} />;
+  return <VaultsPanel network={network} />;
 }

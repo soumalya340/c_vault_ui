@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cVault — Discover</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  background:#0A0A0B;
+  color:#FAFAFA;
+  font-family:'Inter', 'Geist', system-ui, -apple-system, sans-serif;
+  min-height:100%;
+  -webkit-font-smoothing:antialiased;
+}
+a { color:inherit; text-decoration:none; }
+.page {
+  min-height:100vh;
+  background:#0A0A0B;
+  color:#FAFAFA;
+  font-family:'Inter', 'Geist', system-ui, sans-serif;
+  overflow-x:auto;
+}
+@keyframes blink { 0%,100% { opacity:1; } 50% { opacity:.2; } }
+@keyframes tape { from { transform:translateX(0); } to { transform:translateX(-50%); } }
+@keyframes scan { from { transform:translateY(-40px); } to { transform:translateY(760px); } }
+@keyframes tick { 0%,100% { opacity:1; } 50% { opacity:.55; } }
+@media (max-width: 900px) {
+  .page > div[style*="grid-template-columns:212px"] {
+    display:block !important;
+  }
+}
+</style>
+</head>
+<body>
+<!-- ---- 1B / DISCOVER ---- -->
+      <div class="page" style=" background:#0A0A0B; color:#FAFAFA;">
+        <div style="display:flex; align-items:center; justify-content:space-between; height:60px; padding:0 22px; border-bottom:1px solid rgba(255,255,255,0.07);">
+          <div style="display:flex; align-items:center; gap:26px;">
+            <div style="display:flex; align-items:flex-start; gap:2px;"><span style="font-size:19px; font-weight:600; letter-spacing:-0.03em;">cVault</span><span style="font-size:10px; color:#C8FF3D; font-weight:600;">+</span></div>
+            <div style="display:flex; gap:18px; font-size:13.5px; font-weight:500;">
+              <span style="color:#C8FF3D;">Discover</span><span style="color:#7A7A80;">Create</span><span style="color:#7A7A80;">Portfolio</span><span style="color:#7A7A80;">Docs</span>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; border:1px solid rgba(255,255,255,0.12); padding:6px 11px; border-radius:99px;">
+            <span style="width:6px; height:6px; border-radius:50%; background:#C8FF3D;"></span>
+            <span style="font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:#DADADE;">cyai…FkrF</span>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:212px 1fr;">
+          <div style="border-right:1px solid rgba(255,255,255,0.07); padding:24px 20px; display:flex; flex-direction:column; gap:26px;">
+            <div>
+              <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.14em; color:#6E6E74;">CATEGORY</div>
+              <div style="display:flex; flex-direction:column; gap:2px; margin-top:12px; font-size:13.5px;">
+                <span style="padding:7px 9px; border-radius:6px; background:rgba(200,255,61,0.1); color:#C8FF3D;">All vaults <span style="color:#8A8A90;">27</span></span>
+                <span style="padding:7px 9px; color:#A6A6AC;">Blue chip <span style="color:#6E6E74;">6</span></span>
+                <span style="padding:7px 9px; color:#A6A6AC;">DeFi <span style="color:#6E6E74;">8</span></span>
+                <span style="padding:7px 9px; color:#A6A6AC;">Liquid staking <span style="color:#6E6E74;">4</span></span>
+                <span style="padding:7px 9px; color:#A6A6AC;">Stables <span style="color:#6E6E74;">3</span></span>
+                <span style="padding:7px 9px; color:#A6A6AC;">High beta <span style="color:#6E6E74;">6</span></span>
+              </div>
+            </div>
+            <div>
+              <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.14em; color:#6E6E74;">MGMT FEE</div>
+              <div style="display:flex; flex-direction:column; gap:2px; margin-top:12px; font-size:13.5px;">
+                <span style="padding:7px 9px; color:#A6A6AC;">Under 0.50%</span>
+                <span style="padding:7px 9px; color:#A6A6AC;">0.50 – 1.00%</span>
+                <span style="padding:7px 9px; color:#A6A6AC;">Over 1.00%</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.14em; color:#6E6E74;">SIZE</div>
+              <div style="display:flex; flex-direction:column; gap:2px; margin-top:12px; font-size:13.5px;">
+                <span style="padding:7px 9px; color:#A6A6AC;">Over $1M TVL</span>
+                <span style="padding:7px 9px; color:#A6A6AC;">New this week</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div style="display:flex; align-items:flex-end; justify-content:space-between; padding:26px 22px 20px;">
+              <div>
+                <h2 style="margin:0; font-size:32px; font-weight:600; letter-spacing:-0.03em;">All vaults</h2>
+                <p style="margin:6px 0 0; font-size:14px; color:#8A8A90;">Sorted by total value locked · you hold no shares yet</p>
+              </div>
+              <div style="display:flex; gap:7px; font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:0.08em;">
+                <span style="border:1px solid rgba(255,255,255,0.12); padding:7px 11px; border-radius:99px; color:#DADADE;">TVL ↓</span>
+                <span style="border:1px solid rgba(255,255,255,0.12); padding:7px 11px; border-radius:99px; color:#7A7A80;">24H</span>
+                <span style="border:1px solid rgba(255,255,255,0.12); padding:7px 11px; border-radius:99px; color:#7A7A80;">NEW</span>
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.7fr 0.9fr 0.7fr 0.9fr 0.7fr 0.8fr; gap:12px; padding:11px 22px; border-top:1px solid rgba(255,255,255,0.07); border-bottom:1px solid rgba(255,255,255,0.07); font-family:'IBM Plex Mono', monospace; font-size:9.5px; letter-spacing:0.13em; color:#6E6E74; background:#0D0D0F;">
+              <span>VAULT</span><span style="text-align:right;">NAV</span><span style="text-align:right;">24H</span><span style="text-align:right;">TVL</span><span style="text-align:right;">MGMT</span><span style="text-align:right;">HOLDERS</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.7fr 0.9fr 0.7fr 0.9fr 0.7fr 0.8fr; gap:12px; padding:16px 22px; border-bottom:1px solid rgba(255,255,255,0.06); align-items:center; background:rgba(200,255,61,0.03);">
+              <div style="display:flex; align-items:center; gap:11px;">
+                <span style="display:flex;"><span style="width:22px; height:22px; border-radius:50%; background:#C8FF3D;"></span><span style="width:22px; height:22px; border-radius:50%; background:#5AC8E8; margin-left:-8px;"></span><span style="width:22px; height:22px; border-radius:50%; background:#B78CFF; margin-left:-8px;"></span></span>
+                <span><span style="font-family:'IBM Plex Mono', monospace; font-size:13px;">SOL5</span><span style="font-size:13.5px; color:#8A8A90; margin-left:9px;">Solana Blue Chip Five</span></span>
+              </div>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">1.0847</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#C8FF3D;">+2.31%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">$4.28M</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">0.75%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">1,204</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.7fr 0.9fr 0.7fr 0.9fr 0.7fr 0.8fr; gap:12px; padding:16px 22px; border-bottom:1px solid rgba(255,255,255,0.06); align-items:center;">
+              <div style="display:flex; align-items:center; gap:11px;">
+                <span style="display:flex;"><span style="width:22px; height:22px; border-radius:50%; background:#5AC8E8;"></span><span style="width:22px; height:22px; border-radius:50%; background:#FF9E4D; margin-left:-8px;"></span><span style="width:22px; height:22px; border-radius:50%; background:#B78CFF; margin-left:-8px;"></span></span>
+                <span><span style="font-family:'IBM Plex Mono', monospace; font-size:13px;">STBL</span><span style="font-size:13.5px; color:#8A8A90; margin-left:9px;">Stable Yield Core</span></span>
+              </div>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">1.0192</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#C8FF3D;">+0.02%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">$5.02M</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">0.25%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">2,860</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.7fr 0.9fr 0.7fr 0.9fr 0.7fr 0.8fr; gap:12px; padding:16px 22px; border-bottom:1px solid rgba(255,255,255,0.06); align-items:center;">
+              <div style="display:flex; align-items:center; gap:11px;">
+                <span style="display:flex;"><span style="width:22px; height:22px; border-radius:50%; background:#B78CFF;"></span><span style="width:22px; height:22px; border-radius:50%; background:#C8FF3D; margin-left:-8px;"></span><span style="width:22px; height:22px; border-radius:50%; background:#5AC8E8; margin-left:-8px;"></span></span>
+                <span><span style="font-family:'IBM Plex Mono', monospace; font-size:13px;">DEFI7</span><span style="font-size:13.5px; color:#8A8A90; margin-left:9px;">Solana DeFi Index</span></span>
+              </div>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">0.9612</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#FF6B4D;">−0.84%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">$3.11M</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">0.90%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">947</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.7fr 0.9fr 0.7fr 0.9fr 0.7fr 0.8fr; gap:12px; padding:16px 22px; border-bottom:1px solid rgba(255,255,255,0.06); align-items:center;">
+              <div style="display:flex; align-items:center; gap:11px;">
+                <span style="display:flex;"><span style="width:22px; height:22px; border-radius:50%; background:#C8FF3D;"></span><span style="width:22px; height:22px; border-radius:50%; background:#7DE8A8; margin-left:-8px;"></span><span style="width:22px; height:22px; border-radius:50%; background:#5AC8E8; margin-left:-8px;"></span></span>
+                <span><span style="font-family:'IBM Plex Mono', monospace; font-size:13px;">LSTX</span><span style="font-size:13.5px; color:#8A8A90; margin-left:9px;">Liquid Staking Basket</span></span>
+              </div>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">1.2410</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#C8FF3D;">+1.07%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">$2.87M</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">0.50%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">1,613</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.7fr 0.9fr 0.7fr 0.9fr 0.7fr 0.8fr; gap:12px; padding:16px 22px; border-bottom:1px solid rgba(255,255,255,0.06); align-items:center;">
+              <div style="display:flex; align-items:center; gap:11px;">
+                <span style="display:flex;"><span style="width:22px; height:22px; border-radius:50%; background:#FF6B4D;"></span><span style="width:22px; height:22px; border-radius:50%; background:#B78CFF; margin-left:-8px;"></span><span style="width:22px; height:22px; border-radius:50%; background:#FF9E4D; margin-left:-8px;"></span></span>
+                <span><span style="font-family:'IBM Plex Mono', monospace; font-size:13px;">AI3</span><span style="font-size:13.5px; color:#8A8A90; margin-left:9px;">AI &amp; DePIN Three</span></span>
+              </div>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">0.8104</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#C8FF3D;">+5.62%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">$1.44M</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">1.20%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">508</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.7fr 0.9fr 0.7fr 0.9fr 0.7fr 0.8fr; gap:12px; padding:16px 22px; border-bottom:1px solid rgba(255,255,255,0.06); align-items:center;">
+              <div style="display:flex; align-items:center; gap:11px;">
+                <span style="display:flex;"><span style="width:22px; height:22px; border-radius:50%; background:#FF9E4D;"></span><span style="width:22px; height:22px; border-radius:50%; background:#FF6B4D; margin-left:-8px;"></span><span style="width:22px; height:22px; border-radius:50%; background:#B78CFF; margin-left:-8px;"></span></span>
+                <span><span style="font-family:'IBM Plex Mono', monospace; font-size:13px;">MEME4</span><span style="font-size:13.5px; color:#8A8A90; margin-left:9px;">High Beta Four</span></span>
+              </div>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">0.4471</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#FF6B4D;">−7.18%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">$0.91M</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">1.50%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">2,041</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.7fr 0.9fr 0.7fr 0.9fr 0.7fr 0.8fr; gap:12px; padding:16px 22px; align-items:center;">
+              <div style="display:flex; align-items:center; gap:11px;">
+                <span style="display:flex;"><span style="width:22px; height:22px; border-radius:50%; background:#7DE8A8;"></span><span style="width:22px; height:22px; border-radius:50%; background:#5AC8E8; margin-left:-8px;"></span><span style="width:22px; height:22px; border-radius:50%; background:#C8FF3D; margin-left:-8px;"></span></span>
+                <span><span style="font-family:'IBM Plex Mono', monospace; font-size:13px;">RWA2</span><span style="font-size:13.5px; color:#8A8A90; margin-left:9px;">Tokenised Treasury Pair</span></span>
+              </div>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">1.0431</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#C8FF3D;">+0.01%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right;">$0.78M</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">0.35%</span>
+              <span style="font-family:'IBM Plex Mono', monospace; font-size:14px; text-align:right; color:#A6A6AC;">312</span>
+            </div>
+          </div>
+        </div>
+      </div>
+</body>
+</html>

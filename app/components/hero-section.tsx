@@ -4,89 +4,47 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Network } from '@/app/providers';
 import { btnPrimaryClass, btnSecondaryClass } from '@/app/components/ui-classes';
-import { ClusterLiveLabel, LocalhostStamp } from './cluster-status';
-import { SECTION_STYLE, type SectionId } from './function-defs';
-import { SECTION_META } from './section-header';
 import { sectionPath } from './console-routes';
+import { ConsoleFooterBar } from './console-shell';
+import { fetchVaults } from '@/lib/registryClient';
 
 const TICKER_ITEMS = [
-  'DEP · Deposit',
-  'RDM · Redeem',
-  'NAV · Read NAV',
-  'CRT · Create',
-  'USDC · Quote mint',
-  'ORCA · Whirlpool',
-  'DAMM · V2 pools',
-  'PYTH · Oracle',
+  { sym: 'SOL5', nav: '1.0847', chg: '+2.31', up: true },
+  { sym: 'DEFI7', nav: '0.9612', chg: '−0.84', up: false },
+  { sym: 'LSTX', nav: '1.2410', chg: '+1.07', up: true },
+  { sym: 'STBL', nav: '1.0192', chg: '+0.02', up: true },
+  { sym: 'AI3', nav: '0.8104', chg: '+5.62', up: true },
+  { sym: 'MEME4', nav: '0.4471', chg: '−7.18', up: false },
 ] as const;
 
-// Admin lives at the gated /admin dashboard — wallet menu "Dashboard" only.
-// View read-ops live on each vault detail page (/discover/{id}), not a home plate.
-const SECTION_IDS = ['vaults', 'vault-ops'] as const satisfies readonly Exclude<
-  SectionId,
-  'admin' | 'view'
->[];
+const STEPS = [
+  {
+    num: '01',
+    title: 'Pick a vault',
+    body: 'Every vault publishes its basket, weights, fees and program address before you deposit.',
+  },
+  {
+    num: '02',
+    title: 'Deposit USDC',
+    body: 'One transaction routes the basket swap and mints shares at live NAV.',
+  },
+  {
+    num: '03',
+    title: 'Redeem anytime',
+    body: 'Burn shares to take the underlying tokens pro rata, or exit straight to USDC.',
+  },
+] as const;
 
-export function GuillocheRosette({ className }: { className?: string }) {
-  const petals = Array.from({ length: 18 }, (_, i) => i * 10);
-  const inner = Array.from({ length: 12 }, (_, i) => i * 15 + 5);
-  return (
-    <svg
-      viewBox="0 0 400 400"
-      className={className}
-      aria-hidden
-      fill="none"
-      stroke="currentColor"
-    >
-      <g className="guilloche">
-        {petals.map((deg) => (
-          <ellipse
-            key={`p${deg}`}
-            cx="200"
-            cy="200"
-            rx="192"
-            ry="56"
-            strokeWidth="0.6"
-            transform={`rotate(${deg} 200 200)`}
-          />
-        ))}
-        {inner.map((deg) => (
-          <ellipse
-            key={`i${deg}`}
-            cx="200"
-            cy="200"
-            rx="118"
-            ry="26"
-            strokeWidth="0.5"
-            transform={`rotate(${deg} 200 200)`}
-          />
-        ))}
-        <circle cx="200" cy="200" r="196" strokeWidth="0.8" />
-        <circle cx="200" cy="200" r="122" strokeWidth="0.5" />
-        <circle cx="200" cy="200" r="58" strokeWidth="0.5" />
-      </g>
-    </svg>
-  );
-}
-
-function SerialRail({ side, text }: { side: 'left' | 'right'; text: string }) {
-  return (
-    <span
-      aria-hidden
-      className={`serial-rail pointer-events-none absolute inset-y-0 hidden items-center justify-center font-mono text-[9px] uppercase tracking-[0.5em] text-muted-foreground/70 lg:flex ${
-        side === 'left'
-          ? 'left-0 border-r border-border'
-          : 'right-0 rotate-180 border-l border-border'
-      } w-9`}
-    >
-      {text}
-    </span>
-  );
+function formatCompactUsd(raw: string | number | null | undefined): string {
+  const n = typeof raw === 'string' ? Number(raw.replace(/[$,\s]/g, '')) : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+  return `$${n.toFixed(0)}`;
 }
 
 export function HeroSection({
   network,
-  vaultId,
   vaultShort,
   programShort,
 }: {
@@ -95,132 +53,193 @@ export function HeroSection({
   vaultShort: string;
   programShort: string;
 }) {
-  const tickerRun = [...TICKER_ITEMS, ...TICKER_ITEMS];
-  const [heroShown, setHeroShown] = useState(false);
+  const [vaultCount, setVaultCount] = useState<number | null>(null);
+  const [assetCount, setAssetCount] = useState<number | null>(null);
+  const [tvlLabel, setTvlLabel] = useState<string>('—');
+  const [creators, setCreators] = useState<number | null>(null);
 
   useEffect(() => {
-    const id = requestAnimationFrame(() => setHeroShown(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
+    let cancelled = false;
+    fetchVaults(network)
+      .then((rows) => {
+        if (cancelled) return;
+        // Stats only count vaults that finished genesis (live / investable).
+        const live = rows.filter((v) => Boolean(v.genesis_deposit_status));
+        setVaultCount(live.length);
+        const creatorsSet = new Set(live.map((r) => r.creator).filter(Boolean));
+        setCreators(creatorsSet.size);
+
+        // Unique assets across live vault baskets (fallback: sum of num_assets).
+        const uniqueIds = new Set<number>();
+        let assetSlots = 0;
+        for (const r of live) {
+          assetSlots += Number(r.num_assets) || 0;
+          for (const id of r.asset_ids ?? []) {
+            const n = Number(id);
+            if (Number.isFinite(n)) uniqueIds.add(n);
+          }
+        }
+        setAssetCount(uniqueIds.size > 0 ? uniqueIds.size : assetSlots);
+
+        let tvl = 0;
+        let any = false;
+        for (const r of live) {
+          const n = Number(String(r.total_usdc_value ?? '').replace(/[$,\s]/g, ''));
+          if (Number.isFinite(n) && n > 0) {
+            tvl += n;
+            any = true;
+          }
+        }
+        setTvlLabel(any ? formatCompactUsd(tvl) : '—');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVaultCount(null);
+        setAssetCount(null);
+        setCreators(null);
+        setTvlLabel('—');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [network]);
+
+  const tickerRun = [...TICKER_ITEMS, ...TICKER_ITEMS];
 
   return (
-    <section className="flex flex-col gap-6" aria-label="cVault overview">
-      <div className="relative isolate overflow-hidden border-[1.5px] border-border-strong bg-background">
-        <GuillocheRosette className="pointer-events-none absolute left-1/2 top-1/2 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 text-accent opacity-[0.16] sm:h-[720px] sm:w-[720px] md:h-[880px] md:w-[880px]" />
-
-        <SerialRail side="left" text={`Series 2026 · № CVLT-${vaultId}`} />
-        <SerialRail side="right" text={`Solana · ${network} · c-vault`} />
-
-        <div
-          className={`t-stagger relative flex flex-col items-center gap-6 px-6 py-14 text-center sm:py-16 md:py-20 lg:px-16 ${
-            heroShown ? 'is-shown' : ''
-          }`}
-        >
-          <p className="t-stagger-line t-stagger-line--1 m-0 font-mono text-[10px] font-medium uppercase tracking-[0.4em] text-muted-foreground">
-            Decentralized token fund · Solana
-          </p>
-
-          <div className="t-stagger-line t-stagger-line--2 relative">
-            <h1 className="m-0 font-display text-[clamp(52px,12vw,164px)] font-bold uppercase leading-[0.9] tracking-[0.01em] text-foreground">
-              <span className="block">Vault</span>
-              <span className="type-engraved block">Operations</span>
-            </h1>
-
-            <LocalhostStamp />
-          </div>
-
-          <p className="t-stagger-line t-stagger-line--3 m-0 max-w-[46ch] font-display text-[clamp(17px,1.6vw,22px)] font-medium leading-[1.55] tracking-[0.01em] text-muted-foreground">
-            Deposit once.{' '}
-            <span className="text-foreground">Own the fund.</span>{' '}
-            Exit on your terms.
-          </p>
-
-          <p className="motto-band t-stagger-line t-stagger-line--3 m-0 max-w-[38ch] font-display text-[clamp(12px,1.1vw,14px)] italic leading-[1.5] tracking-[0.01em]">
-            <span className="motto-mark" aria-hidden>&#10022;</span>
-            A share is not a promise to pay you later — it is a claim you already own.
-            <span className="motto-mark" aria-hidden>&#10022;</span>
-          </p>
-
-          <div className="mt-2 flex w-full flex-col items-stretch justify-center gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
-            <Link
-              href={sectionPath('vaults')}
-              className={`${btnPrimaryClass} min-h-11`}
-            >
-              Browse vaults
-            </Link>
-            <Link
-              href={sectionPath('vault-ops')}
-              className={`${btnSecondaryClass} min-h-11`}
-            >
-              Open create
-            </Link>
-          </div>
-        </div>
-
-        <div
-          aria-hidden
-          className="relative flex overflow-hidden border-t-[1.5px] border-border-strong bg-foreground py-2.5"
-        >
-          <div className="ticker-track flex w-max shrink-0 items-center">
-            {tickerRun.map((item, i) => (
-              <span
-                key={`${item}-${i}`}
-                className="flex items-center gap-6 px-3 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-background"
-              >
-                {item}
-                <span className="text-background/40">&#10022;</span>
+    <div className="flex flex-1 flex-col">
+      {/* Ticker */}
+      <div
+        className="overflow-hidden border-b border-border bg-bg-elevated py-[9px]"
+        aria-hidden
+      >
+        <div className="ticker-track flex w-max gap-7 whitespace-nowrap font-mono text-[11px] text-text-dim">
+          {tickerRun.map((item, i) => (
+            <span key={`${item.sym}-${i}`} className="inline-flex items-center gap-7">
+              <span>
+                {item.sym} {item.nav}{' '}
+                <span className={item.up ? 'text-accent' : 'text-destructive'}>
+                  {item.up ? '▲' : '▼'}
+                  {item.chg.replace(/^[+−-]/, '')}
+                </span>
               </span>
-            ))}
-          </div>
-        </div>
-
-        <div
-          className="relative flex flex-col items-center justify-between gap-2 border-t border-border px-6 py-3 font-mono text-[10px] font-bold tracking-[0.1em] text-seal sm:flex-row sm:text-[11px]"
-          role="status"
-        >
-          <span className="tabular-nums">
-            &#8470; CVLT-{vaultId} · {vaultShort}
-          </span>
-          <ClusterLiveLabel />
-          <span className="tabular-nums">PROGRAM · {programShort}</span>
+              <span className="text-[#3A3A3F]">|</span>
+            </span>
+          ))}
         </div>
       </div>
 
-      <nav
-        aria-label="Section index"
-        className="grid grid-cols-1 gap-px border border-border-strong bg-border sm:grid-cols-2 motion-safe:animate-[cert-fadeup_0.9s_ease_0.35s_both]"
-      >
-        {SECTION_IDS.map((id) => {
-          const meta = SECTION_META[id];
-          const accent = SECTION_STYLE[id].accent;
-          return (
-            <Link
-              key={id}
-              href={sectionPath(id)}
-              className="group flex flex-col items-start gap-2 bg-background px-4 py-4 text-left transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--foreground)_5%,var(--background))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent md:px-5 md:py-5"
-            >
-              <span
-                className="font-mono text-[10px] font-bold tracking-[0.14em]"
-                style={{ color: accent }}
-              >
-                &#8470; {meta.no}
-              </span>
-              <span className="font-display text-lg font-semibold uppercase leading-none tracking-[0.06em] text-foreground">
-                {meta.title}
-              </span>
-              <span className="text-[12px] leading-[1.55] text-muted-foreground">
-                {meta.description}
-              </span>
-              <span
-                aria-hidden
-                className="mt-auto pt-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition-colors group-hover:text-foreground"
-              >
-                Open &#8594;
-              </span>
+      {/* Hero */}
+      <section className="relative overflow-hidden px-[22px] pb-[84px] pt-24 text-center">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(60% 50% at 50% 0%, rgba(200, 255, 61, 0.10), transparent 70%)',
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-full"
+          style={{
+            backgroundImage:
+              'linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px)',
+            backgroundSize: '44px 100%',
+            maskImage: 'linear-gradient(#000, transparent 85%)',
+            WebkitMaskImage: 'linear-gradient(#000, transparent 85%)',
+          }}
+        />
+        <div
+          aria-hidden
+          className="hero-scan-line pointer-events-none absolute inset-x-0 top-0 h-px"
+          style={{
+            background:
+              'linear-gradient(90deg, transparent, rgba(200, 255, 61, 0.55), transparent)',
+          }}
+        />
+
+        <div className="relative mx-auto max-w-[960px]">
+          <div className="inline-flex items-center gap-2.5 rounded-full border border-border-strong px-3.5 py-1.5 font-mono text-[10.5px] tracking-[0.14em] text-muted-foreground">
+            <span className="h-[5px] w-[5px] rounded-full bg-accent" aria-hidden />
+            DECENTRALIZED TOKEN FUND · SOLANA
+          </div>
+
+          <h1 className="mx-auto mt-[26px] max-w-[900px] text-[clamp(48px,8vw,94px)] font-semibold leading-[0.9] tracking-[-0.05em] text-foreground">
+            Own the basket,
+            <br />
+            not the bag
+          </h1>
+
+          <p className="mx-auto mt-6 max-w-[560px] text-[19px] leading-[1.5] text-muted-foreground">
+            Deposit once. Own the fund. Exit on your terms.
+          </p>
+
+          <div className="mt-[34px] flex flex-wrap items-center justify-center gap-[11px]">
+            <Link href={sectionPath('vaults')} className={btnPrimaryClass}>
+              Browse vaults
             </Link>
-          );
-        })}
-      </nav>
-    </section>
+            <Link href={sectionPath('vault-ops')} className={btnSecondaryClass}>
+              Create an ETF
+            </Link>
+          </div>
+
+          <p className="mx-auto mt-11 max-w-[420px] text-sm leading-[1.6] text-text-faint">
+            A share is not a promise to pay you later — it is a claim you already own.
+          </p>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className="grid grid-cols-1 gap-px border-t border-border bg-border md:grid-cols-3">
+        {STEPS.map((step) => (
+          <div key={step.num} className="bg-background px-6 py-[30px]">
+            <div className="font-mono text-[11px] tracking-[0.1em] text-accent">
+              {step.num}
+            </div>
+            <h3 className="mt-3 text-[19px] font-semibold tracking-[-0.01em]">
+              {step.title}
+            </h3>
+            <p className="mt-2 text-sm leading-[1.55] text-text-dim">{step.body}</p>
+          </div>
+        ))}
+      </section>
+
+      {/* Stats */}
+      <section className="flex flex-wrap border-t border-border">
+        <StatCell label="TVL" value={tvlLabel} />
+        <StatCell
+          label="VAULTS"
+          value={vaultCount != null ? String(vaultCount) : '—'}
+        />
+        <StatCell
+          label="ASSETS"
+          value={assetCount != null ? String(assetCount) : '—'}
+        />
+        <StatCell
+          label="CREATORS"
+          value={creators != null ? String(creators) : '—'}
+        />
+      </section>
+
+      <ConsoleFooterBar
+        programShort={programShort}
+        vaultShort={vaultShort}
+        network={network}
+      />
+    </div>
+  );
+}
+
+function StatCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-[45%] flex-1 border-b border-r border-border px-6 py-[26px] last:border-r-0 sm:min-w-0 sm:border-b-0 even:sm:border-r md:even:border-r">
+      <div className="font-mono text-[10px] tracking-[0.14em] text-text-faint">
+        {label}
+      </div>
+      <div className="mt-[7px] text-[30px] font-semibold tracking-[-0.03em]">
+        {value}
+      </div>
+    </div>
   );
 }

@@ -6,18 +6,17 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { ADMIN_PUBKEY } from '@/lib/constants';
 import type { Network } from '@/app/providers';
-import { PORTFOLIO_ROUTE } from './console-routes';
 import { NetworkToggle } from './network-toggle';
 import { useControlledModalTransition } from './use-modal-transition';
 
 const connectClassName =
-  'rounded-[2px] border border-border-strong bg-background px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.12em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+  'inline-flex items-center gap-2 rounded-full border border-border-strong bg-background px-3.5 py-1.5 text-[11.5px] font-medium text-foreground transition-colors duration-150 hover:border-accent hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 const connectedClassName =
-  'flex items-center gap-2 rounded-[2px] border border-border-strong bg-background px-3.5 py-2 text-sm font-semibold text-foreground transition-colors duration-150 hover:border-accent hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+  'inline-flex items-center gap-2 rounded-full border border-border-strong bg-background px-[11px] py-1.5 text-sm font-medium text-foreground transition-colors duration-150 hover:border-accent hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 const menuItemClassName =
-  'block w-full border-b border-border px-4 py-2.5 text-left font-[family-name:var(--font-saira-condensed)] text-base font-bold capitalize tracking-[0.02em] text-foreground transition-colors hover:bg-foreground/5';
+  'block w-full border-b border-border px-4 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-white/[0.04]';
 
 export function WalletButton({
   network,
@@ -48,13 +47,12 @@ export function WalletButton({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpen]);
 
-  // Disconnected: keep network reachable next to Connect (no dropdown yet).
   if (!connected || !publicKey) {
     return (
       <div className="flex items-center gap-2">
         <NetworkToggle network={network} onChange={onNetworkChange} />
         <button type="button" onClick={() => setVisible(true)} className={connectClassName}>
-          Connect wallet
+          Connect
         </button>
       </div>
     );
@@ -71,38 +69,31 @@ export function WalletButton({
         aria-expanded={menuOpen}
         aria-haspopup="menu"
       >
+        <span
+          className="wallet-dot-live h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
+          aria-hidden
+        />
         {wallet?.adapter.icon && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={wallet.adapter.icon}
             alt=""
-            className="h-5 w-5 flex-shrink-0 rounded-sm object-contain"
+            className="hidden h-4 w-4 flex-shrink-0 rounded-sm object-contain sm:block"
           />
         )}
-        <span className="font-mono text-[13px]">{short}</span>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-3 w-3 text-muted-foreground"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path
-            fillRule="evenodd"
-            d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z"
-            clipRule="evenodd"
-          />
-        </svg>
+        <span className="font-mono text-[11.5px] text-[#DADADE]">{short}</span>
       </button>
 
       {mounted && (
         <div
           role="menu"
-          className={`cert-frame absolute right-0 z-50 mt-2 min-w-[220px] overflow-hidden bg-background py-1 shadow-xl ${modalClassName}`}
+          className={`absolute right-0 z-50 mt-2 min-w-[220px] overflow-hidden rounded-[13px] border border-border-strong bg-bg-elevated py-1 shadow-xl ${modalClassName}`}
         >
           {wallet?.adapter.name && (
             <div className="border-b border-border px-4 py-2">
-              <p className="text-xs font-medium text-muted-foreground">{wallet.adapter.name}</p>
+              <p className="text-xs font-medium text-muted-foreground">
+                {wallet.adapter.name}
+              </p>
               <p className="mt-0.5 truncate font-mono text-[11px] text-foreground">
                 {publicKey.toBase58()}
               </p>
@@ -110,20 +101,12 @@ export function WalletButton({
           )}
 
           <div className="border-b border-border px-4 py-3">
-            <p className="mb-2 font-mono text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <p className="mb-2 font-mono text-[9px] font-medium uppercase tracking-[0.18em] text-text-ghost">
               Network
             </p>
             <NetworkToggle network={network} onChange={onNetworkChange} />
           </div>
 
-          <Link
-            href={PORTFOLIO_ROUTE}
-            role="menuitem"
-            onClick={() => setMenuOpen(false)}
-            className={menuItemClassName}
-          >
-            Portfolio
-          </Link>
           {publicKey.equals(ADMIN_PUBKEY) && (
             <Link
               href="/admin"
@@ -141,7 +124,7 @@ export function WalletButton({
               setMenuOpen(false);
               disconnect();
             }}
-            className="w-full px-4 py-2.5 text-left font-[family-name:var(--font-saira-condensed)] text-base font-bold capitalize tracking-[0.02em] text-foreground transition-colors hover:bg-foreground/5"
+            className="w-full px-4 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-white/[0.04]"
           >
             Disconnect
           </button>

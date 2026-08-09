@@ -3,8 +3,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { Network } from '@/app/providers';
 
-const MICROPRINT = 'CVAULT · ON-CHAIN ETF OPERATIONS · MAINNET READY · '.repeat(24);
-
 type ConsoleNetworkContextValue = {
   network: Network;
   onNetworkChange: (network: Network) => void;
@@ -32,21 +30,33 @@ export function useConsoleNetwork(): ConsoleNetworkContextValue {
   return ctx;
 }
 
-export function ConsoleMicroprint() {
+/** Compact program / vault / network footer bar from the landing mock. */
+export function ConsoleFooterBar({
+  programShort,
+  vaultShort,
+  network,
+}: {
+  programShort?: string;
+  vaultShort?: string;
+  network: Network;
+}) {
+  const label = network === 'localhost' ? 'LOCALHOST' : 'MAINNET';
+
   return (
-    <div className="microprint border-y border-border py-1" aria-hidden>
-      {MICROPRINT}
-    </div>
+    <footer className="mt-auto flex flex-col items-center justify-between gap-2 border-t border-border px-[22px] py-[15px] text-center font-mono text-[10.5px] tracking-[0.08em] text-text-ghost sm:flex-row sm:text-left">
+      {programShort ? <span>PROGRAM {programShort}</span> : <span />}
+      {vaultShort ? <span>VAULT {vaultShort}</span> : <span />}
+      <span className="text-accent">{label}</span>
+    </footer>
   );
 }
 
+/** @deprecated use ConsoleFooterBar — kept for any remaining imports */
+export function ConsoleMicroprint() {
+  return null;
+}
+
+/** @deprecated use ConsoleFooterBar */
 export function ConsoleFooter({ network }: { network: Network }) {
-  return (
-    <footer className="mt-auto">
-      <ConsoleMicroprint />
-      <p className="pt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-        cVault series 2026 · {network} · one instruction per control
-      </p>
-    </footer>
-  );
+  return <ConsoleFooterBar network={network} />;
 }
