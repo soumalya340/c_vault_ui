@@ -1,9 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useConnection } from '@solana/wallet-adapter-react';
 import { WalletButton } from './wallet-button';
 import { ClusterStatusBanner, ClusterStatusChip } from './cluster-status';
 import {
@@ -41,69 +39,6 @@ function isLinkActive(
     );
   }
   return false;
-}
-
-function SlotLabel() {
-  const { connection } = useConnection();
-  const [slot, setSlot] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  // One-shot on mount / connection change — no interval polling.
-  // Manual reload stays available via the button below.
-  const loadSlot = (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setLoading(true);
-    connection
-      .getSlot('confirmed')
-      .then((s) => setSlot(s))
-      .catch(() => {
-        /* keep last known */
-      })
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    connection
-      .getSlot('confirmed')
-      .then((s) => {
-        if (!cancelled) setSlot(s);
-      })
-      .catch(() => {
-        /* leave null */
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [connection]);
-
-  return (
-    <button
-      type="button"
-      onClick={() => loadSlot()}
-      disabled={loading}
-      title="Reload slot"
-      aria-label={
-        slot == null
-          ? 'Reload slot'
-          : `Slot ${slot.toLocaleString('en-US')}. Click to reload.`
-      }
-      className="hidden items-center gap-1.5 font-mono text-[10.5px] tracking-[0.08em] text-text-faint transition-colors hover:text-foreground disabled:opacity-50 sm:inline-flex"
-    >
-      <span>
-        {slot == null ? 'SLOT …' : `SLOT ${slot.toLocaleString('en-US')}`}
-      </span>
-      <span
-        aria-hidden
-        className={`text-[12px] leading-none text-accent ${loading ? 'animate-spin' : ''}`}
-      >
-        ↻
-      </span>
-    </button>
-  );
 }
 
 export function SiteNav() {
@@ -196,7 +131,6 @@ export function SiteNav() {
 
         <div className="flex shrink-0 items-center gap-2.5">
           <ClusterStatusChip />
-          <SlotLabel />
           <WalletButton network={network} onNetworkChange={onNetworkChange} />
         </div>
       </div>

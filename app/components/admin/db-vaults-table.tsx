@@ -8,6 +8,7 @@ import { formatSyncStatus, syncVaultsFromChain } from '@/lib/db-sync';
 import { inputClass, fieldLabelClass, btnGhostClass, btnPrimaryClass } from '../ui-classes';
 import { displayVaultName } from '../view-display';
 import { DbPanel, DbRowSkeleton } from './db-panel';
+import { DbPagination, DB_PAGE_SIZE } from './db-pagination';
 
 type VaultRow = {
   vault_address: string;
@@ -158,6 +159,7 @@ export function DbVaultsTable({ network }: { network: Network }) {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
 
   const load = useCallback(() => {
     setError(null);
@@ -173,6 +175,7 @@ export function DbVaultsTable({ network }: { network: Network }) {
   useEffect(() => {
     setRows(null);
     setSyncStatus(null);
+    setPage(0);
     load();
   }, [load]);
 
@@ -213,35 +216,42 @@ export function DbVaultsTable({ network }: { network: Network }) {
       </div>
     );
   } else {
+    const pageCount = Math.max(1, Math.ceil(rows.length / DB_PAGE_SIZE));
+    const pageRows = rows.slice(page * DB_PAGE_SIZE, page * DB_PAGE_SIZE + DB_PAGE_SIZE);
     body = (
-      <div className="flex flex-col divide-y divide-border">
-        {rows.map((v) => (
-          <div key={v.vault_address}>
-            <button
-              type="button"
-              onClick={() => setExpanded(expanded === v.vault_id ? null : v.vault_id)}
-              className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foreground/[0.02]"
-              aria-expanded={expanded === v.vault_id}
-            >
-              <span className="font-mono text-[11px] text-foreground">
-                <span className="tabular-nums">#{v.vault_id}</span> ·{' '}
-                {displayVaultName(v.name)} ·{' '}
-                <span className="tabular-nums">{v.num_assets}</span> assets
-              </span>
-              <span className={btnGhostClass}>{expanded === v.vault_id ? 'Collapse' : 'Expand'}</span>
-            </button>
-            {expanded === v.vault_id && (
-              <VaultDetail
-                vault={v}
-                network={network}
-                onUpdated={(updated) => {
-                  setRows((prev) => prev!.map((r) => (r.vault_id === updated.vault_id ? { ...r, ...updated } : r)));
-                }}
-              />
-            )}
+      <>
+        <div className="max-h-[28rem] overflow-y-auto">
+          <div className="flex flex-col divide-y divide-border">
+            {pageRows.map((v) => (
+              <div key={v.vault_address}>
+                <button
+                  type="button"
+                  onClick={() => setExpanded(expanded === v.vault_id ? null : v.vault_id)}
+                  className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foreground/[0.02]"
+                  aria-expanded={expanded === v.vault_id}
+                >
+                  <span className="font-mono text-[11px] text-foreground">
+                    <span className="tabular-nums">{v.vault_id}</span> ·{' '}
+                    {displayVaultName(v.name)} ·{' '}
+                    <span className="tabular-nums">{v.num_assets}</span> assets
+                  </span>
+                  <span className={btnGhostClass}>{expanded === v.vault_id ? 'Collapse' : 'Expand'}</span>
+                </button>
+                {expanded === v.vault_id && (
+                  <VaultDetail
+                    vault={v}
+                    network={network}
+                    onUpdated={(updated) => {
+                      setRows((prev) => prev!.map((r) => (r.vault_id === updated.vault_id ? { ...r, ...updated } : r)));
+                    }}
+                  />
+                )}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+        <DbPagination page={page} pageCount={pageCount} onPageChange={setPage} totalCount={rows.length} />
+      </>
     );
   }
 
