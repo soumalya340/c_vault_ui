@@ -9,13 +9,13 @@ import {
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey, type Transaction } from '@solana/web3.js';
 import BN from 'bn.js';
+import { createPool } from '@/lib/meteora/create-pool';
 import {
-  createPool,
   parseUiAmount,
   resolveMintDecimals,
   resolveTokenProgram,
-  sendMeteoraTx,
-} from '@/lib/meteora';
+} from '@/lib/meteora/utils';
+import { sendMeteoraTx } from '@/lib/meteora/send';
 import {
   formatUnits,
   getUserUsdcBalance,

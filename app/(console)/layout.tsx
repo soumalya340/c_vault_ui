@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Providers,
+  DEFAULT_NETWORK,
   getRpcEndpoint,
   getStoredNetwork,
   setStoredNetwork,
@@ -17,12 +18,19 @@ import {
 } from '@/app/components/console-shell';
 
 export default function ConsoleLayout({ children }: { children: ReactNode }) {
-  const [network, setNetwork] = useState<Network>('mainnet');
-  const [ready, setReady] = useState(false);
+  // Start on the default network so server and first client render agree —
+  // reading localStorage during render would desync hydration. The stored
+  // preference is applied in an effect below; because `Providers` is keyed by
+  // network, a differing stored value remounts the tree with the right RPC.
+  // Rendering the real UI immediately (instead of a blocking "loading…"
+  // screen) lets first paint happen without waiting on hydration.
+  const [network, setNetwork] = useState<Network>(DEFAULT_NETWORK);
 
   useEffect(() => {
-    setNetwork(getStoredNetwork());
-    setReady(true);
+    const stored = getStoredNetwork();
+    if (stored !== network) setNetwork(stored);
+    // Runs once on mount: the stored preference is read a single time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleNetworkChange = (next: Network) => {
@@ -31,16 +39,6 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
     setStoredNetwork(resolved);
     setNetwork(resolved);
   };
-
-  if (!ready) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-text-faint">
-        <span className="font-mono text-[11px] uppercase tracking-[0.2em]">
-          loading…
-        </span>
-      </main>
-    );
-  }
 
   return (
     <Providers endpoint={getRpcEndpoint(network)} network={network} key={network}>

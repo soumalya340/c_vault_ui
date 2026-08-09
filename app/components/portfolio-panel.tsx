@@ -13,7 +13,6 @@ import {
   type VaultRecord,
 } from '@/lib/registryClient';
 import { getVaultState, NETWORK_CONSTANTS } from '@/lib/onchain/cvault';
-import { resolveVaultShareUsdcPool } from '@/lib/meteora';
 import { PublicKey } from '@solana/web3.js';
 import {
   fetchWalletPortfolio,
@@ -123,6 +122,10 @@ export function PortfolioPanel({ network }: { network: Network }) {
       // DB false → derive shares×USDC DAMM pool; if account exists, pin true.
       const pendingPool = vaults.filter((v) => !v.is_pool_created);
       if (pendingPool.length > 0) {
+        // Lazy: the Meteora DAMM SDK (~6MB source) is only needed to reconcile
+        // pools that the DB has not yet marked created. Importing it here keeps
+        // it out of the initial page bundle.
+        const { resolveVaultShareUsdcPool } = await import('@/lib/meteora/pool');
         const usdcMint = NETWORK_CONSTANTS[network].usdcMint;
         const reconciled = await Promise.all(
           pendingPool.map(async (v) => {

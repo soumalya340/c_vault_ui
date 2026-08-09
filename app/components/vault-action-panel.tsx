@@ -322,10 +322,6 @@ export function VaultActionPanel({
             <span className="text-text-dim">Est. price impact</span>
             <span className="font-mono text-text-faint">—</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-text-dim">Route</span>
-            <span className="font-mono">ORCA · DAMM v2</span>
-          </div>
         </div>
 
         <button

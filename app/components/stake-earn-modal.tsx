@@ -9,15 +9,14 @@ import {
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import BN from 'bn.js';
+import { addLiquidity } from '@/lib/meteora/add-liquidity';
+import { getCpAmm } from '@/lib/meteora/client';
+import { parseUiAmount } from '@/lib/meteora/utils';
 import {
-  addLiquidity,
-  getCpAmm,
-  parseUiAmount,
   resolveVaultShareUsdcPool,
-  sendMeteoraTx,
   type VaultShareUsdcPoolInfo,
-  type WalletSigner,
-} from '@/lib/meteora';
+} from '@/lib/meteora/pool';
+import { sendMeteoraTx, type WalletSigner } from '@/lib/meteora/send';
 import {
   formatUnits,
   getUserUsdcBalance,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { useAnchorWallet, useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
   fetchVaultCtx,
@@ -19,7 +20,6 @@ import {
   type VaultRecord,
   type AssetRegistryEntry,
 } from '@/lib/registryClient';
-import { resolveVaultShareUsdcPool } from '@/lib/meteora';
 import { PublicKey } from '@solana/web3.js';
 import {
   assetFullName,
@@ -28,7 +28,12 @@ import {
 } from '@/lib/presets/canonical-data';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
-import { StakeEarnModal } from './stake-earn-modal';
+// Only mounted once the user opens "Stake & Earn". Loading it dynamically keeps
+// the Meteora DAMM SDK it pulls in out of the vault detail page's bundle.
+const StakeEarnModal = dynamic(
+  () => import('./stake-earn-modal').then((m) => m.StakeEarnModal),
+  { ssr: false },
+);
 import { PendingClaimButton, formatTokenUi } from './pending-claim-button';
 import { AssetRowsSkeleton } from './loading-skeletons';
 import { VaultActionPanel } from './vault-action-panel';
@@ -220,6 +225,10 @@ function VaultDetailViewInner({
 
         if (!found.is_pool_created) {
           try {
+            // Lazy: keeps the Meteora DAMM SDK out of the initial bundle.
+            const { resolveVaultShareUsdcPool } = await import(
+              '@/lib/meteora/pool'
+            );
             const info = await resolveVaultShareUsdcPool(
               connection,
               new PublicKey(found.shares_mint),

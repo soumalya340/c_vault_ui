@@ -16,7 +16,6 @@ import {
   updateVaultPoolCreated,
   type VaultRecord,
 } from '@/lib/registryClient';
-import { resolveVaultShareUsdcPool } from '@/lib/meteora';
 import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { executeVaultFunction, formatResult } from './execute-vault-function';
 import { ErrorModal } from './error-modal';
@@ -444,6 +443,8 @@ export function VaultOpsPanel({
     let cancelled = false;
     (async () => {
       try {
+        // Lazy: keeps the Meteora DAMM SDK out of the initial bundle.
+        const { resolveVaultShareUsdcPool } = await import('@/lib/meteora/pool');
         const info = await resolveVaultShareUsdcPool(
           connection,
           new PublicKey(vault.shares_mint),
