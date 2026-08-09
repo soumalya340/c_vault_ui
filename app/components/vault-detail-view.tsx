@@ -628,7 +628,6 @@ function VaultDetailViewInner({
                 <AddrRow label="VAULT" value={vaultAddrShort} />
                 <AddrRow label="PROGRAM" value={programShort} />
                 <AddrRow label="SHARES" value={shorten(vault.shares_mint, 4, 4)} />
-                <AddrRow label="ORACLE" value="PYTH" />
               </div>
             </div>
           </div>
