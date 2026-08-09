@@ -12,6 +12,8 @@ export const LEGACY_VIEW_ROUTE = '/view';
 
 export const ADMIN_ROUTE = '/admin';
 export const PORTFOLIO_ROUTE = '/portfolio';
+/** Manager instruction console per vault PDA. */
+export const MANAGE_ROUTE = '/manage';
 export const HOME_ROUTE = '/';
 
 /**
@@ -20,6 +22,15 @@ export const HOME_ROUTE = '/';
  */
 export function vaultDetailPath(vaultAddress: string): string {
   return `${SECTION_ROUTES.vaults}/${vaultAddress}`;
+}
+
+/** Vault operations / management console for a vault PDA. */
+export function manageVaultPath(vaultAddress: string): string {
+  return `${MANAGE_ROUTE}/${vaultAddress}`;
+}
+
+export function isManagePath(pathname: string): boolean {
+  return pathname === MANAGE_ROUTE || pathname.startsWith(`${MANAGE_ROUTE}/`);
 }
 
 export type ConsoleView = 'home' | SectionId;

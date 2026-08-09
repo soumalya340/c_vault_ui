@@ -8,6 +8,7 @@ import {
   HOME_ROUTE,
   PORTFOLIO_ROUTE,
   SECTION_ROUTES,
+  isManagePath,
   pathnameToConsoleView,
   sectionPath,
   vaultKeyFromPathname,
@@ -25,7 +26,9 @@ function isLinkActive(
   pathname: string,
   match: (typeof NAV_LINKS)[number]['match'],
 ): boolean {
-  if (match === 'portfolio') return pathname === PORTFOLIO_ROUTE;
+  if (match === 'portfolio') {
+    return pathname === PORTFOLIO_ROUTE || isManagePath(pathname);
+  }
   if (match === 'vaults') {
     return (
       pathname === SECTION_ROUTES.vaults ||

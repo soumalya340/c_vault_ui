@@ -27,7 +27,6 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { DepositModal } from './deposit-modal';
 import { RedeemModal } from './redeem-modal';
-import { VaultOpsPanel } from './vault-ops-panel';
 import { VaultInfoPopover } from './vault-info-popover';
 import {
   MetricStripSkeleton,
@@ -37,7 +36,7 @@ import {
   btnPrimaryClass,
   btnSecondaryClass,
 } from './ui-classes';
-import { sectionPath } from './console-routes';
+import { manageVaultPath, sectionPath } from './console-routes';
 
 const ASSET_COLORS = [
   '#C8FF3D',
@@ -103,7 +102,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
   const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
   const [createdVaults, setCreatedVaults] = useState<VaultRecord[]>([]);
   const [tab, setTab] = useState<'vaults' | 'positions'>('vaults');
-  const [expandedVaultId, setExpandedVaultId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
@@ -217,9 +215,6 @@ export function PortfolioPanel({ network }: { network: Network }) {
   }, [syncedAt]);
 
   const holdings = useMemo(() => snapshot?.holdings ?? [], [snapshot]);
-  const walletLabel = publicKey
-    ? `${publicKey.toBase58().slice(0, 4)}…${publicKey.toBase58().slice(-4)}`
-    : null;
   const holdingsByVaultId = useMemo(() => {
     const map = new Map<number, PortfolioHolding>();
     for (const h of holdings) map.set(h.vault.vault_id, h);
@@ -236,80 +231,60 @@ export function PortfolioPanel({ network }: { network: Network }) {
   }, [syncedAt, now]);
 
   return (
-    <section aria-label="Portfolio" className="flex flex-col gap-0">
-      {/* Masthead */}
-      <header className="relative overflow-hidden pb-8 pt-2">
+    <section aria-label="Portfolio" className="flex min-h-0 flex-1 flex-col">
+      {/* Masthead — matches MyVaults mockup plate */}
+      <header className="relative overflow-hidden border-b border-border px-[22px] pb-7 pt-[34px]">
         <div
           aria-hidden
-          className="pointer-events-none absolute -left-12 -top-20 h-56 w-72 rounded-full bg-accent/[0.06] blur-3xl"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(42% 130% at 4% 0%, rgba(200,255,61,0.08), transparent 70%)',
+          }}
         />
         <div className="relative flex flex-wrap items-baseline justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.16em] text-text-ghost">
-          <span>
-            Plate <span className="text-accent">№ PF</span> · Bearer register
-          </span>
+          <span>Plate Nº PF · Bearer register</span>
           <span className="hidden sm:inline">Solana · {network}</span>
         </div>
 
-        <div className="relative mt-7 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] lg:items-end">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-              <span className="pb-2 font-mono text-[15px] tracking-[0.1em] text-accent">
-                PF
-              </span>
-              <h1 className="m-0 text-[clamp(40px,6vw,62px)] font-semibold leading-none tracking-[-0.05em] text-foreground">
-                Portfolio
-              </h1>
-            </div>
-            <p className="mt-4 max-w-[52ch] text-[15px] leading-relaxed text-muted-foreground">
-              Everything this wallet stands behind — vaults it charters as
-              manager, and share certificates it carries as bearer.
-            </p>
+        <div className="relative mt-6 min-w-0">
+          <div className="flex flex-wrap items-baseline gap-4">
+            <span className="font-mono text-[15px] tracking-[0.1em] text-accent">PF</span>
+            <h1 className="m-0 text-[clamp(40px,6vw,62px)] font-semibold leading-[0.9] tracking-[-0.05em] text-foreground">
+              Portfolio
+            </h1>
           </div>
-
-          <div className="rounded-[10px] border border-white/[0.07] bg-bg-elevated p-4">
-            <div className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-text-ghost">
-              Bearer
-            </div>
-            {connected && publicKey ? (
-              <div
-                className="mt-1.5 font-mono text-[15px] tabular-nums text-foreground"
-                title={publicKey.toBase58()}
-              >
-                <span className="text-accent">№</span> {walletLabel}
-              </div>
-            ) : (
-              <div className="mt-1.5 font-mono text-[15px] text-text-dim">
-                Not connected
-              </div>
-            )}
-            <div className="mt-3 flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.14em]">
+          <p className="mt-4 max-w-[52ch] text-[15px] leading-[1.6] text-muted-foreground">
+            Everything this wallet stands behind — vaults it charters as manager, and
+            share certificates it carries as bearer.
+          </p>
+          {connected && (
+            <div className="mt-4 flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.14em]">
               <span className="text-text-ghost">
-                {connected ? (syncedLabel ?? (loading ? 'SYNCING…' : '—')) : '—'}
+                {syncedLabel ?? (loading ? 'SYNCING…' : '—')}
               </span>
-              {connected && (
-                <button
-                  type="button"
-                  onClick={() => void load()}
-                  disabled={loading}
-                  className="text-accent transition-opacity hover:opacity-80 disabled:opacity-40"
-                >
-                  {loading ? 'Reading…' : 'Refresh ↻'}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => void load()}
+                disabled={loading}
+                className="text-accent transition-opacity hover:opacity-80 disabled:opacity-40"
+              >
+                {loading ? 'Reading…' : 'Refresh ↻'}
+              </button>
             </div>
-          </div>
+          )}
         </div>
       </header>
 
       {/* Metric strip */}
       {connected && loading && (
-        <div className="overflow-hidden rounded-[10px] border border-white/[0.07]">
+        <div className="border-b border-border">
           <MetricStripSkeleton />
         </div>
       )}
 
       {connected && snapshot && !loading && (
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[10px] border border-white/[0.07] bg-white/[0.07] sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-px border-b border-border bg-white/[0.07] sm:grid-cols-4">
           <Metric
             label="Vaults chartered"
             value={String(createdVaults.length)}
@@ -335,11 +310,10 @@ export function PortfolioPanel({ network }: { network: Network }) {
       )}
 
       {!connected && (
-        <div className="mt-2 flex flex-col items-start gap-4 rounded-[13px] border border-white/[0.07] bg-bg-elevated px-6 py-10">
+        <div className="flex flex-col items-start gap-4 px-[22px] py-10">
           <p className="max-w-[48ch] text-sm leading-relaxed text-muted-foreground">
-            Connect a wallet to open its register. We&apos;ll show the vaults it
-            charters as manager, and the share certificates it carries as
-            bearer.
+            Connect a wallet to open its register. We&apos;ll show the vaults it charters
+            as manager, and the share certificates it carries as bearer.
           </p>
           <button
             type="button"
@@ -352,7 +326,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
       )}
 
       {connected && !loading && error && (
-        <div className="mt-2 flex flex-col gap-3 rounded-[13px] border border-destructive/30 bg-destructive/5 px-6 py-8">
+        <div className="flex flex-col gap-3 px-[22px] py-8">
           <p className="font-mono text-xs text-destructive">{error}</p>
           <button type="button" onClick={() => void load()} className={btnSecondaryClass}>
             Try again
@@ -361,7 +335,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
       )}
 
       {connected && loading && (
-        <div className="mt-6 overflow-hidden rounded-[13px] border border-white/[0.07]">
+        <div className="border-b border-border">
           <div className="border-b border-white/[0.07] px-5 py-3.5">
             <Skeleton className="h-3 w-28 rounded-[2px]" />
           </div>
@@ -370,12 +344,12 @@ export function PortfolioPanel({ network }: { network: Network }) {
       )}
 
       {connected && !loading && !error && (
-        <div className="mt-6 overflow-hidden rounded-[13px] border border-white/[0.07]">
-          {/* PF-A / PF-B tabs */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* PF-A / PF-B tabs — active plate has lime top border */}
           <div
             role="tablist"
             aria-label="Portfolio view"
-            className="grid grid-cols-2 bg-bg-elevated"
+            className="grid grid-cols-2 border-b border-border bg-bg-elevated"
           >
             <button
               type="button"
@@ -384,7 +358,7 @@ export function PortfolioPanel({ network }: { network: Network }) {
               onClick={() => setTab('vaults')}
               className={`flex items-center justify-between gap-3 px-[22px] py-3.5 transition-colors ${
                 tab === 'vaults'
-                  ? 'bg-background text-foreground'
+                  ? '-mb-px border-t-2 border-accent bg-background text-foreground'
                   : 'text-text-ghost hover:text-muted-foreground'
               }`}
             >
@@ -407,9 +381,9 @@ export function PortfolioPanel({ network }: { network: Network }) {
               role="tab"
               aria-selected={tab === 'positions'}
               onClick={() => setTab('positions')}
-              className={`flex items-center justify-between gap-3 px-[22px] py-3.5 transition-colors ${
+              className={`flex items-center justify-between gap-3 border-l border-border px-[22px] py-3.5 transition-colors ${
                 tab === 'positions'
-                  ? 'bg-background text-foreground'
+                  ? '-mb-px border-t-2 border-accent bg-background text-foreground'
                   : 'text-text-ghost hover:text-muted-foreground'
               }`}
             >
@@ -433,14 +407,12 @@ export function PortfolioPanel({ network }: { network: Network }) {
 
           {tab === 'vaults' && (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] px-[22px] py-3 font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-[22px] py-3 font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
                 <span>
                   Chartered as manager · {createdVaults.length} vault
                   {createdVaults.length === 1 ? '' : 's'}
                 </span>
-                <span className="hidden sm:inline">
-                  Weights shown at last rebalance
-                </span>
+                <span className="hidden sm:inline">Weights shown at last rebalance</span>
               </div>
 
               {createdVaults.length === 0 ? (
@@ -449,190 +421,178 @@ export function PortfolioPanel({ network }: { network: Network }) {
                     This wallet hasn&apos;t chartered a vault on {network}.
                   </p>
                   <p className="max-w-[48ch] text-sm leading-relaxed text-text-dim">
-                    Creating a vault makes this wallet its manager of record —
-                    fee recipient and operational authority until reassigned.
+                    Creating a vault makes this wallet its manager of record — fee
+                    recipient and operational authority until reassigned.
                   </p>
                   <Link href={sectionPath('vault-ops')} className={btnSecondaryClass}>
                     Charter a new vault
                   </Link>
                 </div>
               ) : (
-                <ul className="divide-y divide-white/[0.07]">
+                /* 2-column vault cards — MyVaults mockup */
+                <div className="grid grid-cols-1 gap-px bg-white/[0.07] sm:grid-cols-2">
                   {createdVaults.map((v) => {
-                    const isExpanded = expandedVaultId === v.vault_id;
                     const holding = holdingsByVaultId.get(v.vault_id);
                     const colors = dotsForVault(v.vault_id, v.num_assets);
                     const segments = allocationSegments(v);
-                    const isBearer = holding != null && BigInt(holding.shareBalance) > 0n;
+                    const isBearer =
+                      holding != null && BigInt(holding.shareBalance) > 0n;
                     const sharesUi =
                       holding != null
                         ? formatTokenUi(holding.shareBalance, holding.sharesDecimals)
                         : null;
 
                     return (
-                      <li key={v.vault_address}>
-                        <div className="px-[22px] py-5 transition-colors hover:bg-white/[0.015]">
-                          <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div className="min-w-0 flex-1">
-                              <div className="font-mono text-[10.5px] tracking-[0.14em] text-accent">
-                                № CVLT-{v.vault_id}
-                              </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                                <span className="text-[26px] font-semibold tracking-[-0.035em] text-foreground">
-                                  {displayVaultName(v.name)}
-                                </span>
-                                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-faint">
-                                  {v.num_assets} assets ·{' '}
-                                  {v.fund_type === 'fixed' ? 'static' : 'dynamic'}
-                                </span>
-                              </div>
+                      <article
+                        key={v.vault_address}
+                        className="flex flex-col gap-[18px] bg-background px-[22px] py-[22px] pb-[18px]"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="font-mono text-[10.5px] tracking-[0.14em] text-accent">
+                              Nº CVLT-{v.vault_id}
                             </div>
-                            <span className="flex shrink-0">
-                              {colors.map((c, i) => (
-                                <span
-                                  key={i}
-                                  className="inline-block h-5 w-5 rounded-full shadow-[0_0_0_2px_#0A0A0B]"
-                                  style={{
-                                    background: c,
-                                    marginLeft: i === 0 ? 0 : -7,
-                                  }}
-                                />
-                              ))}
-                            </span>
+                            <div className="mt-2 flex flex-wrap items-baseline gap-x-[11px] gap-y-1">
+                              <span className="text-[26px] font-semibold tracking-[-0.035em] text-foreground">
+                                {displayVaultName(v.name)}
+                              </span>
+                              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-faint">
+                                {v.num_assets} assets ·{' '}
+                                {v.fund_type === 'fixed' ? 'static' : 'dynamic'}
+                              </span>
+                            </div>
                           </div>
-
-                          {/* Allocation bar */}
-                          <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-white/[0.06]">
-                            {segments.map((seg, i) => (
+                          <span className="flex shrink-0">
+                            {colors.map((c, i) => (
                               <span
                                 key={i}
-                                className="h-full"
+                                className="inline-block h-5 w-5 rounded-full shadow-[0_0_0_2px_#0A0A0B]"
                                 style={{
-                                  width: `${seg.pct}%`,
-                                  background: seg.color,
+                                  background: c,
+                                  marginLeft: i === 0 ? 0 : -7,
                                 }}
                               />
                             ))}
-                          </div>
+                          </span>
+                        </div>
 
-                          <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-4">
-                            <div>
-                              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
-                                Vault
-                              </div>
-                              <div className="mt-0.5 font-mono text-[12.5px] text-[#DADADE]">
-                                {shorten(v.vault_address)}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
-                                Your shares
-                              </div>
-                              <div className="mt-0.5 font-mono text-[12.5px] text-[#DADADE]">
-                                {sharesUi ?? '—'}
-                                {holding?.ownershipBps != null && (
-                                  <span className="text-text-ghost">
-                                    {' '}
-                                    · {formatOwnership(holding.ownershipBps)} of supply
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-2 sm:justify-end">
-                              {v.genesis_deposit_status && (
-                                <span className="rounded-[5px] bg-accent/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
-                                  Genesis-deposit-done
-                                </span>
-                              )}
-                              {v.is_pool_created && (
-                                <span className="rounded-[5px] border border-white/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-faint">
-                                  Stake &amp; earn
-                                </span>
-                              )}
-                              {isBearer && (
-                                <span className="rounded-[5px] border border-white/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-faint">
-                                  Bearer + manager
-                                </span>
-                              )}
-                              {v.paused ? (
-                                <span className="rounded-[5px] bg-destructive/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-destructive">
-                                  Paused
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3.5">
-                            <VaultInfoPopover
-                              vaultId={v.vault_id}
-                              name={v.name}
-                              network={network}
+                        <div className="flex h-[5px] overflow-hidden rounded-full bg-white/[0.06]">
+                          {segments.map((seg, i) => (
+                            <span
+                              key={i}
+                              className="h-full"
+                              style={{
+                                width: `${seg.pct}%`,
+                                background: seg.color,
+                              }}
                             />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedVaultId((cur) =>
-                                  cur === v.vault_id ? null : v.vault_id,
-                                )
-                              }
-                              aria-expanded={isExpanded}
-                              className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-accent transition-opacity hover:opacity-80"
-                            >
-                              {isExpanded ? 'Close ✕' : 'Manage →'}
-                            </button>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-x-[18px] gap-y-3.5">
+                          <div>
+                            <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                              Vault
+                            </div>
+                            <div className="mt-1.5 font-mono text-[12.5px] text-[#DADADE]">
+                              {shorten(v.vault_address)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                              Your shares
+                            </div>
+                            <div className="mt-1.5 font-mono text-[12.5px] text-[#DADADE]">
+                              {sharesUi ?? '—'}
+                              {holding?.ownershipBps != null && (
+                                <span className="text-text-ghost">
+                                  {' '}
+                                  · {formatOwnership(holding.ownershipBps)} of supply
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
 
-                        {isExpanded && (
-                          <div className="border-t border-white/[0.07] bg-white/[0.015] px-[22px] py-5">
-                            <VaultOpsPanel
-                              network={network}
-                              vault={v}
-                              onVaultUpdated={(next) => {
-                                setCreatedVaults((rows) =>
-                                  rows.map((row) =>
-                                    row.vault_id === next.vault_id
-                                      ? { ...row, ...next }
-                                      : row,
-                                  ),
-                                );
-                              }}
-                            />
-                          </div>
-                        )}
-                      </li>
+                        <div className="flex flex-wrap gap-[7px]">
+                          {v.genesis_deposit_status && (
+                            <span className="rounded-[5px] bg-accent/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
+                              Genesis-deposit-done
+                            </span>
+                          )}
+                          {v.is_pool_created && (
+                            <span className="rounded-[5px] bg-[rgba(90,200,232,0.12)] px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[#5AC8E8]">
+                              Stake &amp; earn
+                            </span>
+                          )}
+                          {isBearer && (
+                            <span className="rounded-[5px] border border-white/[0.12] px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-faint">
+                              Bearer + manager
+                            </span>
+                          )}
+                          {v.paused ? (
+                            <span className="rounded-[5px] bg-destructive/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-destructive">
+                              Paused
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-auto flex items-center justify-between gap-3 border-t border-white/[0.07] pt-[15px] font-mono text-[10.5px] uppercase tracking-[0.12em]">
+                          <VaultInfoPopover
+                            vaultId={v.vault_id}
+                            name={v.name}
+                            network={network}
+                          />
+                          <Link
+                            href={manageVaultPath(v.vault_address)}
+                            className="text-accent transition-opacity hover:opacity-80"
+                          >
+                            Manage →
+                          </Link>
+                        </div>
+                      </article>
                     );
                   })}
-                </ul>
-              )}
 
-              {createdVaults.length > 0 && (
-                <div className="border-t border-white/[0.07] px-[22px] py-5">
                   <Link
                     href={sectionPath('vault-ops')}
-                    className="inline-flex flex-col gap-1 rounded-[10px] border border-dashed border-white/15 px-5 py-4 transition-colors hover:border-accent/40 hover:bg-accent/[0.04]"
+                    className="flex min-h-[220px] flex-col items-start justify-center gap-3 border border-dashed border-white/[0.08] bg-background px-[22px] py-[22px] transition-colors hover:border-accent/40 hover:bg-accent/[0.03]"
                   >
-                    <span className="text-sm font-medium text-foreground">
+                    <span className="text-[22px] font-light leading-none text-accent">+</span>
+                    <span className="text-base font-semibold tracking-[-0.02em] text-foreground">
                       Charter a new vault
                     </span>
-                    <span className="text-[13px] text-text-dim">
-                      Pick a basket from the admin-approved registry and mint
-                      shares at your opening price.
+                    <span className="max-w-[260px] text-[13px] leading-relaxed text-text-ghost">
+                      Pick a basket from the admin-approved registry and mint shares at
+                      your opening price.
                     </span>
                   </Link>
                 </div>
               )}
+
+              <footer className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-border px-[22px] py-[15px] font-mono text-[10.5px] uppercase tracking-[0.1em] text-text-ghost">
+                <span>cVault series 2026</span>
+                <span className="hidden sm:inline">Bearer register</span>
+                <span className="text-accent">{network}</span>
+              </footer>
             </>
           )}
 
           {tab === 'positions' && (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] px-[22px] py-3 font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
-                <span>
-                  Holdings ledger · {holdings.length} instrument
-                  {holdings.length === 1 ? '' : 's'}
+              <div className="flex flex-wrap items-end justify-between gap-3 px-[22px] pb-5 pt-6">
+                <div>
+                  <h2 className="m-0 text-[30px] font-semibold tracking-[-0.035em] text-foreground">
+                    Holdings ledger
+                  </h2>
+                  <p className="mt-1.5 text-sm text-text-dim">
+                    {holdings.length} instrument{holdings.length === 1 ? '' : 's'} · share
+                    certificates carried by this wallet
+                  </p>
+                </div>
+                <span className="rounded-full border border-[rgba(255,158,77,0.3)] bg-[rgba(255,158,77,0.08)] px-3.5 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-[#FF9E4D]">
+                  Book ≠ live NAV
                 </span>
-                <span>Book ≠ live NAV</span>
               </div>
 
               {holdings.length === 0 ? (
