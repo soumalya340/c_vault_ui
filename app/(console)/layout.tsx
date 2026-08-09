@@ -11,7 +11,10 @@ import {
 } from '@/app/providers';
 import { SiteNav } from '@/app/components/site-nav';
 import { ClusterHealthProvider } from '@/app/components/cluster-status';
-import { ConsoleNetworkProvider } from '@/app/components/console-shell';
+import {
+  ConsoleNetworkProvider,
+  VaultBreadcrumbProvider,
+} from '@/app/components/console-shell';
 
 export default function ConsoleLayout({ children }: { children: ReactNode }) {
   const [network, setNetwork] = useState<Network>('mainnet');
@@ -42,12 +45,14 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
   return (
     <Providers endpoint={getRpcEndpoint(network)} network={network} key={network}>
       <ConsoleNetworkProvider network={network} onNetworkChange={handleNetworkChange}>
-        <ClusterHealthProvider network={network}>
-          <main className="flex min-h-screen flex-col bg-background text-foreground">
-            <SiteNav />
-            <div className="flex flex-1 flex-col">{children}</div>
-          </main>
-        </ClusterHealthProvider>
+        <VaultBreadcrumbProvider>
+          <ClusterHealthProvider network={network}>
+            <main className="flex min-h-screen flex-col bg-background text-foreground">
+              <SiteNav />
+              <div className="flex flex-1 flex-col">{children}</div>
+            </main>
+          </ClusterHealthProvider>
+        </VaultBreadcrumbProvider>
       </ConsoleNetworkProvider>
     </Providers>
   );

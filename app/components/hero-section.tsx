@@ -6,7 +6,7 @@ import type { Network } from '@/app/providers';
 import { btnPrimaryClass, btnSecondaryClass } from '@/app/components/ui-classes';
 import { sectionPath } from './console-routes';
 import { ConsoleFooterBar } from './console-shell';
-import { fetchVaults } from '@/lib/registryClient';
+import { fetchAssetRegistry, fetchVaults } from '@/lib/registryClient';
 
 const TICKER_ITEMS = [
   { sym: 'SOL5', nav: '1.0847', chg: '+2.31', up: true },
@@ -60,6 +60,18 @@ export function HeroSection({
 
   useEffect(() => {
     let cancelled = false;
+
+    // ASSETS = full pre_approved_token_registry (not unique ids in vault baskets).
+    fetchAssetRegistry(network)
+      .then((assets) => {
+        if (cancelled) return;
+        const active = assets.filter((a) => a.active !== false);
+        setAssetCount(active.length > 0 ? active.length : assets.length);
+      })
+      .catch(() => {
+        if (!cancelled) setAssetCount(null);
+      });
+
     fetchVaults(network)
       .then((rows) => {
         if (cancelled) return;
@@ -68,18 +80,6 @@ export function HeroSection({
         setVaultCount(live.length);
         const creatorsSet = new Set(live.map((r) => r.creator).filter(Boolean));
         setCreators(creatorsSet.size);
-
-        // Unique assets across live vault baskets (fallback: sum of num_assets).
-        const uniqueIds = new Set<number>();
-        let assetSlots = 0;
-        for (const r of live) {
-          assetSlots += Number(r.num_assets) || 0;
-          for (const id of r.asset_ids ?? []) {
-            const n = Number(id);
-            if (Number.isFinite(n)) uniqueIds.add(n);
-          }
-        }
-        setAssetCount(uniqueIds.size > 0 ? uniqueIds.size : assetSlots);
 
         let tvl = 0;
         let any = false;
@@ -95,7 +95,6 @@ export function HeroSection({
       .catch(() => {
         if (cancelled) return;
         setVaultCount(null);
-        setAssetCount(null);
         setCreators(null);
         setTvlLabel('—');
       });

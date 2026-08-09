@@ -1,6 +1,13 @@
 'use client';
 
-import { createContext, useContext, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { Network } from '@/app/providers';
 
 type ConsoleNetworkContextValue = {
@@ -26,6 +33,40 @@ export function useConsoleNetwork(): ConsoleNetworkContextValue {
   const ctx = useContext(ConsoleNetworkContext);
   if (!ctx) {
     throw new Error('useConsoleNetwork must be used within the console layout');
+  }
+  return ctx;
+}
+
+/** Breadcrumb label for vault detail: Discover / {name}. */
+type VaultBreadcrumbContextValue = {
+  vaultName: string | null;
+  setVaultName: (name: string | null) => void;
+};
+
+const VaultBreadcrumbContext = createContext<VaultBreadcrumbContextValue | null>(
+  null,
+);
+
+export function VaultBreadcrumbProvider({ children }: { children: ReactNode }) {
+  const [vaultName, setVaultNameState] = useState<string | null>(null);
+  const setVaultName = useCallback((name: string | null) => {
+    setVaultNameState(name);
+  }, []);
+  const value = useMemo(
+    () => ({ vaultName, setVaultName }),
+    [vaultName, setVaultName],
+  );
+  return (
+    <VaultBreadcrumbContext.Provider value={value}>
+      {children}
+    </VaultBreadcrumbContext.Provider>
+  );
+}
+
+export function useVaultBreadcrumb(): VaultBreadcrumbContextValue {
+  const ctx = useContext(VaultBreadcrumbContext);
+  if (!ctx) {
+    throw new Error('useVaultBreadcrumb must be used within VaultBreadcrumbProvider');
   }
   return ctx;
 }

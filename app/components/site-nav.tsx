@@ -5,15 +5,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { WalletButton } from './wallet-button';
-import { ClusterStatusBanner } from './cluster-status';
+import { ClusterStatusBanner, ClusterStatusChip } from './cluster-status';
 import {
   HOME_ROUTE,
   PORTFOLIO_ROUTE,
   SECTION_ROUTES,
   pathnameToConsoleView,
   sectionPath,
+  vaultKeyFromPathname,
 } from './console-routes';
-import { useConsoleNetwork } from './console-shell';
+import { useConsoleNetwork, useVaultBreadcrumb } from './console-shell';
 
 const NAV_LINKS = [
   { href: SECTION_ROUTES.vaults, label: 'Discover', match: 'vaults' as const },
@@ -45,45 +46,83 @@ function isLinkActive(
 function SlotLabel() {
   const { connection } = useConnection();
   const [slot, setSlot] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // One-shot on mount / connection change — no interval polling.
+  // Manual reload stays available via the button below.
+  const loadSlot = (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
+    connection
+      .getSlot('confirmed')
+      .then((s) => setSlot(s))
+      .catch(() => {
+        /* keep last known */
+      })
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
-      connection
-        .getSlot('confirmed')
-        .then((s) => {
-          if (!cancelled) setSlot(s);
-        })
-        .catch(() => {
-          /* keep last known */
-        });
-    };
-    load();
-    const id = window.setInterval(load, 12_000);
+    setLoading(true);
+    connection
+      .getSlot('confirmed')
+      .then((s) => {
+        if (!cancelled) setSlot(s);
+      })
+      .catch(() => {
+        /* leave null */
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
-      window.clearInterval(id);
     };
   }, [connection]);
 
-  if (slot == null) return null;
-
   return (
-    <span className="hidden font-mono text-[10.5px] tracking-[0.08em] text-text-faint sm:inline">
-      SLOT {slot.toLocaleString('en-US')}
-    </span>
+    <button
+      type="button"
+      onClick={() => loadSlot()}
+      disabled={loading}
+      title="Reload slot"
+      aria-label={
+        slot == null
+          ? 'Reload slot'
+          : `Slot ${slot.toLocaleString('en-US')}. Click to reload.`
+      }
+      className="hidden items-center gap-1.5 font-mono text-[10.5px] tracking-[0.08em] text-text-faint transition-colors hover:text-foreground disabled:opacity-50 sm:inline-flex"
+    >
+      <span>
+        {slot == null ? 'SLOT …' : `SLOT ${slot.toLocaleString('en-US')}`}
+      </span>
+      <span
+        aria-hidden
+        className={`text-[12px] leading-none text-accent ${loading ? 'animate-spin' : ''}`}
+      >
+        ↻
+      </span>
+    </button>
   );
 }
 
 export function SiteNav() {
   const pathname = usePathname();
   const { network, onNetworkChange } = useConsoleNetwork();
+  const { vaultName } = useVaultBreadcrumb();
   const isHome = pathname === HOME_ROUTE;
   const activeView = pathnameToConsoleView(pathname);
   const isVaultDetail =
     activeView === 'vaults' && pathname !== SECTION_ROUTES.vaults;
-  // Detail pages show breadcrumb-style crumb instead of full nav links.
-  const vaultDetailMatch = pathname.match(/^\/discover\/(\d+)/);
+  const vaultKey = vaultKeyFromPathname(pathname);
+
+  // Prefer loaded vault name; fall back to a short PDA while loading.
+  const crumbLabel =
+    vaultName?.trim() ||
+    (vaultKey && vaultKey.length > 12
+      ? `${vaultKey.slice(0, 4)}…${vaultKey.slice(-4)}`
+      : vaultKey) ||
+    '…';
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm">
@@ -101,23 +140,22 @@ export function SiteNav() {
             <span className="text-[10px] font-semibold text-accent">+</span>
           </Link>
 
-          {isVaultDetail && vaultDetailMatch ? (
+          {isVaultDetail && vaultKey ? (
             <nav
               aria-label="Breadcrumb"
-              className="hidden items-center gap-2.5 text-[13.5px] text-text-faint sm:flex"
+              className="hidden min-w-0 items-center gap-2.5 text-[13.5px] text-text-faint sm:flex"
             >
               <Link
                 href={sectionPath('vaults')}
-                className="transition-colors hover:text-foreground"
+                className="shrink-0 transition-colors hover:text-foreground"
               >
                 Discover
               </Link>
-              <span className="text-[#3A3A3F]" aria-hidden>
+              <span className="shrink-0 text-[#3A3A3F]" aria-hidden>
                 /
               </span>
-              <span className="font-mono text-foreground">
-                {/* Symbol loaded by detail page; crumb shows id until then */}
-                #{vaultDetailMatch[1]}
+              <span className="truncate text-foreground" title={vaultName ?? vaultKey}>
+                {crumbLabel}
               </span>
             </nav>
           ) : (
@@ -157,6 +195,7 @@ export function SiteNav() {
         </div>
 
         <div className="flex shrink-0 items-center gap-2.5">
+          <ClusterStatusChip />
           <SlotLabel />
           <WalletButton network={network} onNetworkChange={onNetworkChange} />
         </div>
@@ -187,6 +226,21 @@ export function SiteNav() {
               </Link>
             );
           })}
+        </nav>
+      )}
+
+      {isVaultDetail && vaultKey && (
+        <nav
+          aria-label="Breadcrumb mobile"
+          className="flex min-w-0 items-center gap-2 overflow-hidden border-t border-border px-[22px] py-2.5 text-[13px] text-text-faint sm:hidden"
+        >
+          <Link href={sectionPath('vaults')} className="shrink-0 hover:text-foreground">
+            Discover
+          </Link>
+          <span className="text-[#3A3A3F]" aria-hidden>
+            /
+          </span>
+          <span className="truncate text-foreground">{crumbLabel}</span>
         </nav>
       )}
 

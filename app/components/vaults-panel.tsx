@@ -265,7 +265,7 @@ function VaultRow({ vault, first }: { vault: VaultRecord; first: boolean }) {
 
   return (
     <Link
-      href={vaultDetailPath(vault.vault_id)}
+      href={vaultDetailPath(vault.vault_address)}
       className={`grid grid-cols-1 items-center gap-3 border-b border-white/[0.06] px-[22px] py-4 transition-colors hover:bg-accent/[0.04] sm:grid-cols-[1.7fr_0.9fr_0.9fr_0.7fr] ${
         first ? 'bg-accent/[0.03]' : ''
       }`}

@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAnchorWallet, useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
   fetchVaultCtx,
@@ -31,6 +32,8 @@ import { StakeEarnModal } from './stake-earn-modal';
 import { PendingClaimButton, formatTokenUi } from './pending-claim-button';
 import { AssetRowsSkeleton } from './loading-skeletons';
 import { VaultActionPanel } from './vault-action-panel';
+import { vaultDetailPath } from './console-routes';
+import { useVaultBreadcrumb } from './console-shell';
 
 const ASSET_COLORS = [
   '#C8FF3D',
@@ -75,42 +78,54 @@ function formatUsdCompact(n: number | null): string {
   return `$${n.toFixed(2)}`;
 }
 
+function isBase58Pubkey(value: string): boolean {
+  try {
+    // eslint-disable-next-line no-new
+    new PublicKey(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Per-vault detail — layout matches new_ui/cVault-2A-Vault-Detail.html.
- * Data + deposit/redeem/stake modals stay on the production code paths.
+ * Route key is the vault PDA (`vault_address`); numeric vault_id still
+ * resolves for legacy links and rewrites to the PDA URL.
  */
 export function VaultDetailView({
-  vaultIdParam,
+  vaultKeyParam,
   network,
 }: {
-  vaultIdParam: string;
+  vaultKeyParam: string;
   network: Network;
 }) {
   return (
     <VaultDetailViewInner
-      key={`${network}:${vaultIdParam}`}
-      vaultIdParam={vaultIdParam}
+      key={`${network}:${vaultKeyParam}`}
+      vaultKeyParam={vaultKeyParam}
       network={network}
     />
   );
 }
 
 function VaultDetailViewInner({
-  vaultIdParam,
+  vaultKeyParam,
   network,
 }: {
-  vaultIdParam: string;
+  vaultKeyParam: string;
   network: Network;
 }) {
+  const router = useRouter();
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const anchorWallet = useAnchorWallet();
+  const { setVaultName } = useVaultBreadcrumb();
 
-  const vaultId = useMemo(() => {
-    if (!/^\d+$/.test(vaultIdParam)) return null;
-    const n = Number(vaultIdParam);
-    return Number.isSafeInteger(n) ? n : null;
-  }, [vaultIdParam]);
+  const routeKey = vaultKeyParam.trim();
+  const keyLooksValid =
+    routeKey.length > 0 &&
+    (/^\d+$/.test(routeKey) || isBase58Pubkey(routeKey));
 
   type VaultState =
     | { status: 'loading' }
@@ -119,6 +134,7 @@ function VaultDetailViewInner({
 
   const [vaultState, setVaultState] = useState<VaultState>({ status: 'loading' });
   const vault = vaultState.status === 'ready' ? vaultState.vault : null;
+  const vaultId = vault?.vault_id ?? null;
 
   type AssetsState =
     | { status: 'loading' }
@@ -149,15 +165,42 @@ function VaultDetailViewInner({
 
   const [navState, setNavState] = useState<NavState>({ status: 'idle' });
 
+  // Publish breadcrumb name; clear on leave.
   useEffect(() => {
-    if (vaultId === null) return;
+    if (vault) {
+      const label = vault.name.trim() || vault.symbol.trim() || null;
+      setVaultName(label);
+    } else {
+      setVaultName(null);
+    }
+    return () => setVaultName(null);
+  }, [vault, setVaultName]);
+
+  useEffect(() => {
+    if (!keyLooksValid) {
+      setVaultState({ status: 'error', message: 'invalid vault address' });
+      return;
+    }
 
     let cancelled = false;
 
     fetchVaults(network)
       .then(async (rows) => {
         if (cancelled) return;
-        let found = rows.find((v) => v.vault_id === vaultId);
+
+        let found: VaultRecord | undefined;
+        if (/^\d+$/.test(routeKey)) {
+          const id = Number(routeKey);
+          if (Number.isSafeInteger(id)) {
+            found = rows.find((v) => v.vault_id === id);
+          }
+        } else {
+          const needle = routeKey.toLowerCase();
+          found = rows.find(
+            (v) => v.vault_address.toLowerCase() === needle,
+          );
+        }
+
         if (!found) {
           setVaultState({
             status: 'error',
@@ -165,6 +208,16 @@ function VaultDetailViewInner({
           });
           return;
         }
+
+        // Legacy /discover/{vault_id} → /discover/{pda}
+        if (
+          /^\d+$/.test(routeKey) &&
+          found.vault_address &&
+          found.vault_address !== routeKey
+        ) {
+          router.replace(vaultDetailPath(found.vault_address));
+        }
+
         if (!found.is_pool_created) {
           try {
             const info = await resolveVaultShareUsdcPool(
@@ -193,7 +246,7 @@ function VaultDetailViewInner({
     return () => {
       cancelled = true;
     };
-  }, [vaultId, network, connection]);
+  }, [routeKey, keyLooksValid, network, connection, router]);
 
   useEffect(() => {
     if (vaultId === null || !vault) return;
@@ -290,15 +343,17 @@ function VaultDetailViewInner({
     [connection, vaultId, network, anchorWallet],
   );
 
+  // NAV when vault becomes ready. Manual ↻ on the masthead still calls loadNav().
+  // Dep array length must stay fixed across renders (React requirement).
   useEffect(() => {
     if (vaultId === null || !vault) return;
     void loadNav();
   }, [vaultId, vault, loadNav]);
 
-  const loading = vaultId !== null && vaultState.status === 'loading';
+  const loading = keyLooksValid && vaultState.status === 'loading';
   const error =
-    vaultId === null
-      ? 'invalid vault id'
+    !keyLooksValid
+      ? 'invalid vault address'
       : vaultState.status === 'error'
         ? vaultState.message
         : null;
@@ -535,6 +590,7 @@ function VaultDetailViewInner({
             {/* Right: trade + stake + addresses */}
             <div className="bg-bg-elevated px-[22px] pb-8 pt-[26px]">
               <VaultActionPanel
+                network={network}
                 sharePriceLabel={
                   navState.status === 'ready' ? navState.sharePriceUsd : '—'
                 }
@@ -542,6 +598,7 @@ function VaultDetailViewInner({
                 exitFeeBps={vault.redeem_fee_bps}
                 stakeable={vault.is_pool_created}
                 shareSymbol={symbol}
+                shareBalanceRaw={shareBalance}
                 shareBalanceLabel={yourSharesUi}
                 walletConnected={!!publicKey}
                 onDeposit={() => setDepositOpen(true)}

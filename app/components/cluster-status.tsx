@@ -20,8 +20,6 @@ import {
 import { C_VAULT_PROGRAM_ID } from '@/lib/constants';
 import { btnGhostClass } from './ui-classes';
 
-/** How often to re-probe once the first check settles (localhost only). */
-const POLL_MS = 15_000;
 /** Debounce rapid network switches / remounts. */
 const MIN_PROBE_GAP_MS = 800;
 
@@ -77,6 +75,8 @@ export function ClusterHealthProvider({
     });
   }, [connection, network]);
 
+  // One-shot probe on network/connection change — no interval polling.
+  // Manual recheck still available via `refresh()` on the chip/banner.
   useEffect(() => {
     inFlight.current += 1;
     lastStarted.current = 0;
@@ -88,11 +88,6 @@ export function ClusterHealthProvider({
 
     setState({ status: 'loading', health: null });
     void runProbe();
-
-    const id = window.setInterval(() => {
-      void runProbe();
-    }, POLL_MS);
-    return () => window.clearInterval(id);
   }, [network, connection, runProbe]);
 
   const value = useMemo(
