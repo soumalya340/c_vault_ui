@@ -784,10 +784,13 @@ export function VaultOpsCreatePanel({ network }: { network: Network }) {
       {/* Outer frame — the double-border plate from the original mockups */}
       <div className="flex min-h-0 flex-1 flex-col border border-border-strong bg-background p-1.5">
         <div className="flex min-h-0 flex-1 flex-col border border-border">
-          {/* Section plate — Create ETF vault */}
-          <div className="flex flex-wrap items-center gap-3 border-b border-border bg-bg-elevated px-[22px] py-[18px]">
+          {/* Section plate — title + bundled on-chain steps */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-bg-elevated px-[22px] py-[18px]">
             <span className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">
               Create ETF vault
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-ghost">
+              Vault Creation + Vault Token Creation + Genesis Deposit
             </span>
           </div>
 
