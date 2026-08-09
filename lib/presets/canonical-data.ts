@@ -119,6 +119,21 @@ export const ASSET_PRESETS = [
     swap_kind: "Whirlpool",
     token_program_tag: 1,
   },
+  {
+    // Mainnet MET/USDC DAMM v2 — same listing as programs tests (dev.test.ts).
+    key: "met",
+    aliases: ["met", "meteora", "met-usdc", "metusdc", "met usdc", "metcoin", "met coin"],
+    asset_name: "MET",
+    mint: "METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL",
+    pool_address: "BnztueWcXv93mgW7yJe8WYpnCxpz34nujPhfjQT6SLu1",
+    pyth_feed_id: "0000000000000000000000000000000000000000000000000000000000000000",
+    decimals: 6,
+    route: "DirectUsdc",
+    price_source_tag: 1,
+    price_dex_kind: 1,
+    swap_kind: "DammV2",
+    token_program_tag: 0,
+  },
 ] as const;
 
 export const VAULT_PRESETS = [
@@ -270,7 +285,31 @@ const ASSET_DISPLAY_ALIASES: Record<string, string> = {
   wsol: 'SOL',
   wbtc: 'BTC',
   weth: 'ETH',
+  meteora: 'MET',
+  'met coin': 'MET',
+  metcoin: 'MET',
 };
+
+/** Longer human name shown beside the ticker in basket rows. */
+const ASSET_FULL_NAMES: Record<string, string> = {
+  SOL: 'Solana',
+  BTC: 'Bitcoin',
+  ETH: 'Ethereum',
+  JUP: 'Jupiter',
+  SPCX: 'SpaceX',
+  NVDAx: 'NVIDIA',
+  NEST: 'Nest',
+  W26: 'W26',
+  BONK: 'Bonk',
+  MET: 'Meteora',
+};
+
+/** Optional full name for a short ticker (e.g. SOL → Solana). */
+export function assetFullName(ticker: string): string {
+  const key = ticker.trim();
+  if (!key) return '';
+  return ASSET_FULL_NAMES[key] ?? ASSET_FULL_NAMES[key.toUpperCase()] ?? '';
+}
 
 /** Map a stored asset_name to the short UI label when known. */
 export function displayAssetName(name: string): string {

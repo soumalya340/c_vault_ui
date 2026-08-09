@@ -1,6 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+/**
+ * Deposit progress modal — in-flight + settled only.
+ * Amount entry lives on the vault action panel (or is passed via `amount`).
+ * Layout matches `cVault-6A-Transaction-Modals.html` states 02 / 03.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BN } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import { getMint, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
@@ -10,27 +16,16 @@ import {
   parseUnits,
   formatUnits,
   fetchMintDecimals,
-  getUserUsdcBalance,
   getUserPosition,
   deriveVaultPdas,
-  describePreviewError,
   NETWORK_CONSTANTS,
   type Network,
 } from '@/lib/onchain/cvault';
 import { PRICE_SCALE_DECIMALS, USDC_DECIMALS } from '@/lib/constants';
-import { isTwapRefreshableError, parseTxError, type UserFacingError } from '@/lib/onchain/txError';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
 import { fetchTokens, updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
-import { LedgerOutput } from './ledger-output';
-import {
-  btnGhostClass,
-  btnPrimaryClass,
-  btnSecondaryClass,
-  fieldLabelClass,
-  inputClass,
-  outputPanelClass,
-} from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
 import { displayVaultName } from './view-display';
 import { SettlementReceipt, groupDecimal, settlementRate } from './settlement-receipt';
@@ -45,14 +40,28 @@ function formatTokenUi(raw: string, decimals: number): string {
   return frac ? `${wholeFmt}.${frac}` : wholeFmt;
 }
 
+function shortAddr(addr: string): string {
+  if (addr.length <= 10) return addr;
+  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
+}
+
+type PreviewQuote = {
+  sharesUi: string;
+  navUi: string;
+  priceUi: string;
+};
+
 export function DepositModal({
   vault,
   network,
   onClose,
+  amount: amountProp,
 }: {
   vault: VaultRecord;
   network: Network;
   onClose: () => void;
+  /** Human-unit USDC amount. Required to start the deposit. */
+  amount: string;
 }) {
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
@@ -60,19 +69,14 @@ export function DepositModal({
   const { requestClose, modalClassName, backdropClassName, isClosing } =
     useModalTransition(onClose);
 
-  const [amount, setAmount] = useState('');
-  const [minSharesOut, setMinSharesOut] = useState('');
-  const [previewing, setPreviewing] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  const amount = amountProp.trim();
+  const [quote, setQuote] = useState<PreviewQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<string[]>([]);
-  const [result, setResult] = useState<{
-    type: 'success' | 'error' | 'info';
-    text: string;
-    solscan?: string;
-  } | null>(null);
   const [lastError, setLastError] = useState<UserFacingError | null>(null);
   const [errorOpen, setErrorOpen] = useState(false);
+  /** Sticky across error-modal dismissal, so the checklist stays truthful. */
+  const [failed, setFailed] = useState(false);
   /**
    * Settled deposit — what the user paid and the shares actually minted to
    * them. `sharesRaw` is a measured balance delta and stays null when the
@@ -82,52 +86,18 @@ export function DepositModal({
     usdcRaw: string;
     sharesRaw: string | null;
     note: string | null;
+    metaLeft: string;
     solscan?: string;
   } | null>(null);
 
-  // Quote mint is always network USDC (program constant) — not stored on the
-  // vaults row. Label as USDC immediately; registry/on-chain only refine
-  // decimals (and a custom symbol if the catalog ever renames it).
   const [baseDecimals, setBaseDecimals] = useState<number | null>(USDC_DECIMALS);
   const [baseSymbol, setBaseSymbol] = useState('USDC');
-
   const baseMint = NETWORK_CONSTANTS[network].usdcMint.toBase58();
-
-  // Wallet's USDC balance — what the user can actually deposit.
-  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
-  const [checkingBalance, setCheckingBalance] = useState(false);
-
-  // Vault share-token decimals — needed to show the deposit preview
-  // ("≈ 0.98 BC shares") and the min-shares-out field in human units.
   const [sharesDecimals, setSharesDecimals] = useState<number | null>(null);
 
-  const refreshUsdcBalance = async () => {
-    if (!publicKey) {
-      setUsdcBalance(null);
-      return;
-    }
-    setCheckingBalance(true);
-    try {
-      const bal = await getUserUsdcBalance(connection, publicKey, network);
-      setUsdcBalance(bal);
-    } catch {
-      setUsdcBalance(null);
-    } finally {
-      setCheckingBalance(false);
-    }
-  };
+  const startedRef = useRef(false);
 
-  useEffect(() => {
-    refreshUsdcBalance();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicKey, network]);
-
-  /**
-   * Raw share-token balance for the connected wallet, or null if it can't be
-   * read. Sampled either side of the deposit to measure shares minted —
-   * `depositAndDeploy` reports signatures only.
-   */
-  const readShareBalance = async (): Promise<string | null> => {
+  const readShareBalance = useCallback(async (): Promise<string | null> => {
     if (!publicKey) return null;
     try {
       const pos = await getUserPosition(connection, vault.vault_id, publicKey, network);
@@ -135,7 +105,7 @@ export function DepositModal({
     } catch {
       return null;
     }
-  };
+  }, [publicKey, connection, vault.vault_id, network]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,13 +132,12 @@ export function DepositModal({
         if (match) {
           if (!cancelled) {
             setBaseDecimals(match.decimals);
-            // Keep a readable ticker even if the catalog uses a long name.
             setBaseSymbol(match.symbol?.trim() || 'USDC');
           }
           return;
         }
       } catch {
-        // Registry unavailable — fall through to the on-chain mint read.
+        // fall through
       }
       try {
         const decimals = await fetchMintDecimals(connection, new PublicKey(baseMint));
@@ -177,7 +146,6 @@ export function DepositModal({
           setBaseSymbol('USDC');
         }
       } catch {
-        // Keep USDC_DECIMALS + "USDC" defaults — quote mint is always USDC.
         if (!cancelled) {
           setBaseDecimals(USDC_DECIMALS);
           setBaseSymbol('USDC');
@@ -189,78 +157,62 @@ export function DepositModal({
     };
   }, [connection, baseMint]);
 
-  // Live raw-unit echo shown under the amount field — demoted to a small
-  // muted aside; the primary display is always the human-readable amount.
-  let rawUnits: string | null = null;
-  if (baseDecimals !== null && amount.trim()) {
+  // Live preview for the in-flight "FOR ≈" line.
+  useEffect(() => {
+    if (baseDecimals === null || !amount) return;
+    let cancelled = false;
+    let raw: BN;
     try {
-      rawUnits = parseUnits(amount, baseDecimals).toString();
+      raw = parseUnits(amount, baseDecimals);
+      if (raw.isZero()) return;
     } catch {
-      rawUnits = null;
-    }
-  }
-
-  const usdcBalanceUi =
-    usdcBalance !== null ? formatTokenUi(usdcBalance, baseDecimals ?? 6) : null;
-  const insufficientBalance =
-    usdcBalance !== null && rawUnits !== null && BigInt(rawUnits) > BigInt(usdcBalance);
-
-  const handlePreview = async () => {
-    if (baseDecimals === null) return;
-    setPreviewing(true);
-    setPreview(null);
-    try {
-      const raw = parseUnits(amount || '0', baseDecimals);
-      const r = await previewDeposit(connection, vault.vault_id, raw, network, anchorWallet);
-      const decimals = sharesDecimals ?? 6;
-      const sharesUi = formatTokenUi(r.sharesToMint, decimals);
-      const navUi = formatTokenUi(r.totalNav, baseDecimals);
-      const priceUi = formatTokenUi(r.sharePrice, PRICE_SCALE_DECIMALS);
-      setPreview(
-        `≈ ${sharesUi} ${vault.symbol} shares · vault NAV $${navUi} · price $${priceUi}/share`,
-      );
-    } catch (err) {
-      setPreview(describePreviewError(err));
-    } finally {
-      setPreviewing(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!anchorWallet) return;
-    if (baseDecimals === null) {
-      setResult({
-        type: 'error',
-        text: 'USDC decimals not loaded yet — try again in a moment.',
-      });
       return;
     }
+    const timer = window.setTimeout(async () => {
+      try {
+        const r = await previewDeposit(
+          connection,
+          vault.vault_id,
+          raw,
+          network,
+          anchorWallet,
+        );
+        if (cancelled) return;
+        const decimals = sharesDecimals ?? 6;
+        setQuote({
+          sharesUi: formatTokenUi(r.sharesToMint, decimals),
+          navUi: formatTokenUi(r.totalNav, baseDecimals),
+          priceUi: formatTokenUi(r.sharePrice, PRICE_SCALE_DECIMALS),
+        });
+      } catch {
+        // preview is best-effort during in-flight
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [amount, baseDecimals, sharesDecimals, connection, vault.vault_id, network, anchorWallet]);
+
+  const runDeposit = useCallback(async () => {
+    if (!anchorWallet || baseDecimals === null || !amount) return;
     setLoading(true);
-    setResult(null);
     setSteps([]);
     setSettlement(null);
+    setFailed(false);
     try {
-      if (!amount.trim()) throw new Error('Enter an amount.');
       const rawAmount = parseUnits(amount, baseDecimals);
-      // Sample shares before signing so the post-deposit delta is attributable
-      // to this deposit alone.
       const sharesBefore = await readShareBalance();
-      const rawMinShares = minSharesOut.trim()
-        ? parseUnits(minSharesOut.trim(), sharesDecimals ?? 6)
-        : new BN(0);
       const r = await depositAndDeploy(
         connection,
         anchorWallet,
         vault.vault_id,
         rawAmount,
-        rawMinShares,
+        new BN(0),
         vault.alt_address,
         network,
         (message) => setSteps((prev) => [...prev, message]),
       );
-      // If create_etf never saved an ALT (or it died), deposit just rebuilt it —
-      // persist so future deposits/redeems reuse the same table.
       let altNote = '';
       if (
         r.altAddress &&
@@ -272,18 +224,18 @@ export function DepositModal({
             redeem_alt_address: r.altAddress,
           });
           altNote = r.altCreated
-            ? `\nALT created + saved: ${r.altAddress}`
-            : `\nALT saved: ${r.altAddress}`;
+            ? `ALT created + saved: ${r.altAddress}`
+            : `ALT saved: ${r.altAddress}`;
         } catch (err) {
           altNote =
-            `\nALT live (${r.altAddress}) but DB save failed: ` +
+            `ALT live (${r.altAddress}) but DB save failed: ` +
             `${err instanceof Error ? err.message : String(err)}`;
         }
       }
       const multiTx = r.signatures.length > 1;
-      // Shares minted = post-deposit balance − pre-deposit balance. Null when
-      // either sample failed, so the receipt shows "not recorded" rather than
-      // a wrong number.
+      // Drives the final "Confirming shares" phase — the on-chain calls below
+      // are silent, so without this the checklist would stall on "swapping".
+      setSteps((prev) => [...prev, 'Confirming minted shares…']);
       const sharesAfter = await readShareBalance();
       let sharesMintedRaw: string | null = null;
       if (sharesBefore !== null && sharesAfter !== null) {
@@ -297,96 +249,134 @@ export function DepositModal({
       setSettlement({
         usdcRaw: rawAmount.toString(),
         sharesRaw: sharesMintedRaw,
-        note:
-          (multiTx
-            ? `${r.signatures.length} transactions (setup + swaps).`
-            : 'Swaps executed in the same transaction.') + altNote,
+        note: altNote || null,
+        metaLeft: multiTx
+          ? `${r.signatures.length} transactions · setup + swaps`
+          : '1 transaction · swaps included',
         solscan: r.link,
       });
-      setResult({
-        type: 'success',
-        text:
-          (multiTx
-            ? `Deposited into vault №${vault.vault_id} — ${r.signatures.length} transactions (setup + swaps).`
-            : `Deposited into vault №${vault.vault_id} — swaps executed in the same transaction.`) +
-          altNote,
-        solscan: r.link,
-      });
-      setAmount('');
-      await refreshUsdcBalance();
     } catch (err) {
       const parsed = parseTxError(err);
       setLastError(parsed);
       setErrorOpen(true);
-      setResult({
-        type: parsed.kind === 'info' ? 'info' : 'error',
-        text: parsed.title,
-      });
-      await refreshUsdcBalance();
+      setFailed(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    anchorWallet,
+    baseDecimals,
+    amount,
+    readShareBalance,
+    connection,
+    vault.vault_id,
+    vault.alt_address,
+    network,
+  ]);
+
+  // Auto-start once wallet + decimals are ready.
+  //
+  // Deferred to a microtask (not setTimeout) so the first state update lands
+  // outside the effect body, and deliberately left uncancelled: React
+  // StrictMode double-mounts in dev, so a cleanup that aborted the start would
+  // drop the call while `startedRef` stayed true — the remount would then bail
+  // out and no wallet prompt would ever appear. `startedRef` alone guarantees
+  // this runs exactly once.
+  useEffect(() => {
+    if (startedRef.current) return;
+    if (!anchorWallet || baseDecimals === null || !amount || settlement) return;
+    startedRef.current = true;
+    void Promise.resolve().then(runDeposit);
+  }, [anchorWallet, baseDecimals, amount, settlement, runDeposit]);
+
+  const showInFlight = !settlement;
+  /**
+   * The deposit auto-starts, so from the moment the modal opens until it either
+   * errors or settles the user is mid-flow — even during the brief async setup
+   * before `loading` flips. Treat that whole window as busy so the footer never
+   * offers a misleading "Close" a beat before the wallet prompt appears.
+   */
+  const busy = loading || (!failed && !settlement && Boolean(anchorWallet) && Boolean(amount));
+  const vaultName = displayVaultName(vault.name);
+  const addrShort = shortAddr(vault.vault_address);
+  const shareSymbol = (vault.symbol || 'SHARES').toUpperCase();
+  const depositAmountLabel = amount || '—';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {errorOpen && lastError && (
         <ErrorModal
           error={lastError}
-          onClose={() => setErrorOpen(false)}
+          onClose={() => {
+            setErrorOpen(false);
+            if (!settlement) requestClose();
+          }}
           network={network}
           vaultId={vault.vault_id}
         />
       )}
       <div
-        className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
+        className={`absolute inset-0 bg-black/75 backdrop-blur-sm ${backdropClassName}`}
         onClick={() => {
-          if (!isClosing) requestClose();
+          if (!isClosing && !busy) requestClose();
         }}
       />
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Deposit into ${displayVaultName(vault.name)}`}
-        className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
+        aria-label={`Deposit into ${vaultName}`}
+        className={`relative z-10 flex w-full max-w-[396px] max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-white/10 bg-background shadow-[0_24px_60px_rgba(0,0,0,0.55)] ${modalClassName}`}
       >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/[0.07] px-5 pb-4 pt-[18px]">
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-accent">
-              № {String(vault.vault_id).padStart(2, '0')} · deposit
+            <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-accent">
+              Deposit
             </div>
-            <h2 className="mt-1 font-display text-lg font-semibold tracking-[0.02em]">
-              {displayVaultName(vault.name)}
-            </h2>
+            <div className="mt-2 flex items-baseline gap-2">
+              <h2 className="text-[21px] font-semibold tracking-[-0.03em] text-foreground">
+                {vaultName}
+              </h2>
+              <span className="font-mono text-[10.5px] text-text-ghost">{addrShort}</span>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={requestClose}
-            disabled={isClosing}
-            aria-label="Close"
-            className={btnGhostClass}
-          >
-            Close
-          </button>
+          {showInFlight && busy ? (
+            <span className="rounded-full bg-accent/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
+              In flight
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={requestClose}
+              disabled={isClosing || busy}
+              aria-label="Close"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full border border-white/12 font-mono text-[11px] text-text-dim transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-40"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {settlement ? (
-          <div className="overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <SettlementReceipt
               kind="deposit"
               vaultId={vault.vault_id}
               surrendered={{
                 label: 'Deposited',
-                amount: groupDecimal(formatUnits(settlement.usdcRaw, baseDecimals ?? USDC_DECIMALS)),
+                amount: groupDecimal(
+                  formatUnits(settlement.usdcRaw, baseDecimals ?? USDC_DECIMALS),
+                ),
                 unit: baseSymbol,
               }}
               issued={{
                 label: 'Shares received',
                 amount:
                   settlement.sharesRaw !== null
-                    ? groupDecimal(formatUnits(settlement.sharesRaw, sharesDecimals ?? 6))
+                    ? groupDecimal(
+                        formatUnits(settlement.sharesRaw, sharesDecimals ?? 6),
+                      )
                     : null,
-                unit: vault.symbol,
+                unit: shareSymbol,
               }}
               rate={(() => {
                 const value = settlementRate(
@@ -396,159 +386,93 @@ export function DepositModal({
                   sharesDecimals ?? 6,
                 );
                 return value
-                  ? { label: 'Cost per share', value: `${value} ${baseSymbol}` }
+                  ? {
+                      label: 'Cost per share',
+                      value,
+                      unit: baseSymbol,
+                    }
                   : null;
               })()}
+              metaLeft={settlement.metaLeft}
               note={settlement.note}
               solscan={settlement.solscan}
               doneLabel="Done"
               onDone={requestClose}
             />
-            <button
-              type="button"
-              onClick={() => {
-                setSettlement(null);
-                setResult(null);
-                setSteps([]);
-                setPreview(null);
-              }}
-              className="mt-4 w-full rounded-[2px] border border-border-strong bg-background px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              Deposit again
-            </button>
           </div>
         ) : (
-        <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto px-6 py-5">
-          {publicKey && (
-            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-              wallet balance:{' '}
-              <span className="text-foreground">
-                {checkingBalance ? '…' : usdcBalanceUi !== null ? `${usdcBalanceUi} ${baseSymbol}` : '—'}
-              </span>
-            </p>
-          )}
-          <div>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <label className={fieldLabelClass}>
-                Amount ({baseSymbol})
-              </label>
-              {publicKey && usdcBalanceUi !== null && usdcBalance !== '0' && (
+          <>
+            <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto overscroll-contain px-5 py-[18px]">
+              {!anchorWallet ? (
+                <p className="font-mono text-[12px] leading-relaxed text-text-ghost">
+                  Connect a wallet to deposit.
+                </p>
+              ) : !amount ? (
+                <p className="font-mono text-[12px] leading-relaxed text-text-ghost">
+                  Enter an amount on the vault page, then deposit.
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between rounded-xl border border-white/[0.09] bg-bg-elevated px-4 py-3.5">
+                    <div>
+                      <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                        Depositing
+                      </div>
+                      <div className="mt-1.5 text-2xl font-medium tracking-[-0.03em] text-foreground">
+                        {depositAmountLabel}{' '}
+                        <span className="font-mono text-xs text-text-faint">{baseSymbol}</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                        For
+                      </div>
+                      <div className="mt-2 font-mono text-[15px] text-accent">
+                        {quote ? (
+                          <>
+                            ≈ {quote.sharesUi}{' '}
+                            <span className="text-[10.5px] text-text-faint">{shareSymbol}</span>
+                          </>
+                        ) : (
+                          <span className="text-text-ghost">…</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <TransactionPhases
+                    flow="deposit"
+                    steps={steps}
+                    status={loading ? 'running' : failed ? 'failed' : 'pending'}
+                  />
+                </>
+              )}
+            </div>
+
+            <div className="shrink-0 space-y-2.5 border-t border-white/[0.07] bg-bg-elevated px-5 py-4">
+              {busy ? (
+                <>
+                  <div className="flex h-12 items-center justify-center gap-2.5 rounded-[10px] border border-accent/30 bg-accent/15 text-[15px] font-semibold text-accent">
+                    <Spinner className="size-[15px]" />
+                    {loading ? 'Processing…' : 'Preparing…'}
+                  </div>
+                  <p className="text-center font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-ghost">
+                    {steps.length > 0
+                      ? `Step · ${steps[steps.length - 1]?.slice(0, 42) ?? '…'}`
+                      : 'Approve in your wallet'}
+                  </p>
+                </>
+              ) : (
                 <button
                   type="button"
-                  onClick={() => baseDecimals !== null && setAmount(formatUnits(usdcBalance!, baseDecimals))}
-                  className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent transition-colors hover:text-foreground"
+                  onClick={requestClose}
+                  className="flex h-12 w-full items-center justify-center rounded-[10px] border border-white/14 text-[14.5px] font-medium text-[#DADADE] transition-colors hover:bg-white/[0.04]"
                 >
-                  Max {usdcBalanceUi}
+                  Close
                 </button>
               )}
             </div>
-            <input
-              className={`${inputClass} tabular-nums`}
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder={baseDecimals === null ? 'loading…' : '100'}
-              disabled={baseDecimals === null}
-              required
-            />
-            <p
-              className={`mt-1.5 font-mono text-[11px] tabular-nums ${
-                insufficientBalance ? 'text-destructive' : 'text-muted-foreground/70'
-              }`}
-            >
-              {baseDecimals === null
-                ? 'Resolving USDC decimals…'
-                : insufficientBalance
-                  ? `Exceeds wallet balance (${usdcBalanceUi} ${baseSymbol} available)`
-                  : rawUnits
-                    ? `${rawUnits} raw units (${baseDecimals} decimals)`
-                    : `Enter a ${baseSymbol} amount (e.g. 100)`}
-            </p>
-          </div>
-          <div>
-            <label className={fieldLabelClass}>
-              Min shares out ({vault.symbol}) — leave blank to skip the slippage check
-            </label>
-            <input
-              className={`${inputClass} tabular-nums`}
-              type="text"
-              inputMode="decimal"
-              value={minSharesOut}
-              onChange={(e) => setMinSharesOut(e.target.value)}
-              placeholder="0.0"
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handlePreview}
-              disabled={previewing || !amount.trim() || baseDecimals === null}
-              className={btnSecondaryClass}
-            >
-              {previewing ? 'Previewing…' : 'Preview'}
-            </button>
-            {preview && (
-              <span className="font-mono text-[11px] tabular-nums leading-relaxed text-muted-foreground">
-                {preview}
-              </span>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || !anchorWallet || insufficientBalance}
-            className={btnPrimaryClass}
-          >
-            {loading ? (
-              <span className="inline-flex items-center gap-2">
-                <Spinner className="size-3.5" />
-                Processing…
-              </span>
-            ) : anchorWallet ? (
-              'Deposit'
-            ) : (
-              'Connect wallet'
-            )}
-          </button>
-
-          <TransactionPhases flow="deposit" steps={steps} active={loading} />
-
-          {result && (
-            <div className={outputPanelClass}>
-              <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
-                OUTPUT
-              </div>
-              <div className="px-4 py-3">
-                <LedgerOutput text={result.text} tone={result.type} />
-                {result.type === 'error' && lastError && (
-                  <div className="mt-2 border-t border-border pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setErrorOpen(true)}
-                      className="font-mono text-[11px] text-accent underline transition-colors hover:text-foreground"
-                    >
-                      View error details
-                    </button>
-                  </div>
-                )}
-                {result.solscan && (
-                  <div className="mt-2 border-t border-border pt-2">
-                    <a
-                      href={result.solscan}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-accent underline transition-colors hover:text-foreground"
-                    >
-                      View on Solscan
-                    </a>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          </form>
+          </>
         )}
       </div>
     </div>

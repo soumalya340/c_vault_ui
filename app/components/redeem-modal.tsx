@@ -1,6 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+/**
+ * Redeem progress modal — in-flight + settled only.
+ * Share amount entry lives on the vault action panel (or is passed via `shares`).
+ * Claim-only resumes when on-chain pending USDC is ready.
+ * Layout matches `cVault-6A-Transaction-Modals.html` states 02 / 03.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BN } from '@coral-xyz/anchor';
 import { getMint, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { useConnection, useAnchorWallet, useWallet } from '@solana/wallet-adapter-react';
@@ -10,25 +17,15 @@ import {
   previewRedeem,
   redeemSwap,
   claim,
-  describePreviewError,
   deriveVaultPdas,
   parseUnits,
   formatUnits,
   type Network,
 } from '@/lib/onchain/cvault';
 import { USDC_DECIMALS } from '@/lib/constants';
-import { isTwapRefreshableError, parseTxError, type UserFacingError } from '@/lib/onchain/txError';
+import { parseTxError, type UserFacingError } from '@/lib/onchain/txError';
 import { updateVaultAlts, type VaultRecord } from '@/lib/registryClient';
 import { ErrorModal } from './error-modal';
-import { LedgerOutput } from './ledger-output';
-import {
-  btnGhostClass,
-  btnPrimaryClass,
-  btnSecondaryClass,
-  fieldLabelClass,
-  inputClass,
-  outputPanelClass,
-} from './ui-classes';
 import { useModalTransition } from './use-modal-transition';
 import { displayVaultName } from './view-display';
 import {
@@ -39,16 +36,6 @@ import {
 import { TransactionPhases } from './transaction-phases';
 import { Spinner } from '@/components/ui/spinner';
 
-// Two separate actions so a failure in one phase (e.g. an outflow swap leg)
-// doesn't get hidden behind a single "Redeem & Claim" button:
-//  - "Redeem (swap)" — burns shares (request_redeem) if no active redeem yet,
-//    otherwise runs the outflow swap legs.
-//  - "Claim" — only enabled once the outflow legs are done (pendingUsdc > 0);
-//    sends the final `claim` instruction.
-// Nothing is stored off-chain per user — both actions check on-chain state.
-// The vault's ALT compresses every swap
-// transaction.
-
 /** Human-readable token amount with thousands separators; exact string math. */
 function formatTokenUi(raw: string, decimals: number): string {
   const ui = formatUnits(raw, decimals);
@@ -57,14 +44,30 @@ function formatTokenUi(raw: string, decimals: number): string {
   return frac ? `${wholeFmt}.${frac}` : wholeFmt;
 }
 
+function shortAddr(addr: string): string {
+  if (addr.length <= 10) return addr;
+  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
+}
+
+type PreviewQuote = {
+  usdcUi: string;
+  numAssets: number;
+};
+
 export function RedeemModal({
   vault,
   network,
   onClose,
+  shares: sharesProp,
 }: {
   vault: VaultRecord;
   network: Network;
   onClose: () => void;
+  /**
+   * Human-unit share amount to burn. Optional when resuming a claim-only
+   * redeem (pending USDC already escrowed).
+   */
+  shares?: string;
 }) {
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
@@ -72,29 +75,24 @@ export function RedeemModal({
   const { requestClose, modalClassName, backdropClassName, isClosing } =
     useModalTransition(onClose);
 
-  const [shares, setShares] = useState('');
-  const [previewing, setPreviewing] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  const shares = (sharesProp ?? '').trim();
+  const [quote, setQuote] = useState<PreviewQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<string[]>([]);
-  /** Which button triggered the in-flight transaction — picks the phase list. */
   const [activeFlow, setActiveFlow] = useState<'redeem' | 'claim'>('redeem');
-  const [result, setResult] = useState<{
-    type: 'success' | 'error' | 'info';
-    text: string;
-    solscan?: string;
-  } | null>(null);
   const [errorModal, setErrorModal] = useState<UserFacingError | null>(null);
+  /** Sticky across error-modal dismissal, so the checklist stays truthful. */
+  const [failed, setFailed] = useState(false);
   /**
    * Settled redeem — shares burned and the USDC that actually landed in the
    * wallet. `usdcRaw` is a measured wallet delta; `sharesRaw` is null when the
-   * user resumed a pending redeem without re-entering an amount (the burn
-   * happened in an earlier session, so this run cannot attribute it).
+   * user resumed a pending redeem without re-entering an amount.
    */
   const [settlement, setSettlement] = useState<{
     sharesRaw: string | null;
     usdcRaw: string | null;
     note: string | null;
+    metaLeft: string;
     solscan?: string;
   } | null>(null);
 
@@ -102,17 +100,12 @@ export function RedeemModal({
     isRedeemActive: boolean;
     pendingUsdc: string;
   } | null>(null);
-  /** Raw share-token base units (Token-2022 amount). */
   const [shareBalance, setShareBalance] = useState<string>('0');
   const [sharesDecimals, setSharesDecimals] = useState<number | null>(null);
-  const [checkingPosition, setCheckingPosition] = useState(false);
-  /** Scroll container + anchors so long redeem logs don't hide OUTPUT. */
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const resultRef = useRef<HTMLDivElement>(null);
-  const stepsEndRef = useRef<HTMLDivElement>(null);
+  const [positionReady, setPositionReady] = useState(false);
 
-  // Shares mint decimals (authoritative from Token-2022 mint). Needed to show
-  // balance / burn amounts in human units instead of raw base units.
+  const startedRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -126,7 +119,6 @@ export function RedeemModal({
         );
         if (!cancelled) setSharesDecimals(mintInfo.decimals);
       } catch {
-        // Fall back to the vault default (6) so the form still works offline.
         if (!cancelled) setSharesDecimals(6);
       }
     })();
@@ -135,62 +127,55 @@ export function RedeemModal({
     };
   }, [connection, vault.vault_id, network]);
 
-  const refreshPosition = async () => {
-    if (!publicKey) return;
-    setCheckingPosition(true);
-    try {
-      const pos = await getUserPosition(connection, vault.vault_id, publicKey, network);
-      setShareBalance(pos.shareBalance);
-      setPending(
-        pos.redeemState && pos.redeemState.isRedeemActive
-          ? {
-              isRedeemActive: pos.redeemState.isRedeemActive,
-              pendingUsdc: pos.redeemState.pendingUsdc,
-            }
-          : null,
-      );
-    } catch {
-      setPending(null);
-    } finally {
-      setCheckingPosition(false);
-    }
-  };
-
   useEffect(() => {
-    refreshPosition();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicKey]);
+    let cancelled = false;
+    (async () => {
+      if (!publicKey) {
+        await Promise.resolve();
+        if (!cancelled) {
+          setShareBalance('0');
+          setPending(null);
+          setPositionReady(true);
+        }
+        return;
+      }
+      try {
+        const pos = await getUserPosition(
+          connection,
+          vault.vault_id,
+          publicKey,
+          network,
+        );
+        if (cancelled) return;
+        setShareBalance(pos.shareBalance);
+        setPending(
+          pos.redeemState && pos.redeemState.isRedeemActive
+            ? {
+                isRedeemActive: pos.redeemState.isRedeemActive,
+                pendingUsdc: pos.redeemState.pendingUsdc,
+              }
+            : null,
+        );
+      } catch {
+        if (!cancelled) setPending(null);
+      } finally {
+        if (!cancelled) setPositionReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, connection, vault.vault_id, network]);
 
-  // Multi-leg redeem logs fill the viewport; keep the latest step in view while
-  // loading, then jump to OUTPUT when redeem/claim finishes.
-  useEffect(() => {
-    if (result) {
-      // Bring OUTPUT to the top of the scroll body so success/error is never
-      // buried under dozens of "Sending ALT transaction…" lines.
-      bodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      return;
-    }
-    if (loading && steps.length > 0) {
-      stepsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-  }, [result, steps, loading]);
-
-  /**
-   * Raw wallet USDC, or null if unreadable. Sampled either side of
-   * redeem/claim to measure the payout — neither `redeemSwap` nor `claim`
-   * returns the amount that landed.
-   */
-  const readUsdcBalance = async (): Promise<string | null> => {
+  const readUsdcBalance = useCallback(async (): Promise<string | null> => {
     if (!publicKey) return null;
     try {
       return await getUserUsdcBalance(connection, publicKey, network);
     } catch {
       return null;
     }
-  };
+  }, [publicKey, connection, network]);
 
-  /** Positive wallet delta between two samples, or null if unmeasurable. */
   const measureUsdcDelta = (before: string | null, after: string | null): string | null => {
     if (before === null || after === null) return null;
     try {
@@ -201,68 +186,57 @@ export function RedeemModal({
     }
   };
 
-  const shareBalanceUi =
-    sharesDecimals !== null ? formatTokenUi(shareBalance, sharesDecimals) : null;
-
-  // Live raw-unit echo under the burn field (mirrors deposit modal).
-  let rawShares: string | null = null;
-  if (sharesDecimals !== null && shares.trim()) {
-    try {
-      rawShares = parseUnits(shares, sharesDecimals).toString();
-    } catch {
-      rawShares = null;
-    }
-  }
-
-  const parseSharesInput = (): BN => {
-    if (sharesDecimals === null) {
-      throw new Error('Share token decimals not loaded yet — try again in a moment.');
-    }
-    if (!shares.trim()) throw new Error('Enter a share amount to burn.');
-    return parseUnits(shares.trim(), sharesDecimals);
-  };
-
-  const handlePreview = async () => {
-    setPreviewing(true);
-    setPreview(null);
-    try {
-      const raw = parseSharesInput();
-      const r = await previewRedeem(
-        connection,
-        vault.vault_id,
-        raw,
-        network,
-        anchorWallet,
-      );
-      const usdcUi = formatTokenUi(r.estimatedUsdcValue, USDC_DECIMALS);
-      setPreview(`≈ ${usdcUi} USDC · ${r.numAssets} assets to swap`);
-    } catch (err) {
-      setPreview(describePreviewError(err));
-    } finally {
-      setPreviewing(false);
-    }
-  };
-
   const pendingUsdc = pending ? BigInt(pending.pendingUsdc) : 0n;
   const readyToClaim = pendingUsdc > 0n;
 
-  const handleRedeemSwap = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Preview for in-flight "FOR ≈" when burning shares.
+  useEffect(() => {
+    if (sharesDecimals === null || !shares || readyToClaim) return;
+    let cancelled = false;
+    let raw: BN;
+    try {
+      raw = parseUnits(shares, sharesDecimals);
+      if (raw.isZero()) return;
+    } catch {
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        const r = await previewRedeem(
+          connection,
+          vault.vault_id,
+          raw,
+          network,
+          anchorWallet,
+        );
+        if (cancelled) return;
+        setQuote({
+          usdcUi: formatTokenUi(r.estimatedUsdcValue, USDC_DECIMALS),
+          numAssets: r.numAssets,
+        });
+      } catch {
+        // best-effort
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [shares, sharesDecimals, readyToClaim, connection, vault.vault_id, network, anchorWallet]);
+
+  const runRedeem = useCallback(async () => {
     if (!anchorWallet) return;
     setActiveFlow('redeem');
     setLoading(true);
-    setResult(null);
     setSteps([]);
     setSettlement(null);
+    setFailed(false);
     try {
       let sharesBn: BN | null = null;
-      if (shares.trim()) {
-        sharesBn = parseSharesInput();
+      if (shares && sharesDecimals !== null) {
+        sharesBn = parseUnits(shares, sharesDecimals);
       }
-      // Sample wallet USDC before signing — the batch includes `claim`, so the
-      // payout lands within this call.
       const usdcBefore = await readUsdcBalance();
-      // Burn + all outflow legs + claim in one wallet approval (signAllTransactions).
       const r = await redeemSwap(
         connection,
         anchorWallet,
@@ -284,60 +258,63 @@ export function RedeemModal({
             redeem_alt_address: r.altAddress,
           });
           altNote = r.altCreated
-            ? `\nALT created + saved: ${r.altAddress}`
-            : `\nALT saved: ${r.altAddress}`;
+            ? `ALT created + saved: ${r.altAddress}`
+            : `ALT saved: ${r.altAddress}`;
         } catch (err) {
           altNote =
-            `\nALT live (${r.altAddress}) but DB save failed: ` +
+            `ALT live (${r.altAddress}) but DB save failed: ` +
             `${err instanceof Error ? err.message : String(err)}`;
         }
       }
       const usdcAfter = await readUsdcBalance();
+      const remainingUi =
+        sharesDecimals !== null
+          ? formatTokenUi(
+              sharesBn && BigInt(shareBalance) >= BigInt(sharesBn.toString())
+                ? (BigInt(shareBalance) - BigInt(sharesBn.toString())).toString()
+                : shareBalance,
+              sharesDecimals,
+            )
+          : null;
+      const shareSymbol = (vault.symbol || 'SHARES').toUpperCase();
       setSettlement({
         sharesRaw: sharesBn ? sharesBn.toString() : null,
         usdcRaw: measureUsdcDelta(usdcBefore, usdcAfter),
-        note:
-          `Shares burned, assets swapped, USDC claimed ` +
-          `(${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}, one wallet approval).` +
-          altNote,
+        note: altNote || null,
+        metaLeft:
+          remainingUi !== null
+            ? `Remaining ${remainingUi} ${shareSymbol}`
+            : `${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'} · one approval`,
         solscan: r.link,
       });
-      setResult({
-        type: 'success',
-        text:
-          `Redeem complete for vault №${vault.vault_id}: shares burned, assets swapped, USDC claimed ` +
-          `(${r.signatures.length} transaction${r.signatures.length === 1 ? '' : 's'}, one wallet approval).` +
-          altNote,
-        solscan: r.link,
-      });
-      setShares('');
-      await refreshPosition();
     } catch (err) {
-      const parsed = parseTxError(err);
-      setErrorModal(parsed);
-      setResult({
-        type: parsed.kind === 'info' ? 'info' : 'error',
-        text: parsed.title,
-      });
-      // Always re-read RedeemState — burn may have succeeded even if a later
-      // swap/claim leg failed; user can press Redeem (swap) again to resume.
-      await refreshPosition();
+      setErrorModal(parseTxError(err));
+      setFailed(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    anchorWallet,
+    shares,
+    sharesDecimals,
+    readUsdcBalance,
+    connection,
+    vault.vault_id,
+    vault.alt_address,
+    vault.symbol,
+    network,
+    shareBalance,
+  ]);
 
-  const handleClaim = async () => {
+  const runClaim = useCallback(async () => {
     if (!anchorWallet) return;
     setActiveFlow('claim');
     setLoading(true);
-    setResult(null);
     setSteps([]);
     setSettlement(null);
+    setFailed(false);
     try {
       setSteps(['Claiming USDC payout…']);
-      // On-chain pending amount is the authoritative payout for a bare claim;
-      // the wallet delta is the fallback if RedeemState wasn't readable.
       const expectedUsdc = pendingUsdc > 0n ? pendingUsdc.toString() : null;
       const usdcBefore = await readUsdcBalance();
       const r = await claim(connection, anchorWallet, vault.vault_id, network);
@@ -345,72 +322,125 @@ export function RedeemModal({
       setSettlement({
         sharesRaw: null,
         usdcRaw: expectedUsdc ?? measureUsdcDelta(usdcBefore, usdcAfter),
-        note: 'Pending payout claimed to your wallet.',
+        note: null,
+        metaLeft: 'Pending payout claimed to your wallet',
         solscan: r.link,
       });
-      setResult({
-        type: 'success',
-        text: `Claimed USDC payout from vault №${vault.vault_id}.`,
-        solscan: r.link,
-      });
-      await refreshPosition();
     } catch (err) {
-      const parsed = parseTxError(err);
-      setErrorModal(parsed);
-      setResult({
-        type: parsed.kind === 'info' ? 'info' : 'error',
-        text: parsed.title,
-      });
-      await refreshPosition();
+      setErrorModal(parseTxError(err));
+      setFailed(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    anchorWallet,
+    pendingUsdc,
+    readUsdcBalance,
+    connection,
+    vault.vault_id,
+    network,
+  ]);
+
+  // Auto-start once position + wallet are ready.
+  //
+  // Deferred to a microtask (not setTimeout) so the first state update lands
+  // outside the effect body, and deliberately left uncancelled: React
+  // StrictMode double-mounts in dev, so a cleanup that aborted the start would
+  // drop the call while `startedRef` stayed true — the remount would then bail
+  // out and no wallet prompt would ever appear. `startedRef` alone guarantees
+  // this runs exactly once.
+  useEffect(() => {
+    if (startedRef.current || !positionReady || !anchorWallet || settlement) return;
+    if (readyToClaim) {
+      startedRef.current = true;
+      void Promise.resolve().then(runClaim);
+      return;
+    }
+    if (shares && sharesDecimals !== null) {
+      startedRef.current = true;
+      void Promise.resolve().then(runRedeem);
+    }
+  }, [
+    positionReady,
+    anchorWallet,
+    settlement,
+    readyToClaim,
+    shares,
+    sharesDecimals,
+    runClaim,
+    runRedeem,
+  ]);
+
+  const showInFlight = !settlement;
+  const vaultName = displayVaultName(vault.name);
+  const addrShort = shortAddr(vault.vault_address);
+  const shareSymbol = (vault.symbol || 'SHARES').toUpperCase();
+  const burnLabel = shares || '…';
+  const canStart = Boolean(anchorWallet && (readyToClaim || (shares && sharesDecimals !== null)));
+  /**
+   * The redeem auto-starts, so from the moment the modal opens until it either
+   * errors or settles the user is mid-flow — even during the brief async setup
+   * before `loading` flips. Treat that whole window as busy so the footer never
+   * offers a misleading "Close" a beat before the wallet prompt appears.
+   */
+  const busy = loading || (!failed && !settlement && canStart);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {errorModal && (
         <ErrorModal
           error={errorModal}
-          onClose={() => setErrorModal(null)}
+          onClose={() => {
+            setErrorModal(null);
+            if (!settlement) requestClose();
+          }}
           network={network}
           vaultId={vault.vault_id}
         />
       )}
       <div
-        className={`absolute inset-0 bg-black/70 backdrop-blur-sm ${backdropClassName}`}
+        className={`absolute inset-0 bg-black/75 backdrop-blur-sm ${backdropClassName}`}
         onClick={() => {
-          if (!isClosing) requestClose();
+          if (!isClosing && !busy) requestClose();
         }}
       />
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Redeem from ${displayVaultName(vault.name)}`}
-        className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
+        aria-label={`Redeem from ${vaultName}`}
+        className={`relative z-10 flex w-full max-w-[396px] max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-white/10 bg-background shadow-[0_24px_60px_rgba(0,0,0,0.55)] ${modalClassName}`}
       >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/[0.07] px-5 pb-4 pt-[18px]">
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-seal">
-              № {String(vault.vault_id).padStart(2, '0')} · redeem &amp; claim
+            <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-accent">
+              Redeem &amp; claim
             </div>
-            <h2 className="mt-1 font-display text-lg font-semibold tracking-[0.02em]">
-              {displayVaultName(vault.name)}
-            </h2>
+            <div className="mt-2 flex items-baseline gap-2">
+              <h2 className="text-[21px] font-semibold tracking-[-0.03em] text-foreground">
+                {vaultName}
+              </h2>
+              <span className="font-mono text-[10.5px] text-text-ghost">{addrShort}</span>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={requestClose}
-            disabled={isClosing}
-            aria-label="Close"
-            className={btnGhostClass}
-          >
-            Close
-          </button>
+          {showInFlight && busy ? (
+            <span className="rounded-full bg-accent/10 px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-accent">
+              In flight
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={requestClose}
+              disabled={isClosing || busy}
+              aria-label="Close"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full border border-white/12 font-mono text-[11px] text-text-dim transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-40"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {settlement ? (
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <SettlementReceipt
               kind="redeem"
               vaultId={vault.vault_id}
@@ -420,7 +450,7 @@ export function RedeemModal({
                   settlement.sharesRaw !== null && sharesDecimals !== null
                     ? groupDecimal(formatUnits(settlement.sharesRaw, sharesDecimals))
                     : null,
-                unit: vault.symbol,
+                unit: shareSymbol,
               }}
               issued={{
                 label: 'USDC claimed',
@@ -438,197 +468,113 @@ export function RedeemModal({
                   sharesDecimals ?? 6,
                 );
                 return value
-                  ? { label: 'Proceeds per share', value: `${value} USDC` }
+                  ? {
+                      label: 'Proceeds per share',
+                      value,
+                      unit: 'USDC',
+                    }
                   : null;
               })()}
+              metaLeft={settlement.metaLeft}
               note={settlement.note}
               solscan={settlement.solscan}
               doneLabel="Done"
               onDone={requestClose}
             />
-            <button
-              type="button"
-              onClick={() => {
-                setSettlement(null);
-                setResult(null);
-                setSteps([]);
-                setPreview(null);
-              }}
-              className="mt-4 w-full rounded-[2px] border border-border-strong bg-background px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              Redeem more
-            </button>
           </div>
         ) : (
-        <div ref={bodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-5">
-          {checkingPosition && (
-            <p className="font-mono text-xs text-muted-foreground">
-              <span className="t-shimmer" data-text="Checking on-chain position…">
-                Checking on-chain position…
-              </span>
-            </p>
-          )}
-
-          {!checkingPosition && (
-            <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-              share balance:{' '}
-              <span className="text-foreground">
-                {shareBalanceUi !== null ? (
-                  <>
-                    {shareBalanceUi} {vault.symbol}
-                    <span className="text-muted-foreground/70">
-                      {' '}
-                      ({shareBalance} raw)
-                    </span>
-                  </>
-                ) : (
-                  '…'
-                )}
-              </span>
-            </p>
-          )}
-
-          {pending && (
-            <div className="rounded-[2px] border border-border bg-foreground/[0.03] px-3.5 py-3">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-seal">
-                Pending redeem
-              </p>
-              <p className="mt-1.5 font-mono text-xs tabular-nums leading-relaxed text-foreground">
-                Redeem in progress for vault №{vault.vault_id}
-                {pendingUsdc > 0n
-                  ? ` · ${formatTokenUi(pending.pendingUsdc, USDC_DECIMALS)} USDC pending`
-                  : ''}{' '}
-                {readyToClaim
-                  ? '— all legs swapped: press Claim (or Redeem to auto-claim)'
-                  : '— press Redeem (swap) to convert assets → USDC (then auto-claim)'}
-              </p>
-            </div>
-          )}
-
-          {/* OUTPUT first when present — multi-leg logs used to bury success below the fold. */}
-          {result && (
-            <div ref={resultRef} className={outputPanelClass}>
-              <div className="border-b border-border px-4 py-2 font-mono text-[10px] tracking-[0.16em] text-muted-foreground">
-                OUTPUT
-              </div>
-              <div className="px-4 py-3">
-                <LedgerOutput text={result.text} tone={result.type} />
-                {result.solscan && (
-                  <div className="mt-2 border-t border-border pt-2">
-                    <a
-                      href={result.solscan}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-accent underline transition-colors hover:text-foreground"
-                    >
-                      View on Solscan
-                    </a>
+          <>
+            <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto overscroll-contain px-5 py-[18px]">
+              {!anchorWallet ? (
+                <p className="font-mono text-[12px] leading-relaxed text-text-ghost">
+                  Connect a wallet to redeem.
+                </p>
+              ) : !canStart && positionReady ? (
+                <p className="font-mono text-[12px] leading-relaxed text-text-ghost">
+                  Enter a share amount on the vault page, then redeem.
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between rounded-xl border border-white/[0.09] bg-bg-elevated px-4 py-3.5">
+                    <div>
+                      <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                        {activeFlow === 'claim' || readyToClaim ? 'Claiming' : 'Burning'}
+                      </div>
+                      <div className="mt-1.5 text-2xl font-medium tracking-[-0.03em] text-foreground">
+                        {activeFlow === 'claim' || readyToClaim ? (
+                          <>
+                            {pending
+                              ? formatTokenUi(pending.pendingUsdc, USDC_DECIMALS)
+                              : '…'}{' '}
+                            <span className="font-mono text-xs text-text-faint">USDC</span>
+                          </>
+                        ) : (
+                          <>
+                            {burnLabel}{' '}
+                            <span className="font-mono text-xs text-text-faint">
+                              {shareSymbol}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-text-ghost">
+                        For
+                      </div>
+                      <div className="mt-2 font-mono text-[15px] text-accent">
+                        {activeFlow === 'claim' || readyToClaim ? (
+                          <span className="text-text-ghost">Wallet</span>
+                        ) : quote ? (
+                          <>
+                            ≈ {quote.usdcUi}{' '}
+                            <span className="text-[10.5px] text-text-faint">USDC</span>
+                          </>
+                        ) : (
+                          <span className="text-text-ghost">…</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
-          )}
 
-          <form onSubmit={handleRedeemSwap} className="space-y-4">
-            {!pending && (
-              <>
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <label className={fieldLabelClass}>Shares to burn</label>
-                    {shareBalanceUi !== null && shareBalance !== '0' && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          sharesDecimals !== null &&
-                          setShares(formatUnits(shareBalance, sharesDecimals))
-                        }
-                        className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent transition-colors hover:text-foreground"
-                      >
-                        Max {shareBalanceUi}
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    className={`${inputClass} tabular-nums`}
-                    type="text"
-                    inputMode="decimal"
-                    value={shares}
-                    onChange={(e) => setShares(e.target.value)}
-                    placeholder={
-                      sharesDecimals === null
-                        ? 'loading…'
-                        : shareBalanceUi && shareBalance !== '0'
-                          ? shareBalanceUi
-                          : '1.0'
+                  <TransactionPhases
+                    flow={activeFlow === 'claim' || readyToClaim ? 'claim' : 'redeem'}
+                    steps={steps}
+                    status={loading ? 'running' : failed ? 'failed' : 'pending'}
+                    swapLabel={
+                      quote && quote.numAssets > 0
+                        ? `Swapping ${quote.numAssets} assets to USDC`
+                        : undefined
                     }
-                    disabled={sharesDecimals === null}
-                    required={!pending}
                   />
-                  <p className="mt-1.5 font-mono text-[11px] tabular-nums text-muted-foreground/70">
-                    {sharesDecimals === null
-                      ? 'Resolving share token decimals…'
-                      : rawShares
-                        ? `= ${rawShares} raw units (${sharesDecimals} decimals)`
-                        : `Enter a ${vault.symbol} amount (e.g. 1.5)`}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handlePreview}
-                    disabled={previewing || !shares.trim() || sharesDecimals === null}
-                    className={btnSecondaryClass}
-                  >
-                    {previewing ? 'Previewing…' : 'Preview'}
-                  </button>
-                  {preview && (
-                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                      {preview}
-                    </span>
-                  )}
-                </div>
-              </>
-            )}
-
-            <div className="flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={loading || !anchorWallet || readyToClaim || sharesDecimals === null}
-                className={btnPrimaryClass}
-              >
-                {loading ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Spinner className="size-3.5" />
-                    Processing…
-                  </span>
-                ) : anchorWallet ? (
-                  'Redeem (swap)'
-                ) : (
-                  'Connect wallet'
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={handleClaim}
-                disabled={loading || !anchorWallet || !readyToClaim}
-                className={btnPrimaryClass}
-              >
-                {loading ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Spinner className="size-3.5" />
-                    Processing…
-                  </span>
-                ) : (
-                  'Claim'
-                )}
-              </button>
+                </>
+              )}
             </div>
-          </form>
 
-          <TransactionPhases flow={activeFlow} steps={steps} active={loading} />
-          <div ref={stepsEndRef} aria-hidden />
-        </div>
+            <div className="shrink-0 space-y-2.5 border-t border-white/[0.07] bg-bg-elevated px-5 py-4">
+              {busy ? (
+                <>
+                  <div className="flex h-12 items-center justify-center gap-2.5 rounded-[10px] border border-accent/30 bg-accent/15 text-[15px] font-semibold text-accent">
+                    <Spinner className="size-[15px]" />
+                    {loading ? 'Processing…' : 'Preparing…'}
+                  </div>
+                  <p className="text-center font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-ghost">
+                    {steps.length > 0
+                      ? `Step · ${steps[steps.length - 1]?.slice(0, 42) ?? '…'}`
+                      : 'Approve in your wallet'}
+                  </p>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={requestClose}
+                  className="flex h-12 w-full items-center justify-center rounded-[10px] border border-white/14 text-[14.5px] font-medium text-[#DADADE] transition-colors hover:bg-white/[0.04]"
+                >
+                  Close
+                </button>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

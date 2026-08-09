@@ -1,7 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { isLocalOrigin, type Network } from '@/app/providers';
+
+/**
+ * The page origin never changes for the lifetime of the document, so there is
+ * nothing to subscribe to. Module-level (not inline) to keep a stable identity
+ * across renders — `useSyncExternalStore` resubscribes when this changes.
+ */
+function subscribeToNothing(): () => void {
+  return () => {};
+}
 
 export function NetworkToggle({
   network,
@@ -12,7 +21,19 @@ export function NetworkToggle({
 }) {
   // A deployed site can never reach a local validator — only offer the
   // localhost cluster when the page itself is served from a local origin.
-  const options = isLocalOrigin()
+  //
+  // `isLocalOrigin()` reads `window.location`, so it cannot be called during
+  // render: the server would render one tab and the client two, and hydration
+  // would fail. `useSyncExternalStore` returns the server snapshot (`false`)
+  // for both SSR and the first client render, then re-renders with the real
+  // value — so the two passes always agree.
+  const localOrigin = useSyncExternalStore(
+    subscribeToNothing,
+    isLocalOrigin,
+    () => false,
+  );
+
+  const options = localOrigin
     ? (['localhost', 'mainnet'] as const)
     : (['mainnet'] as const);
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { Network } from '@/app/providers';
 import { btnGhostClass, fieldLabelClass } from '../ui-classes';
+import { displayTokenProgram } from '../view-display';
 import { DbRowSkeleton } from './db-panel';
 
 type AssetPresetRow = {
@@ -32,7 +33,7 @@ function PresetDetail({ row }: { row: AssetPresetRow }) {
         <div><dt className={fieldLabelClass}>Route</dt><dd className="font-mono text-[11px] text-foreground">{row.route}</dd></div>
         <div><dt className={fieldLabelClass}>Swap kind</dt><dd className="font-mono text-[11px] text-foreground">{row.swap_kind}</dd></div>
         <div><dt className={fieldLabelClass}>Decimals</dt><dd className="font-mono text-[11px] text-foreground">{row.decimals}</dd></div>
-        <div><dt className={fieldLabelClass}>Token program</dt><dd className="font-mono text-[11px] text-foreground">{row.token_program_tag}</dd></div>
+        <div><dt className={fieldLabelClass}>Token program</dt><dd className="font-mono text-[11px] text-foreground">{displayTokenProgram(row.token_program_tag)}</dd></div>
         <div className="md:col-span-4"><dt className={fieldLabelClass}>Aliases</dt><dd className="font-mono text-[11px] text-foreground">{row.aliases.join(', ')}</dd></div>
       </dl>
     </div>

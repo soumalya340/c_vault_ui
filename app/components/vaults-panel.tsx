@@ -1,260 +1,75 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useConnection } from '@solana/wallet-adapter-react';
-import { useReducedMotion } from 'motion/react';
-import {
-  fetchVaultCtx,
-  NETWORK_CONSTANTS,
-  type Network,
-  type VaultChainAsset,
-} from '@/lib/onchain/cvault';
-import {
-  fetchVaults,
-  fetchAssetRegistry,
-  type VaultRecord,
-  type AssetRegistryEntry,
-} from '@/lib/registryClient';
-import { assetNameForMint, displayAssetName } from '@/lib/presets/canonical-data';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/animate-ui/components/radix/popover';
-import { Badge } from '@/components/ui/badge';
-import { SECTION_STYLE } from './function-defs';
+import type { Network } from '@/lib/onchain/cvault';
+import { fetchVaults, type VaultRecord } from '@/lib/registryClient';
 import { vaultDetailPath } from './console-routes';
-import { AssetRowsSkeleton, VaultListSkeleton } from './loading-skeletons';
-import {
-  btnGhostClass,
-  btnSecondaryClass,
-  inputClass,
-  panelClass,
-  sectionLabelClass,
-} from './ui-classes';
-import { displayVaultName } from './view-display';
+import { VaultListSkeleton } from './loading-skeletons';
+import { inputClass } from './ui-classes';
 
-const VAULTS_PER_PAGE = 6;
+const ASSET_COLORS = [
+  '#C8FF3D',
+  '#5AC8E8',
+  '#B78CFF',
+  '#FF9E4D',
+  '#FF6B4D',
+  '#7DE8A8',
+] as const;
 
-// Vault catalogue: rows from the Supabase `vaults` table. Deposit / redeem /
-// claim live on the vault detail page — this list is browse + inspect only.
+type FeeFilter = 'all' | 'under50' | '50to100' | 'over100';
+type SizeFilter = 'all' | 'over1m' | 'new';
+type SortKey = 'tvl' | 'new';
 
-function shorten(addr: string): string {
-  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
-}
-
-/** `vaults.deposit_fee_bps` / `redeem_fee_bps` → percent for list display. */
 function formatFeeBps(bps: number): string {
   const n = Number(bps);
   if (!Number.isFinite(n)) return '—';
   return `${(n / 100).toFixed(2)}%`;
 }
 
-/** Display label for a vault basket leg — registry name first, then presets. */
-function resolveAssetLabel(
-  mint: string,
-  assetId: number,
-  byMint: Map<string, AssetRegistryEntry>,
-  byId: Map<number, AssetRegistryEntry>,
-): string {
-  const fromDb = byMint.get(mint) ?? byId.get(assetId);
-  return (
-    displayAssetName(fromDb?.asset_name ?? '') ||
-    assetNameForMint(mint) ||
-    shorten(mint)
-  );
+function parseUsd(raw: string | null | undefined): number {
+  const n = Number(String(raw ?? '').replace(/[$,\s]/g, ''));
+  return Number.isFinite(n) ? n : 0;
 }
 
-/**
- * Click-to-open specimen card for a vault basket.
- * Animate UI / Radix Popover (spring scale) — opens on click, not hover.
- * Loads on-chain assets with fetchVaultCtx only while open. Names resolve via
- * pre_approved_token_registry, then Pools.md presets, then shortened mint.
- */
-function VaultAssetsView({
-  vaultId,
-  byMint,
-  byId,
-  network,
-}: {
-  vaultId: number;
-  byMint: Map<string, AssetRegistryEntry>;
-  byId: Map<number, AssetRegistryEntry>;
-  network: Network;
-}) {
-  const { connection } = useConnection();
-  const reduceMotion = useReducedMotion();
-  const [open, setOpen] = useState(false);
-  const [assets, setAssets] = useState<VaultChainAsset[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Cache last successful fetch key so re-open does not thrash RPC.
-  const loadedKeyRef = useRef<string | null>(null);
-  const fetchKey = `${network}:${vaultId}`;
+function formatTvl(raw: string | null | undefined): string {
+  const n = parseUsd(raw);
+  if (n <= 0) return '—';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${n.toFixed(0)}`;
+}
 
-  useEffect(() => {
-    if (!open) return;
-    if (loadedKeyRef.current === fetchKey) return;
+function displayName(name: string): string {
+  const t = name.trim();
+  if (!t) return 'Untitled vault';
+  return t.replace(/\s+/g, ' ');
+}
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setAssets(null);
-
-    fetchVaultCtx(connection, vaultId, network)
-      .then((ctx) => {
-        if (cancelled) return;
-        setAssets(ctx.assets);
-        loadedKeyRef.current = fetchKey;
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
-        loadedKeyRef.current = null;
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, connection, vaultId, network, fetchKey]);
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={open ? 'Hide vault assets' : 'View vault assets on-chain'}
-          className="group inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=open]:text-accent"
-        >
-          <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-border-strong leading-none transition-colors duration-150 group-hover:border-accent group-data-[state=open]:border-accent">
-            {open ? '×' : 'i'}
-          </span>
-          <span className="underline-offset-4 group-hover:underline">
-            {open ? 'Hide assets' : 'View assets'}
-          </span>
-        </button>
-      </PopoverTrigger>
-
-      <PopoverContent
-        side="bottom"
-        align="start"
-        sideOffset={10}
-        className="w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-[2px] border-border-strong bg-background p-0 text-foreground shadow-[0_18px_48px_-18px_rgba(23,37,28,0.35),inset_0_0_0_1px_rgba(23,37,28,0.06)] outline-hidden"
-        transition={
-          reduceMotion
-            ? { duration: 0.01 }
-            : { type: 'spring', stiffness: 320, damping: 28 }
-        }
-      >
-        {/* Specimen plate header — certificate ledger language */}
-        <div className="flex items-center justify-between gap-3 border-b border-border-strong bg-foreground/[0.03] px-4 py-2.5">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="font-mono text-[9px] font-bold uppercase tracking-[0.2em] text-accent">
-              Basket plate
-            </span>
-            <span className="font-mono text-[11px] font-bold tabular-nums tracking-[0.08em] text-seal">
-              &#8470;&nbsp;CVLT-{vaultId}
-            </span>
-          </div>
-          <span className={`${sectionLabelClass} shrink-0 uppercase`}>
-            {loading
-              ? 'reading…'
-              : assets
-                ? `${assets.length} asset${assets.length === 1 ? '' : 's'}`
-                : 'on-chain'}
-          </span>
-        </div>
-
-        <div className="max-h-[min(20rem,50vh)] overflow-y-auto">
-          {loading && <AssetRowsSkeleton rows={3} />}
-
-          {!loading && error && (
-            <p className="px-4 py-4 font-mono text-xs text-destructive">
-              <span className="mr-2 text-muted-foreground/50">&gt;</span>
-              assets unavailable — {error}
-            </p>
-          )}
-
-          {!loading && !error && assets && assets.length === 0 && (
-            <p className="px-4 py-4 font-mono text-xs text-muted-foreground">
-              <span className="mr-2 text-muted-foreground/50">&gt;</span>
-              no assets on-chain
-            </p>
-          )}
-
-          {!loading && !error && assets && assets.length > 0 && (
-            <ul className="divide-y divide-border">
-              {assets.map((asset, i) => {
-                const mint = asset.mint.toBase58();
-                const title = resolveAssetLabel(
-                  mint,
-                  asset.assetId,
-                  byMint,
-                  byId,
-                );
-                const pct = (asset.allocationBps / 100).toFixed(2);
-                return (
-                  <li key={`${mint}-${i}`} className="flex flex-col gap-2 px-4 py-3">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="text-sm font-medium tracking-[-0.01em] text-foreground">
-                        {title}
-                      </span>
-                      <span className="font-mono text-xs tabular-nums text-foreground">
-                        {pct}%
-                      </span>
-                    </div>
-                    <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
-                      <div
-                        className="h-full rounded-full bg-accent"
-                        style={{
-                          width: `${Math.min(asset.allocationBps / 100, 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="font-mono text-[11px] text-muted-foreground/70">
-                      mint {shorten(mint)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        <div className="border-t border-border px-4 py-2">
-          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground/70">
-            Asset preview · open vault for deposit
-          </span>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
+function dotsForVault(vaultId: number, numAssets: number) {
+  const count = Math.max(1, Math.min(numAssets || 3, 3));
+  return Array.from({ length: count }, (_, i) => {
+    const idx = (vaultId + i * 2) % ASSET_COLORS.length;
+    return ASSET_COLORS[idx];
+  });
 }
 
 export function VaultsPanel({ network }: { network: Network }) {
-  const style = SECTION_STYLE.vaults;
-
   const [vaults, setVaults] = useState<VaultRecord[]>([]);
-  const [query, setQuery] = useState('');
-  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // pre_approved_token_registry — the table that actually stores asset_name.
-  // (The old token_registry path is a separate, often-empty forge table.)
-  const [byMint, setByMint] = useState<Map<string, AssetRegistryEntry>>(new Map());
-  const [byId, setById] = useState<Map<number, AssetRegistryEntry>>(new Map());
+  const [query, setQuery] = useState('');
+  const [feeFilter, setFeeFilter] = useState<FeeFilter>('all');
+  const [sizeFilter, setSizeFilter] = useState<SizeFilter>('all');
+  const [sort, setSort] = useState<SortKey>('tvl');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const rows = await fetchVaults(network);
-      setVaults(rows);
+      // Hide vaults that have not completed genesis deposit — not investable yet.
+      setVaults(rows.filter((v) => Boolean(v.genesis_deposit_status)));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -267,234 +82,350 @@ export function VaultsPanel({ network }: { network: Network }) {
   }, [load]);
 
   useEffect(() => {
-    setPage(1);
+    setQuery('');
   }, [network]);
 
-  const filteredVaults = useMemo(() => {
+  const filtered = useMemo(() => {
+    let rows = [...vaults];
+
     const q = query.trim().toLowerCase();
-    if (!q) return vaults;
-    return vaults.filter((vault) => {
-      const haystack = [
-        displayVaultName(vault.name),
-        vault.symbol,
-        `cvlt-${vault.vault_id}`,
-        String(vault.vault_id),
-        vault.vault_address,
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [vaults, query]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredVaults.length / VAULTS_PER_PAGE));
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
-  const pageVaults = useMemo(() => {
-    const start = (page - 1) * VAULTS_PER_PAGE;
-    return filteredVaults.slice(start, start + VAULTS_PER_PAGE);
-  }, [filteredVaults, page]);
-
-  const pageStart = filteredVaults.length === 0 ? 0 : (page - 1) * VAULTS_PER_PAGE + 1;
-  const pageEnd = Math.min(page * VAULTS_PER_PAGE, filteredVaults.length);
-
-  // Network-scoped asset registry so mints resolve to asset_name. Failure is
-  // non-fatal — resolveAssetLabel still falls back to Pools.md presets.
-  useEffect(() => {
-    let cancelled = false;
-    fetchAssetRegistry(network)
-      .then((assets) => {
-        if (cancelled) return;
-        const mintMap = new Map<string, AssetRegistryEntry>();
-        const idMap = new Map<number, AssetRegistryEntry>();
-        for (const a of assets) {
-          mintMap.set(a.mint, a);
-          const id = Number(a.asset_id);
-          if (Number.isFinite(id)) idMap.set(id, a);
-        }
-        setByMint(mintMap);
-        setById(idMap);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setByMint(new Map());
-        setById(new Map());
+    if (q) {
+      rows = rows.filter((vault) => {
+        const haystack = [
+          displayName(vault.name),
+          vault.symbol,
+          `cvlt-${vault.vault_id}`,
+          String(vault.vault_id),
+          vault.vault_address,
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(q);
       });
-    return () => {
-      cancelled = true;
+    }
+
+    if (feeFilter === 'under50') {
+      rows = rows.filter((v) => v.deposit_fee_bps < 50);
+    } else if (feeFilter === '50to100') {
+      rows = rows.filter(
+        (v) => v.deposit_fee_bps >= 50 && v.deposit_fee_bps <= 100,
+      );
+    } else if (feeFilter === 'over100') {
+      rows = rows.filter((v) => v.deposit_fee_bps > 100);
+    }
+
+    if (sizeFilter === 'over1m') {
+      rows = rows.filter((v) => parseUsd(v.total_usdc_value) >= 1_000_000);
+    } else if (sizeFilter === 'new') {
+      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      rows = rows.filter((v) => {
+        if (!v.created_at) return false;
+        const t = Date.parse(v.created_at);
+        return Number.isFinite(t) && t >= weekAgo;
+      });
+    }
+
+    if (sort === 'tvl') {
+      rows.sort(
+        (a, b) => parseUsd(b.total_usdc_value) - parseUsd(a.total_usdc_value),
+      );
+    } else {
+      rows.sort((a, b) => {
+        const ta = a.created_at ? Date.parse(a.created_at) : 0;
+        const tb = b.created_at ? Date.parse(b.created_at) : 0;
+        return tb - ta;
+      });
+    }
+
+    return rows;
+  }, [vaults, query, feeFilter, sizeFilter, sort]);
+
+  const feeCounts = useMemo(() => {
+    return {
+      under50: vaults.filter((v) => v.deposit_fee_bps < 50).length,
+      mid: vaults.filter(
+        (v) => v.deposit_fee_bps >= 50 && v.deposit_fee_bps <= 100,
+      ).length,
+      over: vaults.filter((v) => v.deposit_fee_bps > 100).length,
     };
-  }, [network]);
+  }, [vaults]);
 
   return (
-    <section aria-label="Discover" className="flex flex-col gap-4">
-      <div className={`${panelClass} overflow-hidden`}>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-strong px-5 py-3.5 md:px-6">
-          <span
-            className="font-display text-base font-semibold uppercase tracking-[0.18em]"
-            style={{ color: style.accent }}
-          >
-            Discover
-          </span>
-          <span className={`${sectionLabelClass} uppercase`}>
-            {loading
-              ? 'loading · series 2026'
-              : `${vaults.length} ETF${vaults.length === 1 ? '' : 's'} · series 2026`}
-          </span>
-        </div>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="grid flex-1 grid-cols-1 md:grid-cols-[212px_1fr]">
+        {/* Sidebar filters */}
+        <aside className="flex flex-col gap-[26px] border-b border-border px-5 py-6 md:border-b-0 md:border-r md:px-5">
+          <FilterGroup label="CATEGORY">
+            <FilterItem
+              active={feeFilter === 'all' && sizeFilter === 'all'}
+              onClick={() => {
+                setFeeFilter('all');
+                setSizeFilter('all');
+              }}
+              label="All vaults"
+              count={vaults.length}
+            />
+          </FilterGroup>
 
-        {!loading && !error && vaults.length > 0 && (
-          <div className="border-b border-border-strong px-5 py-3 md:px-6">
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by name, ticker, ID or address…"
-                aria-label="Search vaults"
-                className={inputClass}
+          <FilterGroup label="ENTRY FEE">
+            <FilterItem
+              active={feeFilter === 'under50'}
+              onClick={() => setFeeFilter((f) => (f === 'under50' ? 'all' : 'under50'))}
+              label="Under 0.50%"
+              count={feeCounts.under50}
+            />
+            <FilterItem
+              active={feeFilter === '50to100'}
+              onClick={() =>
+                setFeeFilter((f) => (f === '50to100' ? 'all' : '50to100'))
+              }
+              label="0.50 – 1.00%"
+              count={feeCounts.mid}
+            />
+            <FilterItem
+              active={feeFilter === 'over100'}
+              onClick={() =>
+                setFeeFilter((f) => (f === 'over100' ? 'all' : 'over100'))
+              }
+              label="Over 1.00%"
+              count={feeCounts.over}
+            />
+          </FilterGroup>
+
+          <FilterGroup label="SIZE">
+            <FilterItem
+              active={sizeFilter === 'over1m'}
+              onClick={() =>
+                setSizeFilter((s) => (s === 'over1m' ? 'all' : 'over1m'))
+              }
+              label="Over $1M TVL"
+            />
+            <FilterItem
+              active={sizeFilter === 'new'}
+              onClick={() => setSizeFilter((s) => (s === 'new' ? 'all' : 'new'))}
+              label="New this week"
+            />
+          </FilterGroup>
+        </aside>
+
+        {/* Main list */}
+        <div className="flex min-w-0 flex-col">
+          <div className="flex flex-wrap items-end justify-between gap-4 px-[22px] pb-5 pt-[26px]">
+            <div>
+              <h2 className="m-0 text-[32px] font-semibold tracking-[-0.03em]">
+                All vaults
+              </h2>
+              <p className="mt-1.5 text-sm text-text-dim">
+                Sorted by{' '}
+                {sort === 'tvl' ? 'total value locked' : 'newest first'}
+                {filtered.length > 0
+                  ? ` · ${filtered.length} vault${filtered.length === 1 ? '' : 's'}`
+                  : ''}
+              </p>
+            </div>
+            <div className="flex gap-[7px] font-mono text-[10.5px] tracking-[0.08em]">
+              <SortChip
+                active={sort === 'tvl'}
+                onClick={() => setSort('tvl')}
+                label="TVL ↓"
               />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery('')}
-                  aria-label="Clear search"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[2px] px-2 py-1 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  ×
-                </button>
-              )}
+              <SortChip
+                active={sort === 'new'}
+                onClick={() => setSort('new')}
+                label="NEW"
+              />
             </div>
           </div>
-        )}
 
-        {loading && <VaultListSkeleton rows={3} />}
-
-        {!loading && error && (
-          <p className="px-5 py-6 font-mono text-xs text-destructive md:px-6">
-            <span className="mr-2 text-muted-foreground/50">&gt;</span>
-            {error}
-          </p>
-        )}
-
-        {!loading && !error && vaults.length === 0 && (
-          <p className="px-5 py-6 font-mono text-xs text-muted-foreground md:px-6">
-            <span className="mr-2 text-muted-foreground/50">&gt;</span>
-            No vaults yet — open Create to mint one.
-          </p>
-        )}
-
-        {!loading && !error && vaults.length > 0 && filteredVaults.length === 0 && (
-          <p className="px-5 py-6 font-mono text-xs text-muted-foreground md:px-6">
-            <span className="mr-2 text-muted-foreground/50">&gt;</span>
-            No vaults match &ldquo;{query}&rdquo;.
-          </p>
-        )}
-
-        {!loading && !error && filteredVaults.length > 0 && (
-          <div className="flex flex-col divide-y divide-border px-3 py-1 md:px-4">
-            {pageVaults.map((vault) => (
-              <div
-                key={vault.vault_address}
-                className="group/row relative flex flex-col gap-3 px-2 py-4 md:px-3"
-              >
-                {/* Full-row hit target to detail — View assets sits above (z-10). */}
-                <Link
-                  href={vaultDetailPath(vault.vault_id)}
-                  aria-label={`Open vault ${displayVaultName(vault.name)}`}
-                  className="absolute inset-0 z-0 rounded-[2px] transition-colors duration-150 group-hover/row:bg-foreground/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+          {!loading && !error && vaults.length > 0 && (
+            <div className="px-[22px] pb-5">
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search by name, ticker, ID or address…"
+                  aria-label="Search vaults"
+                  className={inputClass}
                 />
-
-                <div className="relative z-0 flex min-w-0 flex-col gap-3 pointer-events-none">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="flex-shrink-0 font-mono text-xs font-bold tabular-nums tracking-[0.08em] text-seal">
-                      &#8470;&nbsp;CVLT-{vault.vault_id}
-                    </span>
-                    <span className="text-sm font-medium tracking-[-0.01em] text-foreground transition-colors duration-150 group-hover/row:text-accent">
-                      {displayVaultName(vault.name)}
-                    </span>
-                    {vault.is_pool_created ? (
-                      <Badge
-                        variant="secondary"
-                        title="DAMM v2 shares×USDC pool is live — Stake & Earn on the vault page"
-                        className="align-middle font-mono text-[9px] font-bold uppercase tracking-[0.1em]"
-                      >
-                        Stake &amp; Earn
-                      </Badge>
-                    ) : null}
-                  </div>
-
-                  <span className="font-mono text-[11px] text-muted-foreground">
-                    vault {shorten(vault.vault_address)} · base{' '}
-                    {shorten(NETWORK_CONSTANTS[network].usdcMint.toBase58())} ·{' '}
-                    {vault.num_assets} asset{vault.num_assets === 1 ? '' : 's'}
-                    {/* vaults.deposit_fee_bps / redeem_fee_bps from DB — the
-                        pipe marks the step up from identity to economics. */}
-                    <span aria-hidden="true" className="mx-2 text-border-strong">
-                      |
-                    </span>
-                    entry fee{' '}
-                    <span className="tabular-nums text-foreground">
-                      {formatFeeBps(vault.deposit_fee_bps)}
-                    </span>{' '}
-                    · exit fee{' '}
-                    <span className="tabular-nums text-foreground">
-                      {formatFeeBps(vault.redeem_fee_bps)}
-                    </span>
-                  </span>
-                </div>
-
-                <div className="relative z-10">
-                  <VaultAssetsView
-                    vaultId={vault.vault_id}
-                    byMint={byMint}
-                    byId={byId}
-                    network={network}
-                  />
-                </div>
+                {query ? (
+                  <button
+                    type="button"
+                    onClick={() => setQuery('')}
+                    aria-label="Clear search"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[2px] px-2 py-1 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    ×
+                  </button>
+                ) : null}
               </div>
-            ))}
-          </div>
-        )}
-
-        {!loading && !error && filteredVaults.length > VAULTS_PER_PAGE && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-strong px-5 py-3.5 md:px-6">
-            <span className={`${sectionLabelClass} uppercase`}>
-              Showing {pageStart}–{pageEnd} of {filteredVaults.length}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className={btnGhostClass}
-                aria-label="Previous page"
-              >
-                Previous
-              </button>
-              <span className="px-2 font-mono text-[11px] tabular-nums tracking-[0.12em] text-muted-foreground">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className={btnSecondaryClass}
-                aria-label="Next page"
-              >
-                Next
-              </button>
             </div>
+          )}
+
+          {/* Table header */}
+          <div className="hidden grid-cols-[1.7fr_0.9fr_0.9fr_0.7fr] gap-3 border-y border-border bg-bg-elevated px-[22px] py-[11px] font-mono text-[9.5px] tracking-[0.13em] text-text-ghost sm:grid">
+            <span>VAULT</span>
+            <span className="text-right">TVL</span>
+            <span className="text-right">ENTRY</span>
+            <span className="text-right">ASSETS</span>
           </div>
-        )}
+
+          {loading && (
+            <div className="px-[22px] py-4">
+              <VaultListSkeleton rows={5} />
+            </div>
+          )}
+
+          {!loading && error && (
+            <p className="px-[22px] py-6 font-mono text-xs text-destructive">
+              {error}
+            </p>
+          )}
+
+          {!loading && !error && vaults.length === 0 && (
+            <p className="px-[22px] py-6 text-sm text-text-dim">
+              No vaults yet — open Create to mint one.
+            </p>
+          )}
+
+          {!loading && !error && vaults.length > 0 && filtered.length === 0 && (
+            <p className="px-[22px] py-6 text-sm text-text-dim">
+              {query.trim()
+                ? `No vaults match “${query.trim()}”.`
+                : 'No vaults match these filters.'}
+            </p>
+          )}
+
+          {!loading &&
+            !error &&
+            filtered.map((vault, idx) => (
+              <VaultRow key={vault.vault_address} vault={vault} first={idx === 0} />
+            ))}
+        </div>
       </div>
-    </section>
+    </div>
+  );
+}
+
+function VaultRow({ vault, first }: { vault: VaultRecord; first: boolean }) {
+  const colors = dotsForVault(vault.vault_id, vault.num_assets);
+  const symbol = (vault.symbol || `V${vault.vault_id}`).toUpperCase();
+  const name = displayName(vault.name);
+
+  return (
+    <Link
+      href={vaultDetailPath(vault.vault_address)}
+      className={`grid grid-cols-1 items-center gap-3 border-b border-white/[0.06] px-[22px] py-4 transition-colors hover:bg-accent/[0.04] sm:grid-cols-[1.7fr_0.9fr_0.9fr_0.7fr] ${
+        first ? 'bg-accent/[0.03]' : ''
+      }`}
+    >
+      <div className="flex min-w-0 items-center gap-[11px]">
+        <span className="flex shrink-0">
+          {colors.map((c, i) => (
+            <span
+              key={i}
+              className="inline-block h-[22px] w-[22px] rounded-full"
+              style={{
+                background: c,
+                marginLeft: i === 0 ? 0 : -8,
+              }}
+            />
+          ))}
+        </span>
+        <span className="min-w-0">
+          <span className="font-mono text-[13px]">{symbol}</span>
+          <span className="ml-2 truncate text-[13.5px] text-text-dim">{name}</span>
+        </span>
+      </div>
+      <span className="font-mono text-sm tabular-nums sm:text-right">
+        <span className="mr-2 text-[10px] tracking-[0.1em] text-text-ghost sm:hidden">
+          TVL
+        </span>
+        {formatTvl(vault.total_usdc_value)}
+      </span>
+      <span className="font-mono text-sm tabular-nums text-muted-foreground sm:text-right">
+        <span className="mr-2 text-[10px] tracking-[0.1em] text-text-ghost sm:hidden">
+          FEE
+        </span>
+        {formatFeeBps(vault.deposit_fee_bps)}
+      </span>
+      <span className="font-mono text-sm tabular-nums text-muted-foreground sm:text-right">
+        <span className="mr-2 text-[10px] tracking-[0.1em] text-text-ghost sm:hidden">
+          ASSETS
+        </span>
+        {vault.num_assets}
+      </span>
+    </Link>
+  );
+}
+
+function FilterGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <div className="font-mono text-[10px] tracking-[0.14em] text-text-ghost">
+        {label}
+      </div>
+      <div className="mt-3 flex flex-col gap-0.5 text-[13.5px]">{children}</div>
+    </div>
+  );
+}
+
+function FilterItem({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count?: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md px-[9px] py-[7px] text-left transition-colors ${
+        active
+          ? 'bg-accent/10 text-accent'
+          : 'text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {label}
+      {count != null && (
+        <span className={`ml-1.5 ${active ? 'text-text-dim' : 'text-text-ghost'}`}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function SortChip({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border border-border-strong px-[11px] py-[7px] transition-colors ${
+        active ? 'text-[#DADADE]' : 'text-text-faint hover:text-foreground'
+      }`}
+    >
+      {label}
+    </button>
   );
 }

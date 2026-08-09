@@ -23,6 +23,13 @@ export function displayVaultName(name: string): string {
   return trimmed.replace(/\s+/g, " ").toUpperCase();
 }
 
+/** `AssetInfo.token_program_tag`: 0 = SPL Token, 1 = Token-2022. */
+export function displayTokenProgram(tag: number): string {
+  if (tag === 0) return "SPL Token";
+  if (tag === 1) return "Token-2022";
+  return String(tag);
+}
+
 /** Insert thousands separators into a decimal string from `formatUnits`. */
 export function withCommas(ui: string): string {
   if (!ui || ui === "—" || ui === "--") return ui;

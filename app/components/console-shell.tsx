@@ -1,9 +1,14 @@
 'use client';
 
-import { createContext, useContext, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { Network } from '@/app/providers';
-
-const MICROPRINT = 'CVAULT · ON-CHAIN ETF OPERATIONS · MAINNET READY · '.repeat(24);
 
 type ConsoleNetworkContextValue = {
   network: Network;
@@ -32,21 +37,67 @@ export function useConsoleNetwork(): ConsoleNetworkContextValue {
   return ctx;
 }
 
-export function ConsoleMicroprint() {
+/** Breadcrumb label for vault detail: Discover / {name}. */
+type VaultBreadcrumbContextValue = {
+  vaultName: string | null;
+  setVaultName: (name: string | null) => void;
+};
+
+const VaultBreadcrumbContext = createContext<VaultBreadcrumbContextValue | null>(
+  null,
+);
+
+export function VaultBreadcrumbProvider({ children }: { children: ReactNode }) {
+  const [vaultName, setVaultNameState] = useState<string | null>(null);
+  const setVaultName = useCallback((name: string | null) => {
+    setVaultNameState(name);
+  }, []);
+  const value = useMemo(
+    () => ({ vaultName, setVaultName }),
+    [vaultName, setVaultName],
+  );
   return (
-    <div className="microprint border-y border-border py-1" aria-hidden>
-      {MICROPRINT}
-    </div>
+    <VaultBreadcrumbContext.Provider value={value}>
+      {children}
+    </VaultBreadcrumbContext.Provider>
   );
 }
 
-export function ConsoleFooter({ network }: { network: Network }) {
+export function useVaultBreadcrumb(): VaultBreadcrumbContextValue {
+  const ctx = useContext(VaultBreadcrumbContext);
+  if (!ctx) {
+    throw new Error('useVaultBreadcrumb must be used within VaultBreadcrumbProvider');
+  }
+  return ctx;
+}
+
+/** Compact program / vault / network footer bar from the landing mock. */
+export function ConsoleFooterBar({
+  programShort,
+  vaultShort,
+  network,
+}: {
+  programShort?: string;
+  vaultShort?: string;
+  network: Network;
+}) {
+  const label = network === 'localhost' ? 'LOCALHOST' : 'MAINNET';
+
   return (
-    <footer className="mt-auto">
-      <ConsoleMicroprint />
-      <p className="pt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-        cVault series 2026 · {network} · one instruction per control
-      </p>
+    <footer className="mt-auto flex flex-col items-center justify-between gap-2 border-t border-border px-[22px] py-[15px] text-center font-mono text-[10.5px] tracking-[0.08em] text-text-ghost sm:flex-row sm:text-left">
+      {programShort ? <span>PROGRAM {programShort}</span> : <span />}
+      {vaultShort ? <span>VAULT {vaultShort}</span> : <span />}
+      <span className="text-accent">{label}</span>
     </footer>
   );
+}
+
+/** @deprecated use ConsoleFooterBar — kept for any remaining imports */
+export function ConsoleMicroprint() {
+  return null;
+}
+
+/** @deprecated use ConsoleFooterBar */
+export function ConsoleFooter({ network }: { network: Network }) {
+  return <ConsoleFooterBar network={network} />;
 }

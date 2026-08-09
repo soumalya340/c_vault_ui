@@ -69,14 +69,14 @@ export function CreateEtfModal({
         role="dialog"
         aria-modal="true"
         aria-label="Create ETF vault"
-        className={`cert-frame relative z-10 flex w-full max-w-[480px] max-h-[90vh] flex-col overflow-hidden bg-background shadow-2xl ${modalClassName}`}
+        className={`relative z-10 flex w-full max-w-[420px] max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-white/[0.09] bg-background shadow-2xl ${modalClassName}`}
       >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border-strong px-6 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[0.07] px-5 py-4">
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-accent">
-              {created ? `№ ${String(created.vaultId).padStart(2, '0')} · ` : ''}create etf
+            <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-accent">
+              {created ? `№ ${String(created.vaultId).padStart(2, '0')} · ` : ''}Create etf
             </div>
-            <h2 className="mt-1 font-display text-lg font-semibold tracking-[0.02em]">
+            <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em]">
               {created ? 'Vault created' : 'Creating vault…'}
             </h2>
           </div>
@@ -85,14 +85,14 @@ export function CreateEtfModal({
             onClick={requestClose}
             disabled={isClosing || loading}
             aria-label="Close"
-            className="rounded-[2px] px-3 py-1.5 font-mono text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground transition-colors duration-150 hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full px-3 py-1.5 font-mono text-xs text-text-dim transition-colors duration-150 hover:bg-white/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Close
+            ✕
           </button>
         </div>
 
         {created ? (
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <SettlementReceipt
               kind="create"
               vaultId={created.vaultId}
@@ -107,6 +107,7 @@ export function CreateEtfModal({
                 unit: '',
               }}
               rate={null}
+              metaLeft="Vault created on-chain"
               note={
                 `Lookup table: ${created.altAddress ?? '— (creation failed)'}\n` +
                 `Genesis deposit: ${created.genesisSeeded ? 'seeded' : 'not seeded — run it from the vault\'s admin panel'}`
@@ -114,14 +115,9 @@ export function CreateEtfModal({
               solscan={created.solscan}
               doneLabel="Done"
               onDone={requestClose}
+              againLabel="Create another"
+              onAgain={onCreateAnother}
             />
-            <button
-              type="button"
-              onClick={onCreateAnother}
-              className="mt-4 w-full rounded-[2px] border border-border-strong bg-background px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              Create another
-            </button>
           </div>
         ) : (
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-5">
@@ -138,7 +134,17 @@ export function CreateEtfModal({
               </div>
             )}
 
-            <TransactionPhases flow="create" steps={steps} active={loading} />
+            <TransactionPhases
+              flow="create"
+              steps={steps}
+              status={
+                loading
+                  ? 'running'
+                  : result?.type === 'error'
+                    ? 'failed'
+                    : 'pending'
+              }
+            />
 
             {result && result.type !== 'success' && (
               <div className={outputPanelClass}>

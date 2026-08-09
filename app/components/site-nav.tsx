@@ -4,115 +4,181 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { WalletButton } from './wallet-button';
 import { ClusterStatusBanner, ClusterStatusChip } from './cluster-status';
-import { SECTION_STYLE, type SectionId } from './function-defs';
-import { SECTION_META } from './section-header';
 import {
   HOME_ROUTE,
   PORTFOLIO_ROUTE,
+  SECTION_ROUTES,
+  isManagePath,
   pathnameToConsoleView,
   sectionPath,
+  vaultKeyFromPathname,
 } from './console-routes';
-import { useConsoleNetwork } from './console-shell';
+import { useConsoleNetwork, useVaultBreadcrumb } from './console-shell';
 
-// Admin lives at the gated /admin dashboard — wallet menu "Dashboard" only, not a tab.
-// View read-ops live on each vault detail page (/discover/{id}), not a top-level tab.
-const NAV_SECTION_IDS = ['vaults', 'vault-ops'] as const satisfies readonly Exclude<
-  SectionId,
-  'admin' | 'view'
->[];
+const NAV_LINKS = [
+  { href: SECTION_ROUTES.vaults, label: 'Discover', match: 'vaults' as const },
+  { href: SECTION_ROUTES['vault-ops'], label: 'Create', match: 'vault-ops' as const },
+  { href: PORTFOLIO_ROUTE, label: 'Portfolio', match: 'portfolio' as const },
+  { href: '#', label: 'Docs', match: null, external: false },
+] as const;
 
-function NavTabs({ className }: { className?: string }) {
-  const pathname = usePathname();
-  const active = pathnameToConsoleView(pathname) ?? 'home';
-
-  return (
-    <nav aria-label="Sections" className={className}>
-      {NAV_SECTION_IDS.map((id) => {
-        const meta = SECTION_META[id];
-        const accent = SECTION_STYLE[id].accent;
-        const isActive = active === id;
-
-        return (
-          <Link
-            key={id}
-            href={sectionPath(id)}
-            aria-current={isActive ? 'page' : undefined}
-            className={`relative flex min-h-12 flex-1 items-center justify-center gap-1.5 whitespace-nowrap px-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent lg:flex-none lg:px-4 lg:text-[11px] ${
-              isActive
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground'
-            }`}
-          >
-            <span
-              aria-hidden
-              className="text-[9px]"
-              style={{ color: accent }}
-            >
-              {meta.no}
-            </span>
-            {meta.nav}
-            {isActive && (
-              <span
-                aria-hidden
-                className="absolute inset-x-0 bottom-0 h-[2.5px]"
-                style={{ background: accent }}
-              />
-            )}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-}
-
-function BackToApp() {
-  return (
-    <Link
-      href={HOME_ROUTE}
-      className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground"
-    >
-      <span aria-hidden>&larr;</span> Back to app
-    </Link>
-  );
+function isLinkActive(
+  pathname: string,
+  match: (typeof NAV_LINKS)[number]['match'],
+): boolean {
+  if (match === 'portfolio') {
+    return pathname === PORTFOLIO_ROUTE || isManagePath(pathname);
+  }
+  if (match === 'vaults') {
+    return (
+      pathname === SECTION_ROUTES.vaults ||
+      pathname.startsWith(`${SECTION_ROUTES.vaults}/`)
+    );
+  }
+  if (match === 'vault-ops') {
+    return (
+      pathname === SECTION_ROUTES['vault-ops'] ||
+      pathname.startsWith(`${SECTION_ROUTES['vault-ops']}/`)
+    );
+  }
+  return false;
 }
 
 export function SiteNav() {
   const pathname = usePathname();
   const { network, onNetworkChange } = useConsoleNetwork();
+  const { vaultName } = useVaultBreadcrumb();
   const isHome = pathname === HOME_ROUTE;
-  const isPortfolio = pathname === PORTFOLIO_ROUTE;
+  const activeView = pathnameToConsoleView(pathname);
+  const isVaultDetail =
+    activeView === 'vaults' && pathname !== SECTION_ROUTES.vaults;
+  const vaultKey = vaultKeyFromPathname(pathname);
+
+  // Prefer loaded vault name; fall back to a short PDA while loading.
+  const crumbLabel =
+    vaultName?.trim() ||
+    (vaultKey && vaultKey.length > 12
+      ? `${vaultKey.slice(0, 4)}…${vaultKey.slice(-4)}`
+      : vaultKey) ||
+    '…';
 
   return (
-    <header className="sticky top-0 z-50 border-b-[1.5px] border-border-strong bg-background/95 backdrop-blur-sm">
-      <div className="flex min-h-14 items-center gap-3 px-4 md:gap-6 md:px-8">
-        <Link
-          href={HOME_ROUTE}
-          aria-label="cVault home"
-          aria-current={isHome ? 'page' : undefined}
-          className="flex shrink-0 items-baseline gap-2 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <span className="font-display text-xl font-bold tracking-[0.02em] text-foreground">
-            cVault<span className="text-seal">&#8314;</span>
-          </span>
-          <span className="hidden font-mono text-[8px] uppercase tracking-[0.24em] text-muted-foreground xl:inline">
-            {isPortfolio ? 'Portfolio' : 'Operations console'}
-          </span>
-        </Link>
+    <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm">
+      <div className="flex h-[60px] items-center justify-between gap-4 px-[22px] md:px-7">
+        <div className="flex min-w-0 items-center gap-[26px]">
+          <Link
+            href={HOME_ROUTE}
+            aria-label="cVault home"
+            aria-current={isHome ? 'page' : undefined}
+            className="flex shrink-0 items-start gap-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <span className="text-[19px] font-semibold tracking-[-0.03em] text-foreground">
+              cVault
+            </span>
+            <span className="text-[10px] font-semibold text-accent">+</span>
+          </Link>
 
-        {isPortfolio ? (
-          <BackToApp />
-        ) : (
-          <NavTabs className="hidden self-stretch divide-x divide-border border-x border-border lg:flex" />
-        )}
+          {isVaultDetail && vaultKey ? (
+            <nav
+              aria-label="Breadcrumb"
+              className="hidden min-w-0 items-center gap-2.5 text-[13.5px] text-text-faint sm:flex"
+            >
+              <Link
+                href={sectionPath('vaults')}
+                className="shrink-0 transition-colors hover:text-foreground"
+              >
+                Discover
+              </Link>
+              <span className="shrink-0 text-[#3A3A3F]" aria-hidden>
+                /
+              </span>
+              <span className="truncate text-foreground" title={vaultName ?? vaultKey}>
+                {crumbLabel}
+              </span>
+            </nav>
+          ) : (
+            <nav
+              aria-label="Sections"
+              className="hidden items-center gap-[18px] text-[13.5px] font-medium md:flex"
+            >
+              {NAV_LINKS.map((link) => {
+                const active = isLinkActive(pathname, link.match);
+                if (link.href === '#') {
+                  return (
+                    <span
+                      key={link.label}
+                      className="cursor-default text-text-faint"
+                    >
+                      {link.label}
+                    </span>
+                  );
+                }
+                return (
+                  <Link
+                    key={link.label}
+                    href={link.href}
+                    aria-current={active ? 'page' : undefined}
+                    className={`transition-colors duration-150 ${
+                      active
+                        ? 'text-accent'
+                        : 'text-text-faint hover:text-foreground'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          )}
+        </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2 py-2 md:gap-3">
+        <div className="flex shrink-0 items-center gap-2.5">
           <ClusterStatusChip />
           <WalletButton network={network} onNetworkChange={onNetworkChange} />
         </div>
       </div>
 
-      {!isPortfolio && (
-        <NavTabs className="flex divide-x divide-border border-t border-border lg:hidden" />
+      {/* Mobile nav */}
+      {!isVaultDetail && (
+        <nav
+          aria-label="Sections mobile"
+          className="flex gap-4 overflow-x-auto border-t border-border px-[22px] py-2.5 text-[13px] font-medium md:hidden"
+        >
+          {NAV_LINKS.map((link) => {
+            if (link.href === '#') {
+              return (
+                <span key={link.label} className="shrink-0 text-text-faint">
+                  {link.label}
+                </span>
+              );
+            }
+            const active = isLinkActive(pathname, link.match);
+            return (
+              <Link
+                key={link.label}
+                href={link.href}
+                className={`shrink-0 ${active ? 'text-accent' : 'text-text-faint'}`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      {isVaultDetail && vaultKey && (
+        <nav
+          aria-label="Breadcrumb mobile"
+          className="flex min-w-0 items-center gap-2 overflow-hidden border-t border-border px-[22px] py-2.5 text-[13px] text-text-faint sm:hidden"
+        >
+          <Link href={sectionPath('vaults')} className="shrink-0 hover:text-foreground">
+            Discover
+          </Link>
+          <span className="text-[#3A3A3F]" aria-hidden>
+            /
+          </span>
+          <span className="truncate text-foreground">{crumbLabel}</span>
+        </nav>
       )}
 
       <ClusterStatusBanner />
