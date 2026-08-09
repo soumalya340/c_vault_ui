@@ -6,6 +6,9 @@
  * Amounts are measured client-side as balance deltas (after − before) because
  * `depositAndDeploy` / `redeemSwap` return signatures only. A delta can be
  * unavailable — every value here is therefore optional.
+ *
+ * Visual layout matches `ui/new_ui/component2/cVault-6A-Transaction-Modals.html`
+ * settled state (check + stamp, row list, dual CTA footer).
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -98,18 +101,30 @@ function useStruckAmount(target: string | null): string | null {
   return override ?? target;
 }
 
-function LegRow({ leg, emphasis }: { leg: SettlementLeg; emphasis: boolean }) {
+function LegRow({
+  leg,
+  emphasis,
+  borderedBottom,
+}: {
+  leg: SettlementLeg;
+  emphasis: boolean;
+  borderedBottom?: boolean;
+}) {
   const struck = useStruckAmount(emphasis ? leg.amount : null);
   const shown = emphasis ? struck : leg.amount;
   return (
-    <div className="flex items-baseline justify-between gap-4">
-      <dt className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-text-ghost">
+    <div
+      className={`flex items-center justify-between gap-4 border-t border-white/[0.07] py-3 ${
+        borderedBottom ? 'border-b border-white/[0.07]' : ''
+      }`}
+    >
+      <dt className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
         {leg.label}
       </dt>
       <dd
         className={`min-w-0 truncate text-right font-mono tabular-nums ${
           emphasis
-            ? 'text-[22px] font-semibold leading-tight text-accent'
+            ? 'text-[19px] font-medium leading-tight text-accent'
             : 'text-[14px] font-medium text-foreground'
         }`}
         title={leg.amount ?? undefined}
@@ -121,15 +136,11 @@ function LegRow({ leg, emphasis }: { leg: SettlementLeg; emphasis: boolean }) {
         ) : (
           <>
             {shown}
-            <span
-              className={`ml-1.5 font-medium ${
-                emphasis
-                  ? 'text-[12px] text-accent/70'
-                  : 'text-[11px] text-text-ghost'
-              }`}
-            >
-              {leg.unit}
-            </span>
+            {leg.unit ? (
+              <span className="ml-1.5 text-[10.5px] font-medium text-text-faint">
+                {leg.unit}
+              </span>
+            ) : null}
           </>
         )}
       </dd>
@@ -139,7 +150,7 @@ function LegRow({ leg, emphasis }: { leg: SettlementLeg; emphasis: boolean }) {
 
 export function SettlementReceipt({
   kind,
-  vaultId,
+  vaultId: _vaultId,
   surrendered,
   issued,
   rate,
@@ -147,6 +158,9 @@ export function SettlementReceipt({
   solscan,
   onDone,
   doneLabel,
+  againLabel,
+  onAgain,
+  metaLeft,
 }: {
   /** Drives the stamp wording. */
   kind: 'deposit' | 'redeem' | 'create';
@@ -156,76 +170,116 @@ export function SettlementReceipt({
   /** What the user received — shares on deposit, USDC on redeem. */
   issued: SettlementLeg;
   /** Settlement rate line, e.g. "1.0243 USDC / BC". Omitted when unmeasurable. */
-  rate?: { label: string; value: string } | null;
+  rate?: { label: string; value: string; unit?: string } | null;
   /** Secondary operational detail (ALT persistence, tx count). */
   note?: string | null;
   solscan?: string;
   onDone: () => void;
   doneLabel: string;
+  /** Optional secondary CTA (Deposit again / Redeem more). */
+  againLabel?: string;
+  onAgain?: () => void;
+  /** Left-side meta under the rows (e.g. "2 TRANSACTIONS · SETUP + SWAPS"). */
+  metaLeft?: string | null;
 }) {
+  void _vaultId;
   const stampText =
     kind === 'deposit' ? 'Deposited' : kind === 'redeem' ? 'Redeemed' : 'Created';
-  const kindLabel =
-    kind === 'deposit' ? 'Deposit' : kind === 'redeem' ? 'Redeem' : 'Create';
+
+  const hasDualCta = Boolean(againLabel && onAgain);
 
   return (
     <section
       aria-label={`${stampText} — settlement receipt`}
-      className="relative overflow-hidden rounded-[12px] border border-white/[0.07] bg-bg-elevated px-5 py-5"
+      className="flex flex-col"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-accent">
-            {kindLabel} · № {String(vaultId).padStart(2, '0')}
-          </p>
-          <p className="mt-2 text-[26px] font-semibold leading-none tracking-[-0.02em] text-foreground">
-            {stampText}
-          </p>
-        </div>
-        <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
-          Settled
-        </span>
-      </div>
-
-      <div className="mt-5 space-y-3.5 border-t border-white/[0.07] pt-4">
-        <LegRow leg={surrendered} emphasis={false} />
-        <LegRow leg={issued} emphasis />
-        {rate && (
-          <div className="flex items-baseline justify-between gap-4 border-t border-white/[0.06] pt-3.5">
-            <dt className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-text-ghost">
-              {rate.label}
-            </dt>
-            <dd className="font-mono text-[13px] font-medium tabular-nums text-foreground">
-              {rate.value}
-            </dd>
+      <div className="px-5 py-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="flex size-7 items-center justify-center rounded-full bg-accent/15 text-xs text-accent"
+            >
+              ✓
+            </span>
+            <p className="text-[22px] font-semibold tracking-[-0.03em] text-foreground">
+              {stampText}
+            </p>
           </div>
+          <span className="rounded-full border border-accent/35 px-2.5 py-1.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-accent">
+            Settled
+          </span>
+        </div>
+
+        <dl className="mt-4">
+          <LegRow leg={surrendered} emphasis={false} />
+          <LegRow leg={issued} emphasis />
+          {rate && (
+            <div className="flex items-center justify-between gap-4 border-t border-b border-white/[0.07] py-3">
+              <dt className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
+                {rate.label}
+              </dt>
+              <dd className="font-mono text-[14px] font-medium tabular-nums text-foreground">
+                {rate.value}
+                {rate.unit ? (
+                  <span className="ml-1.5 text-[10.5px] font-medium text-text-faint">
+                    {rate.unit}
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+          )}
+        </dl>
+
+        {(metaLeft || note || solscan) && (
+          <div className="mt-4 flex items-start justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.1em] text-text-ghost">
+            <p className="min-w-0 whitespace-pre-wrap break-words leading-relaxed">
+              {metaLeft ?? note ?? null}
+            </p>
+            {solscan && (
+              <a
+                href={solscan}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 text-accent underline transition-colors hover:text-foreground"
+              >
+                Solscan ↗
+              </a>
+            )}
+          </div>
+        )}
+
+        {/* When note is separate from metaLeft (ALT details etc.), show under meta. */}
+        {metaLeft && note && (
+          <p className="mt-2 whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-text-ghost">
+            {note}
+          </p>
         )}
       </div>
 
-      {note && (
-        <p className="mt-4 whitespace-pre-wrap break-words border-t border-white/[0.06] pt-3 font-mono text-[11px] leading-relaxed text-text-ghost">
-          {note}
-        </p>
-      )}
-
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      <div
+        className={`border-t border-white/[0.07] bg-bg-elevated px-5 py-4 ${
+          hasDualCta ? 'grid grid-cols-2 gap-2.5' : ''
+        }`}
+      >
+        {hasDualCta && (
+          <button
+            type="button"
+            onClick={onAgain}
+            className="flex h-12 items-center justify-center rounded-[10px] border border-white/14 text-[14.5px] font-medium text-[#DADADE] transition-colors hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            {againLabel}
+          </button>
+        )}
         <button
           type="button"
           onClick={onDone}
-          className="rounded-full bg-accent px-6 py-2.5 text-[13.5px] font-semibold text-background transition-[transform,background] duration-150 hover:-translate-y-px hover:bg-[#d4ff5c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className={`flex h-12 items-center justify-center rounded-[10px] bg-accent text-[14.5px] font-semibold text-background transition-[transform,background] duration-150 hover:-translate-y-px hover:bg-[#d4ff5c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+            hasDualCta ? '' : 'w-full'
+          }`}
         >
           {doneLabel}
         </button>
-        {solscan && (
-          <a
-            href={solscan}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-[11px] uppercase tracking-[0.12em] text-accent transition-colors hover:text-foreground"
-          >
-            Solscan ↗
-          </a>
-        )}
       </div>
     </section>
   );

@@ -92,7 +92,7 @@ export function CreateEtfModal({
         </div>
 
         {created ? (
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <SettlementReceipt
               kind="create"
               vaultId={created.vaultId}
@@ -107,6 +107,7 @@ export function CreateEtfModal({
                 unit: '',
               }}
               rate={null}
+              metaLeft="Vault created on-chain"
               note={
                 `Lookup table: ${created.altAddress ?? '— (creation failed)'}\n` +
                 `Genesis deposit: ${created.genesisSeeded ? 'seeded' : 'not seeded — run it from the vault\'s admin panel'}`
@@ -114,14 +115,9 @@ export function CreateEtfModal({
               solscan={created.solscan}
               doneLabel="Done"
               onDone={requestClose}
+              againLabel="Create another"
+              onAgain={onCreateAnother}
             />
-            <button
-              type="button"
-              onClick={onCreateAnother}
-              className="mt-4 w-full rounded-[2px] border border-border-strong bg-background px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-foreground transition-colors duration-150 hover:border-accent hover:bg-accent hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              Create another
-            </button>
           </div>
         ) : (
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-5">
